@@ -4,7 +4,7 @@
 
 ** Sample app for web-surfing via WindowsPhone **
 
-My simple project based on Messenger UWP (alpha) 
+My simple project based on Messenger UWP (alpha) (source code : https://github.com/Sylvain2703/MessengerUWP/)
 Messenger UWP app is based on the Messenger website ([www.messenger.com](https://www.messenger.com)) by using a WebView and injecting some JavaScript and CSS code.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](/COPYING)
@@ -61,7 +61,7 @@ For developers:
 
 - Clone the Messager UWP code repository:  
 `git clone https://github.com/mediaexplorer/mediaexplorer-alpha.git`
-- Open [Messenger UWP.sln](/Messenger%20UWP.sln) with Visual Studio 2019.
+- Open .sln file with Visual Studio 2019.
 
 
 ## Changelog
