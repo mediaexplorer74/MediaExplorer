@@ -4,7 +4,7 @@
 
 ** Sample app for web-surfing via WindowsPhone **
 
-![MediaExplorer Aplha screenshot](Docs/screenshot.png "MediaExplorer Aplha screenshot")
+![MediaExplorer Aplha screenshot](Docs/Screenshot.png "MediaExplorer Aplha screenshot")
 
 My simple project based on Messenger UWP (alpha) (source code : https://github.com/Sylvain2703/MessengerUWP/)
 
