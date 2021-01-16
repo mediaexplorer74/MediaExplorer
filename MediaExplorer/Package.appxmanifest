@@ -1,0 +1,90 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!-- This file is part of Messenger UWP.
+Copyright (C) 2019 Sylvain Bruyère
+
+Messenger UWP is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, version 3.
+
+Messenger UWP is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with Messenger UWP.  If not, see <https://www.gnu.org/licenses/>. -->
+
+<Package
+    xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+    xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
+    xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+    xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+    xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+    xmlns:iot="http://schemas.microsoft.com/appx/manifest/iot/windows10"
+    xmlns:uap2="http://schemas.microsoft.com/appx/manifest/uap/windows10/2"
+    IgnorableNamespaces="uap uap5 mp uap3 iot uap2">
+
+    <Identity Name="ME74.MediaExplorerAlpha31" Publisher="CN=media" Version="0.3.1.0" />
+    <mp:PhoneIdentity PhoneProductId="59435353-1be9-48a9-aaba-cfb9634454b1" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
+
+    <Properties>
+        <DisplayName>MediaExplorer Alpha</DisplayName>
+        <PublisherDisplayName>ME</PublisherDisplayName>
+        <Logo>Assets\Store.png</Logo>
+    </Properties>
+
+    <Dependencies>
+        <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.14393.0" MaxVersionTested="10.0.18362.0" />
+    </Dependencies>
+
+    <Resources>
+        <Resource Language="x-generate"/>
+    </Resources>
+
+    <Applications>
+        <Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="Messenger.UWP.App">
+            <uap:VisualElements
+                DisplayName="MediaExplorer"
+                Square150x150Logo="Assets\MediumTile.png"
+                Square44x44Logo="Assets\AppIcon.png"
+                Description="A sample UWP browser app adapted for Windows 10 PCs, tablets and phones"
+                BackgroundColor="transparent">
+                <uap:DefaultTile Wide310x150Logo="Assets\WideTile.png" Square71x71Logo="Assets\SmallTile.png" Square310x310Logo="Assets\BigTile.png">
+                    <uap:ShowNameOnTiles>
+                        <uap:ShowOn Tile="square150x150Logo"/>
+                        <uap:ShowOn Tile="wide310x150Logo"/>
+                        <uap:ShowOn Tile="square310x310Logo"/>
+                    </uap:ShowNameOnTiles>
+                </uap:DefaultTile >
+                <uap:SplashScreen Image="Assets\SplashScreen.png" BackgroundColor="#ffffff" uap5:Optional="true"/>
+                <uap:LockScreen BadgeLogo="Assets\Badge.png" Notification="badgeAndTileText"/>
+                <uap:InitialRotationPreference>
+                    <uap:Rotation Preference="landscape"/>
+                    <uap:Rotation Preference="portrait"/>
+                    <uap:Rotation Preference="landscapeFlipped"/>
+                    <uap:Rotation Preference="portraitFlipped"/></uap:InitialRotationPreference>
+            </uap:VisualElements>
+
+            <uap:ApplicationContentUriRules>
+                <uap:Rule Match="https://www.messenger.com/*" Type="include" WindowsRuntimeAccess="all" />
+                <uap:Rule Type="include" Match="https://trello.com/login/*" WindowsRuntimeAccess="all"/>
+                <uap:Rule Type="include" Match="https://trello.com/*" WindowsRuntimeAccess="none"/>
+            </uap:ApplicationContentUriRules>
+        </Application>
+    </Applications>
+
+    <Capabilities>
+        <uap3:Capability Name="backgroundMediaPlayback"/>
+        <Capability Name="internetClientServer"/>
+        <uap:Capability Name="contacts"/>
+        <iot:Capability Name="lowLevelDevices"/>
+        <uap2:Capability Name="spatialPerception"/>
+        <Capability Name="privateNetworkClientServer"/>
+        <iot:Capability Name="systemManagement"/>
+        <uap:Capability Name="userAccountInformation"/>
+        <DeviceCapability Name="microphone"/>
+        <DeviceCapability Name="webcam"/>
+        <DeviceCapability Name="location"/>
+        <DeviceCapability Name="proximity"/>
+    </Capabilities>
+</Package>
