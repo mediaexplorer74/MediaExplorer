@@ -11,8 +11,7 @@ Messenger UWP app is based on the Messenger website ([www.messenger.com](https:/
 [![Build Status](https://dev.azure.com/ssoft-org/MessengerUWP/_apis/build/status/Messenger%20UWP%20CI?branchName=develop)](https://dev.azure.com/ssoft-org/MessengerUWP/_build/latest?branchName=develop)
 ![PRs: welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
 
-MediaExplorer is a Universal Windows Platform app that lets you web access on Windows 10 PCs, tablets and Windows 10 Mobile phones (Lumia , etc.).
-![Screenshot](/Screenshot.png)
+Messenger UWP is a Universal Windows Platform app that lets you access **Facebook Messenger on Windows 10 PCs, tablets and phones**.
 
 
 
