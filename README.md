@@ -5,6 +5,10 @@
 ** Sample app for web-surfing via WindowsPhone **
 
 My simple project based on Messenger UWP (alpha) (source code : https://github.com/Sylvain2703/MessengerUWP/)
+
+![Screenshot](/Screenshot.png)
+
+
 Messenger UWP app is based on the Messenger website ([www.messenger.com](https://www.messenger.com)) by using a WebView and injecting some JavaScript and CSS code.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](/COPYING)
