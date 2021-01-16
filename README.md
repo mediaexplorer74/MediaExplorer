@@ -1,7 +1,7 @@
 # MediaExplorer-Alpha
 ME 2021
 Sample app for web-surfing via WindowsPhone
-based on Messenger UWP (alpha)
+My simple project based on Messenger UWP (alpha) 
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](/COPYING)
 [![Build Status](https://dev.azure.com/ssoft-org/MessengerUWP/_apis/build/status/Messenger%20UWP%20CI?branchName=develop)](https://dev.azure.com/ssoft-org/MessengerUWP/_build/latest?branchName=develop)
@@ -9,16 +9,9 @@ based on Messenger UWP (alpha)
 
 Messenger UWP is a Universal Windows Platform app that lets you access **Facebook Messenger on Windows 10 PCs, tablets and phones**.
 
-![Screenshot](/Docs/Screenshot.png)
 
 This app is based on the Messenger website ([www.messenger.com](https://www.messenger.com)) by using a WebView and injecting some JavaScript and CSS code.
 
-Because Facebook provides at least two versions of [www.messenger.com](https://www.messenger.com), we also have two know versions. Currently, we don't know why some users have access to Messenger v1 and some others to Messenger v2 (probably AB testing).
-
-|  Messenger iOS style  | Messenger Android style |
-|:---------------------:|:-----------------------:|
-| Version 1 in this app |  Version 2 in this app  |
-| ![MessengerV1](/Docs/MessengerV1.gif) | ![MessengerV2](/Docs/MessengerV2.gif) |
 
 
 ## Join the preview program 🐱‍💻
