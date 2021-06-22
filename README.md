@@ -17,17 +17,10 @@ Messenger UWP app is based on the Messenger website ([www.messenger.com](https:/
 Messenger UWP is a Universal Windows Platform app that lets you access **Facebook Messenger on Windows 10 PCs, tablets and phones**.
 
 
-
-
-
-## Join the preview program 🐱‍💻
-
-You can join the preview program and **easily install Messenger UWP** from the Microsoft Store.  
-Use this [**form**](https://forms.gle/pnGc9xBpZ8snPG6d9) to apply for the preview program and you will soon be able to download the app. 
-Please note that you need at least Windows 10 Creators Update (1507) to run Messenger UWP on Mobile (and Desktop) devices.  
+## Finding bugs 🐱‍💻
 
 Don't forget to **report bugs and send feedbacks** on the GitHub issues page.  
-We really need feedback as there is probably some difference with [www.messenger.com](https://www.messenger.com) between countries.
+
 
 
 ## Features
