@@ -173,7 +173,7 @@ namespace MediaExplorer
                 }
 
                 //redirecting to real page
-                if (args.Uri.Scheme == "about" && args.Uri.Segments[0] == "home")
+                if (args.Uri.Scheme == "about")//if (args.Uri.Scheme == "about" && args.Uri.Segments[0] == "home")
                 {
                     args.Cancel = true;
                     sender.Source = new Uri("ms-appx-web://71330982-ba82-4d35-b5cb-3488eefb31ed/PagesHTML/Home.html");

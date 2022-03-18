@@ -217,11 +217,21 @@
     <Content Include="ClassesJS\ExtensionUI.js" />
     <Content Include="PagesHTML\Assets\favicon.ico" />
     <Content Include="PagesHTML\Assets\me.png" />
-    <Content Include="PagesHTML\Home.html" />
-    <Content Include="PagesHTML\NoInternet.html" />
-    <Content Include="PagesHTML\NotFound.html" />
-    <Content Include="PagesHTML\script.js" />
-    <Content Include="PagesHTML\style.css" />
+    <Content Include="PagesHTML\Home.html">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="PagesHTML\NoInternet.html">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="PagesHTML\NotFound.html">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="PagesHTML\script.js">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="PagesHTML\style.css">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
     <Content Include="Properties\Default.rd.xml" />
   </ItemGroup>
   <ItemGroup>

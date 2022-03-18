@@ -5,6 +5,9 @@ This project is my fork of <a href="http://10develops.github.io/onitor"><img src
 
 The goal of this "remake" is W10M UWP improvement for better "rich media/multimedia" site compatibility
 
+## Screenshots
+![Shot 1](Images/shot1.png)
+
 ## My 2 cents
 - Minimal re-design / asset refactor...
 - Trello.Com/Web.Whatsapp.Com testing
