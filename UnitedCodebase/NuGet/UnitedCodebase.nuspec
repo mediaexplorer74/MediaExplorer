@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd">
+  <metadata>
+    <id>UnitedCodebase</id>
+    <version>0.9.0.26</version>
+    <title>UnitedCodebase</title>
+    <description>UnitedCodebase project release edition</description>
+    <authors>10Develops</authors>
+    <owners>10Develops</owners>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <copyright>Copyright © 10Develops 2021</copyright>
+    <dependencies>
+      <group targetFramework="uap10.0">
+        <dependency id="System.Runtime" version="4.0.20" />
+        <dependency id="System.Runtime.WindowsRuntime" version="4.0.10" />
+        <dependency id="System.Threading.Tasks" version="4.0.10" />
+        <dependency id="Microsoft.Toolkit.Uwp.Notifications" version="4.0.0" />
+        <dependency id="Win2D.uwp" version="1.23.0" />
+      </group>
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="..\bin\Release\UnitedCodebase\Assets\NoiseAsset_256X256_PNG.png" target="ref\uap10.0\UnitedCodebase\Assets" />
+    <file src="..\bin\Release\UnitedCodebase.dll" target="ref\uap10.0" />
+    <file src="..\bin\Release\UnitedCodebase.pri" target="ref\uap10.0" />
+    <file src="..\bin\ARM\Release\UnitedCodebase.dll" target="runtimes\win10-arm\lib\uap10.0" />
+    <file src="..\bin\ARM\Release\UnitedCodebase.pdb" target="runtimes\win10-arm\lib\uap10.0" />
+    <file src="..\bin\ARM64\Release\UnitedCodebase.dll" target="runtimes\win10-arm64\lib\uap10.0" />
+    <file src="..\bin\ARM64\Release\UnitedCodebase.pdb" target="runtimes\win10-arm64\lib\uap10.0" />
+    <file src="..\bin\x64\Release\UnitedCodebase.dll" target="runtimes\win10-x64\lib\uap10.0" />
+    <file src="..\bin\x64\Release\UnitedCodebase.pdb" target="runtimes\win10-x64\lib\uap10.0" />
+    <file src="..\bin\x86\Release\UnitedCodebase.dll" target="runtimes\win10-x86\lib\uap10.0" />
+    <file src="..\bin\x86\Release\UnitedCodebase.pdb" target="runtimes\win10-x86\lib\uap10.0" />
+  </files>
+</package>

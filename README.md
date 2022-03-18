@@ -1,76 +1,38 @@
-# MediaExplorer-Alpha
+# MediaExplorer-Alpha (tech. ver. 1.0, but real ver. 0.1)
 
-- ME 2021
+## About
+This project is my fork of <a href="http://10develops.github.io/onitor"><img src="site_assets/logo.png" width="28"> Onitor Browser</a> 
 
-** Sample app for web-surfing via WindowsPhone **
+The goal of this "remake" is W10M UWP improvement for better "rich media/multimedia" site compatibility
 
-![MediaExplorer Aplha screenshot](Docs/Screenshot.png "MediaExplorer Aplha screenshot")
-
-My simple project based on Messenger UWP (alpha) (source code : https://github.com/Sylvain2703/MessengerUWP/)
-
-Messenger UWP app is based on the Messenger website ([www.messenger.com](https://www.messenger.com)) by using a WebView and injecting some JavaScript and CSS code.
-
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](/COPYING)
-[![Build Status](https://dev.azure.com/ssoft-org/MessengerUWP/_apis/build/status/Messenger%20UWP%20CI?branchName=develop)](https://dev.azure.com/ssoft-org/MessengerUWP/_build/latest?branchName=develop)
-![PRs: welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
-
-Messenger UWP is a Universal Windows Platform app that lets you access **Facebook Messenger on Windows 10 PCs, tablets and phones**.
-
-
-## Finding bugs 🐱‍💻
-
-Don't forget to **report bugs and send feedbacks** on the GitHub issues page.  
-
-
+## My 2 cents
+- Minimal re-design / asset refactor...
+- Trello.Com/Web.Whatsapp.Com testing
 
 ## Features
+* Tabbed browsing
+* Light and dark themes support, including on sites*
+* Back and forward
+* Refresh and stop
+* Display both Desktop and Mobile versions of website
+* Camera and microphone, web notifications access or Location permissions
+* Proxy server support (planned)
+* Bookmarks
+* History (planned)
+* Search engine support, including searching texts with search engines (Bing, Google, and Yahoo)
+* Set start page
+* Basic Download manager
+* InPrivate mode (planned)
+* Print
+* Share
+* Pin file to Start
 
-All the following features are adapted to run on Windows 10 Desktop and Windows 10 Mobile. Other features can also works but aren't fully tested.
+## Contribute!
+Please help to improve all planned features  if You can :)
 
-- Load | Navigate web pages
-- Inject some JS (some web link modification)
-- Debug panel below
+## Referencies
 
+https://github.com/10Develops/onitor Onitor Browser project (December, 2021)
 
-## Roadmap
+AS-IS. No support. RnD only.
 
-- Dark theme
-- Notifications + Live Tiles + Badges
-
-
-
-## Known issues
-
-- Reactions, reply and forward to messages are not touch-friendly.
-- In a thread, when a picture is too large, its preview isn't clipped away nicely.
-- When the informations panel of a thread is opened, keyboard navigation can cause problems.
-
-
-## Installation
-
-For all users, join the preview program with the link above.
-
-For developers:
-- Install [Visual Studio 2019](https://developer.microsoft.com/en-us/windows/downloads) (VS 2017 should works too).
-  - Install the "Universal Windows Platform Development" workload.
-  - Install the Windows 10 SDK (build 15063 only).
-
-- Clone the Messager UWP code repository:  
-`git clone https://github.com/mediaexplorer/mediaexplorer-alpha.git`
-- Open .sln file with Visual Studio 2019.
-
-
-## Changelog
-
-- Version 0.3.1:
-  - Improve the loading screen and add a retry button.
-  - Allow taking photos and recording audio messages.
-  - Improve the picture album and the settings dialog for small screens.
-
-
-## Author rights
-
-UWP Messanger (C) 2019-2020 Sylvain Bruyère (GPL-3.0-only)
-ME (c) 2021 (MIT License)
-
-This repository is licensed with the [GNU General Public License v3.0 only (GPL-3.0-only)](/COPYING).
