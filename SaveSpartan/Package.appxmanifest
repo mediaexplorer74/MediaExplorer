@@ -28,6 +28,7 @@
           <uap:Rotation Preference="portrait" />
           <uap:Rotation Preference="landscape" />
           <uap:Rotation Preference="landscapeFlipped" />
+          <uap:Rotation Preference="portraitFlipped"/>
         </uap:InitialRotationPreference>
       </uap:VisualElements>
       <Extensions>
@@ -84,5 +85,7 @@
     <DeviceCapability Name="webcam" />
     <DeviceCapability Name="microphone" />
     <DeviceCapability Name="location" />
+    <DeviceCapability Name="bluetooth"/>
+    <DeviceCapability Name="proximity"/>
   </Capabilities>
 </Package>
