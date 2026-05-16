@@ -1,26 +1,31 @@
-# MediaExplorer
-![](Images/land-of-dreams.png)
+# MediaExplorer - main bra[i]n[ch]
+
+![](Images/logo.png)
 
 ## About / What is this?
-- I did "reset" my old C# MediaExplorer-Alpha (fork of uncompleted Onitor Browser).
-New project has C++ code based on [MiniBlink49](https://github.com/weolar/miniblink49/) solution.
-Draft. Init state (only "file collection" at now!)
-- The main goal is to obtain better "rich media/multimedia" site browsing/web-surfing via Chromium "reconstruction".
-- See Wiki section for more tech. details
+- I decide(d) to "reset" my too "hard C++ fork" of [MiniBlink49](https://github.com/weolar/miniblink49/) solution.
+- This is some "game-of-life" repo for dreaming about hottest, smartest, minimal(istic) media-browser for Microsoft Devices family such old "new" WIndowsPhones, WInTablets, old XBoxes, etc.! ;)))
+
+## Design (not real app!) of some ai-human browser-messenger-explorer :)
+![](Images/design.png)
+
+## Screenshot (5-years old)
+![](Images/screenshot.jpg)
 
 ## Status
-- This repo does not include any UWP "mechanics" at now. 
-- Solution build state: failed
+- Under the construction (with help of newest AI)
 
 ## Referencies
 - https://github.com/weolar/miniblink49/ The original MiniBlank49 project
 - https://github.com/weolar Weolar, MiniBlank49's developer
 
 ## ..
-AS-IS. No support. (For) RnD purposes only.
+AS-IS. No support. RnD purposes only. DIY.
 
 ## .
-[M][E] May, 2023
+[M][E] May 16, 2026
+
+![](Images/land-of-dreams.png)
 
 ## P.S.
 A few years ago, when Lumia phones were still "on the horse", I discovered their biggest problem: the lack of a modern browser. And, as a real bad developer who does not know how to calculate his own skill(s) and knowledge, I decided to take up... the development of such a browser! :) 

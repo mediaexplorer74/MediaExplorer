@@ -1,3 +1,0 @@
-partial interface CompositorWorkerGlobalScope {
-    [RuntimeEnabled=CompositorWorker] attribute CompositorProxyConstructor CompositorProxy;
-};

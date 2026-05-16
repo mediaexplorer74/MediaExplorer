@@ -1,0 +1,62 @@
+﻿/* This file is part of Messenger UWP.
+Copyright (C) 2019 Sylvain Bruyère
+
+Messenger UWP is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, version 3.
+
+Messenger UWP is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with Messenger UWP.  If not, see <https://www.gnu.org/licenses/>. */
+
+
+/* Master/detail container */
+._4sp8 {
+    min-width: initial;
+}
+
+/* Master view only */
+._4sp8.master ._1t2u {
+    display: none;
+}
+._4sp8.master ._1enh {
+    min-width: 100%;
+    /* max-height: 100%; TODO: Usefull on v1? */
+}
+
+/* Detail view only */
+._4sp8.detail ._1enh {
+    display: none;
+}
+
+/* Fix search bar width */
+._7tpc {
+    max-width: 100%;
+}
+
+/* Remove separator between Master and detail view */
+._4sp8.detail ._1t2u {
+    border-left: none;
+}
+
+/* Fix detail view height when master view isn't displayed */
+._51l0, ._605a, ._2sdm, ._li, ._4sp8 {
+    height: 100%;
+}
+
+/* Fix the chat box that was covered by the container of GIF/audio recording/camera buttons on mobile */
+._5irm._7mkm {
+    z-index: 400;
+}
+
+/* Show the Messenger icon when there is nothing in detail view */
+._1ut7 {
+	background-image: url("ms-appx-web:///Assets/SplashScreen.png");
+	background-repeat: no-repeat;
+	background-position: 50%;
+	background-size: 50%;
+}
