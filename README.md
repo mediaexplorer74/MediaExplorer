@@ -1,4 +1,4 @@
-# MediaExplorer - main bra[i]n[ch]
+# MediaExplorer 0.3.1 - main bra[i]n[ch]
 
 ![](Images/logo.png)
 
