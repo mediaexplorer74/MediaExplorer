@@ -1,0 +1,92 @@
+<Page
+    x:Class="WEBVIEW.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:WEBVIEW"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Background="#202020">
+
+    <Grid Background="#202020">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header bar -->
+        <Border Background="#2D2D2D" Padding="8,4">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" x:Name="BackButton" Content="Back" Background="Transparent" Foreground="#CCCCCC" BorderThickness="0" FontSize="14" Padding="8,4"/>
+                <TextBlock Grid.Column="1" Text="Settings" Foreground="White" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,0,0,0"/>
+            </Grid>
+        </Border>
+
+        <!-- Pivot -->
+        <Pivot Grid.Row="1" x:Name="SettingsPivot" Foreground="White">
+            <PivotItem Header="General">
+                <StackPanel Margin="16,12,16,0">
+                    <!-- JavaScript -->
+                    <ToggleSwitch x:Name="JsToggle" Header="JavaScript" IsOn="True" Foreground="White" Margin="0,0,0,16"/>
+
+                    <!-- Home page -->
+                    <TextBlock Text="Home Page" Foreground="White" FontSize="14" Margin="0,0,0,4"/>
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0" x:Name="HomePageBox" PlaceholderText="https://example.com" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" Margin="0,0,8,0"/>
+                        <Button Grid.Column="1" x:Name="SaveHomePageButton" Content="Save" Background="#333333" Foreground="#CCCCCC" BorderThickness="1" BorderBrush="#555555"/>
+                    </Grid>
+
+                    <!-- Render mode -->
+                    <TextBlock Text="Render Mode" Foreground="White" FontSize="14" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="RenderModeCombo" Background="#1A1A1A" Foreground="White" BorderBrush="#3E3E3E" Margin="0,0,0,16">
+                        <ComboBoxItem Content="Full (CSS + JS + interactive)"/>
+                        <ComboBoxItem Content="Rich (CSS, no JS, reading mode)"/>
+                        <ComboBoxItem Content="Poor (plain text, no CSS/JS)"/>
+                    </ComboBox>
+                </StackPanel>
+            </PivotItem>
+
+            <PivotItem Header="UI">
+                <StackPanel Margin="16,12,16,0">
+                    <!-- AppBar mode -->
+                    <TextBlock Text="AppBar style" Foreground="White" FontSize="14" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="AppBarModeCombo" Background="#1A1A1A" Foreground="White" BorderBrush="#3E3E3E" Margin="0,0,0,16">
+                        <ComboBoxItem Content="Full (always expanded)"/>
+                        <ComboBoxItem Content="Semi (tap to expand)"/>
+                        <ComboBoxItem Content="Hided (thin strip, tap to expand)"/>
+                    </ComboBox>
+                </StackPanel>
+            </PivotItem>
+
+            <PivotItem Header="Advanced">
+                <StackPanel Margin="16,12,16,0">
+                    <!-- API key -->
+                    <TextBlock Text="OpenRouter API Key" Foreground="White" FontSize="14" Margin="0,0,0,4"/>
+                    <TextBox x:Name="AiKeyBox" PlaceholderText="sk-or-v1-..." Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" Margin="0,0,0,16"/>
+
+                    <!-- Clear cache -->
+                    <Button x:Name="ClearCacheButton" Content="Clear Cache" Background="#333333" Foreground="#CCCCCC" BorderThickness="1" BorderBrush="#555555" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                </StackPanel>
+            </PivotItem>
+
+            <PivotItem Header="About">
+                <StackPanel Margin="16,20,16,0">
+                    <TextBlock Text="MediaExplorer" FontSize="22" FontWeight="Bold" Foreground="White" Margin="0,0,0,8"/>
+                    <TextBlock Text="Retro alternative browser for Windows 10 Mobile" Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                    <TextBlock Text="Version: 0.14.18 (museum build)" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
+                    <TextBlock Text="Built for Lumia 950 / 1020" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
+                    <TextBlock Text="Custom HTML/CSS/JS engine" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
+                    <TextBlock Text="Engine: NiL.JS + Jint" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,16"/>
+                </StackPanel>
+            </PivotItem>
+        </Pivot>
+    </Grid>
+</Page>

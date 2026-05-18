@@ -1,100 +1,120 @@
-﻿// This file is part of Messenger UWP.
-// Copyright (C) 2019 Sylvain Bruyère
-//
-// Messenger UWP is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, version 3.
-//
-// Messenger UWP is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with Messenger UWP.  If not, see <https://www.gnu.org/licenses/>.
-
-
-using Messenger.UWP.Helpers;
-using Messenger.UWP.Views;
-using System;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
 using Windows.Foundation;
-using Windows.Foundation.Metadata;
-using Windows.System.Profile;
-using Windows.UI;
-using Windows.UI.ViewManagement;
+using Windows.Foundation.Collections;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Controls.Primitives;
+using Windows.UI.Xaml.Data;
+using Windows.UI.Xaml.Input;
+using Windows.UI.Xaml.Media;
+using Windows.UI.Xaml.Media.Animation;
 using Windows.UI.Xaml.Navigation;
 
-namespace Messenger.UWP
+// The WebView Application template is documented at http://go.microsoft.com/fwlink/?LinkID=391641
+
+namespace WEBVIEW
 {
-    sealed partial class App : Application
+    /// <summary>
+    /// Provides application-specific behavior to supplement the default Application class.
+    /// </summary>
+    public sealed partial class App : Application
     {
-        public static readonly bool IsWindowsMobile = AnalyticsInfo.VersionInfo.DeviceFamily == "Windows.Mobile";
-        public static readonly bool IsAcrylicAvailable = ApiInformation.IsTypePresent("Windows.UI.Xaml.Media.AcrylicBrush");
-        public static readonly bool IsStatusBarAvailable = ApiInformation.IsTypePresent("Windows.UI.ViewManagement.StatusBar");
-
-        public static SplashScreen SplashScreen = null;
-
-        public static string UserAgentMarker = "";
+        private TransitionCollection transitions;
 
         /// <summary>
-        /// Initializes the singleton application object. This is the first line of authored code executed.
+        /// Initializes the singleton application object.  This is the first line of authored code
+        /// executed, and as such is the logical equivalent of main() or WinMain().
         /// </summary>
         public App()
         {
-            UserAgentMarker = UserAgentHelper.GetUserAgent();
-
-            UserAgentHelper.SetUserAgent(UserAgentHelper.Chrome);
-
-            InitializeComponent();
-            Suspending += OnSuspending;
+            this.InitializeComponent();
+            this.Suspending += this.OnSuspending;
+            try { this.UnhandledException += App_UnhandledException; } catch { }
         }
 
+        // Remove custom InitializeComponent (XAML generates partial implementation)
+
         /// <summary>
-        /// Invoked when the application is launched normally by the end user. Other entry points
-        /// will be used such as when the application is launched to open a specific file.
+        /// Invoked when the application is launched normally by the end user.  Other entry points
+        /// will be used when the application is launched to open a specific file, to display
+        /// search results, and so forth.
         /// </summary>
         /// <param name="e">Details about the launch request and process.</param>
         protected override void OnLaunched(LaunchActivatedEventArgs e)
         {
-            ApplicationView.GetForCurrentView().SetPreferredMinSize(new Size(360, 360));
-            SetStatusBarColor();
-
-            SplashScreen = e.SplashScreen;
+#if DEBUG
+            if (System.Diagnostics.Debugger.IsAttached)
+            {
+//                this.DebugSettings.EnableFrameRateCounter = true;
+            }
+#endif
 
             Frame rootFrame = Window.Current.Content as Frame;
 
-            // Don't repeat app initialization.
+            // Do not repeat app initialization when the Window already has content,
+            // just ensure that the window is active
             if (rootFrame == null)
             {
+                // Create a Frame to act as the navigation context and navigate to the first page
                 rootFrame = new Frame();
-                rootFrame.NavigationFailed += OnNavigationFailed;
 
+                // TODO: change this value to a cache size that is appropriate for your application
+                rootFrame.CacheSize = 1;
+
+                // Set the default language
+                rootFrame.Language = Windows.Globalization.ApplicationLanguages.Languages[0];
+
+                if (e.PreviousExecutionState == ApplicationExecutionState.Terminated)
+                {
+                    // TODO: Load state from previously suspended application
+                }
+
+                // Place the frame in the current Window
                 Window.Current.Content = rootFrame;
             }
 
-            if (!e.PrelaunchActivated)
+            if (rootFrame.Content == null)
             {
-                if (rootFrame.Content == null)
+                // Removes the turnstile navigation for startup.
+                if (rootFrame.ContentTransitions != null)
                 {
-                    // When the navigation stack isn't restaured, navigate to the main page with parameters.
-                    rootFrame.Navigate(typeof(MainPage), e.Arguments);
+                    this.transitions = new TransitionCollection();
+                    foreach (var c in rootFrame.ContentTransitions)
+                    {
+                        this.transitions.Add(c);
+                    }
                 }
 
-                // Ensure the current window is active
-                Window.Current.Activate();
+                rootFrame.ContentTransitions = null;
+                rootFrame.Navigated += this.RootFrame_FirstNavigated;
+
+                // When the navigation stack isn't restored navigate to the first page,
+                // configuring the new page by passing required information as a navigation
+                // parameter
+                if (!rootFrame.Navigate(typeof(MainPage), e.Arguments))
+                {
+                    throw new Exception("Failed to create initial page");
+                }
             }
+
+            // Ensure the current window is active
+            Window.Current.Activate();
         }
 
         /// <summary>
-        /// Invoked when navigation to a certain page fails.
+        /// Restores the content transitions after the app has launched.
         /// </summary>
-        private void OnNavigationFailed(object sender, NavigationFailedEventArgs e)
+        private void RootFrame_FirstNavigated(object sender, NavigationEventArgs e)
         {
-            throw new Exception("Failed to load Page " + e.SourcePageType.FullName);
+            var rootFrame = sender as Frame;
+            rootFrame.ContentTransitions = this.transitions ?? new TransitionCollection() { new NavigationThemeTransition() };
+            rootFrame.Navigated -= this.RootFrame_FirstNavigated;
         }
 
         /// <summary>
@@ -105,19 +125,26 @@ namespace Messenger.UWP
         private void OnSuspending(object sender, SuspendingEventArgs e)
         {
             var deferral = e.SuspendingOperation.GetDeferral();
-            //TODO: save the app state and stop background tasks
+
+            // TODO: Save application state and stop any background activity
             deferral.Complete();
         }
 
-        private void SetStatusBarColor()
+        private void App_UnhandledException(object sender, Windows.UI.Xaml.UnhandledExceptionEventArgs e)
         {
-            if (IsStatusBarAvailable)
+            try
             {
-                var statusBar = StatusBar.GetForCurrentView();
-                statusBar.BackgroundOpacity = 1;
-                statusBar.BackgroundColor = (Color)Resources["MessengerColor"];
-                statusBar.ForegroundColor = Colors.White;
+                e.Handled = true; // prevent debugger break on DEBUG builds
+                var msg = (e.Exception != null ? e.Exception.Message : e.Message) ?? "Unknown error";
+                System.Diagnostics.Debug.WriteLine("[App.UnhandledException] " + msg);
+
+                var mp = WEBVIEW.MainPage.Current;
+                if (mp != null)
+                {
+                    try { mp.ShowGlobalError(msg); } catch { }
+                }
             }
+            catch { }
         }
     }
 }

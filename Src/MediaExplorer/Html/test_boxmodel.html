@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Box Model Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            padding: 20px;
+            background-color: #f0f0f0;
+            color: #333;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .box {
+            background: #e0e0e0;
+            border: 2px solid #999;
+            margin: 10px;
+            padding: 10px;
+        }
+
+        .blue {
+            background-color: #cce5ff;
+            border-color: #b8daff;
+            color: #004085;
+        }
+
+        .green {
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+
+        .red {
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+
+        .nested-outer {
+            padding: 20px;
+            background: #ddd;
+            border: 1px solid #999;
+        }
+
+        .nested-inner {
+            padding: 20px;
+            background: #fff;
+            border: 1px solid #666;
+        }
+
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Box Model Test</h1>
+    <p><a href="welcome.html">&larr; Back to Welcome</a></p>
+
+    <div class="card">
+        <h2>Margins, Padding, Borders</h2>
+        <div class="box">Default Box (Margin 10px, Padding 10px, Border 2px)</div>
+        <div class="box blue">Blue Box</div>
+        <div class="box green">Green Box</div>
+        <div class="box red">Red Box</div>
+    </div>
+
+    <div class="card">
+        <h2>Nesting</h2>
+        <div class="nested-outer">
+            Outer Box (Padding 20px)
+            <div class="nested-inner">
+                Inner Box (Padding 20px)
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Width and Height</h2>
+        <div style="width: 50%; background: orange; padding: 10px; color: white;">50% Width</div>
+        <div style="width: 200px; height: 100px; background: purple; color: white; padding: 10px; margin-top: 10px;">
+            Fixed 200x100</div>
+    </div>
+
+    <div class="card">
+        <h2>Verification</h2>
+        <p>If boxes have distinct colors, spacing (margins/padding), and borders, this test <span
+                class="success">PASSED</span>.</p>
+    </div>
+</body>
+
+</html>

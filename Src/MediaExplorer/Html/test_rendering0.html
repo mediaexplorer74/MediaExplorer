@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+        }
+
+        section,
+        article,
+        aside,
+        nav {
+            border: 1px dashed #ccc;
+            padding: 10px;
+            margin: 10px 0;
+        }
+
+        header,
+        footer {
+            background: #f0f0f0;
+            padding: 10px;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        th,
+        td {
+            border: 1px solid #999;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background: #eee;
+        }
+
+        code {
+            background: #f4f4f4;
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+
+        pre {
+            background: #333;
+            color: #fff;
+            padding: 10px;
+            overflow: auto;
+        }
+
+        blockquote {
+            border-left: 4px solid #ccc;
+            margin: 0;
+            padding-left: 16px;
+            color: #666;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>HTML Compatibility Test</h1>
+        <nav>
+            <a href="#">Home</a> | <a href="#">About</a> | <a href="#">Contact</a>
+        </nav>
+    </header>
+
+    <main>
+        <section>
+            <h2>Typography</h2>
+            <h1>Heading 1</h1>
+            <h2>Heading 2</h2>
+            <h3>Heading 3</h3>
+            <h4>Heading 4</h4>
+            <h5>Heading 5</h5>
+            <h6>Heading 6</h6>
+            <p>This is a paragraph with <strong>bold</strong>, <b>bold</b>, <em>italic</em>, <i>italic</i>,
+                <u>underline</u>, <small>small</small>, and <code>inline code</code> text.</p>
+            <p>Line break<br>check.</p>
+            <hr>
+        </section>
+
+        <section>
+            <h2>Lists</h2>
+            <h3>Unordered List</h3>
+            <ul>
+                <li>Item 1</li>
+                <li>Item 2
+                    <ul>
+                        <li>Subitem A</li>
+                        <li>Subitem B</li>
+                    </ul>
+                </li>
+                <li>Item 3</li>
+            </ul>
+
+            <h3>Ordered List</h3>
+            <ol>
+                <li>First</li>
+                <li>Second</li>
+                <li>Third</li>
+            </ol>
+
+            <h3>Definition List</h3>
+            <dl>
+                <dt>HTML</dt>
+                <dd>HyperText Markup Language</dd>
+                <dt>CSS</dt>
+                <dd>Cascading Style Sheets</dd>
+            </dl>
+        </section>
+
+        <section>
+            <h2>Blocks</h2>
+            <h3>Preformatted</h3>
+            <pre>
+function hello() {
+    console.log("Hello, World!");
+}
+            </pre>
+
+            <h3>Blockquote</h3>
+            <blockquote>
+                This is a blockquote. It should be indented and styled differently.
+            </blockquote>
+        </section>
+
+        <section>
+            <h2>Table</h2>
+            <table>
+                <caption>Employee Data</caption>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Position</th>
+                        <th>Salary</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Alice</td>
+                        <td>Developer</td>
+                        <td>$80,000</td>
+                    </tr>
+                    <tr>
+                        <td>Bob</td>
+                        <td>Designer</td>
+                        <td>$75,000</td>
+                    </tr>
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="3">Total Employees: 2</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </section>
+
+        <section>
+            <h2>Forms</h2>
+            <form>
+                <p>
+                    <label>Text Input: <input type="text" placeholder="Enter text"></label>
+                </p>
+                <p>
+                    <label>Checkbox: <input type="checkbox"> Check me</label>
+                </p>
+                <p>
+                    <label>Radio: <input type="radio" name="r"> A <input type="radio" name="r"> B</label>
+                </p>
+                <p>
+                    <label>Select:
+                        <select>
+                            <option>Option 1</option>
+                            <option>Option 2</option>
+                        </select>
+                    </label>
+                </p>
+                <p>
+                    <label>Textarea:<br>
+                        <textarea rows="3"></textarea>
+                    </label>
+                </p>
+                <p>
+                    <button>Submit Button</button>
+                    <input type="button" value="Input Button">
+                </p>
+            </form>
+        </section>
+
+        <section>
+            <h2>Interactive & Media</h2>
+            <details>
+                <summary>Click to expand details</summary>
+                <p>Hidden content revealed!</p>
+            </details>
+
+            <h3>Progress & Meter</h3>
+            <p>Progress: <progress value="70" max="100"></progress></p>
+            <p>Meter: <meter value="0.6"></meter></p>
+
+            <h3>Image</h3>
+            <img src="https://via.placeholder.com/150" alt="Placeholder Image" width="150" height="150">
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2023 Webview Test Suite</p>
+    </footer>
+</body>
+
+</html>

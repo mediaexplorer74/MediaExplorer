@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,maximum-scale=1"
+    />
+    <title>Image Test Suite</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 10px;
+        background-color: #0b1220;
+        color: #e6eef6;
+        font-family: "Segoe UI", sans-serif;
+      }
+      h1 {
+        font-size: 20px;
+        color: #60a5fa;
+        margin: 0 0 15px 0;
+      }
+      h3 {
+        font-size: 14px;
+        margin: 15px 0 10px 0;
+      }
+      img {
+        max-width: 100%;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>Image Test Suite</h1>
+    <p style="color: #fbbf24; font-size: 13px;">Check debug output for [MakeImage], [ImgTry], [ImgLoadOK/FAIL] logs</p>
+    
+    <h3 style="color: #60a5fa;">1. Remote PNG (Wikipedia Logo)</h3>
+    <img src="https://www.wikipedia.org/portal/wikipedia.org/assets/img/Wikipedia-logo-v2.png" alt="Wikipedia Logo" width="135" height="155" />
+    
+    <h3 style="color: #10b981;">2. Remote PNG (Chess Piece)</h3>
+    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/10/Chess_rdt45.svg/120px-Chess_rdt45.svg.png" alt="Chess Rook" width="120" />
+    
+    <h3 style="color: #f59e0b;">3. Data URI (Red Pixel)</h3>
+    <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg==" alt="Red Pixel" width="50" height="50" />
+    
+    <h3 style="color: #ef4444;">4. Broken Image (should show placeholder with alt text)</h3>
+    <img src="https://example.com/nonexistent.png" alt="This image does not exist" />
+    
+    <h3 style="color: #ef4444;">5. Broken Image with alt="Image" (should show [img])</h3>
+    <img src="https://example.com/also-broken.png" alt="Image" />
+    
+    <h3 style="color: #8b5cf6;">6. Inline Image in Text</h3>
+    <p>This sentence has an inline <img src="https://www.wikipedia.org/portal/wikipedia.org/assets/img/Wikipedia-logo-v2.png" alt="Wiki" width="20" height="22" style="vertical-align: middle;"> image inside the paragraph.</p>
+    
+    <h3 style="color: #a78bfa;">8. Local Asset (ms-appx)</h3>
+    <img src="ms-appx:///Assets/Square150x150Logo.scale-200.png" alt="App Logo" width="75" />
+  </body>
+</html>

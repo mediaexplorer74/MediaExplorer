@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Forms Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            padding: 20px;
+            background-color: #f0f0f0;
+            color: #333;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input,
+        select,
+        textarea,
+        button {
+            display: block;
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        button {
+            background-color: #0078D7;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #005a9e;
+        }
+
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Forms Test</h1>
+    <p><a href="welcome.html">&larr; Back to Welcome</a></p>
+
+    <div class="card">
+        <h2>Input Fields</h2>
+        <form>
+            <label for="text">Text Input:</label>
+            <input type="text" id="text" placeholder="Enter text here..." />
+
+            <label for="password">Password:</label>
+            <input type="password" id="password" placeholder="Enter password..." />
+
+            <label for="number">Number:</label>
+            <input type="number" id="number" placeholder="123" />
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Buttons</h2>
+        <button type="button">Standard Button</button>
+        <button type="submit">Submit Button</button>
+    </div>
+
+    <div class="card">
+        <h2>Verification</h2>
+        <p>If inputs are interactive and styled correctly (full width, padding), this test <span
+                class="success">PASSED</span>.</p>
+    </div>
+</body>
+
+</html>

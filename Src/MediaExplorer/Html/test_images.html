@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Image Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            padding: 20px;
+            background-color: #f0f0f0;
+            color: #333;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        img {
+            max-width: 100%;
+            border: 1px solid #ccc;
+        }
+
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+
+        .fail {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Image Rendering Test</h1>
+    <p><a href="welcome.html">&larr; Back to Welcome</a></p>
+
+    <div class="card">
+        <h2>1. Local Image (ms-appx)</h2>
+        <p>Should show the app logo:</p>
+        <img src="ms-appx:///Assets/Square150x150Logo.scale-200.png" alt="App Logo" width="75" />
+    </div>
+
+    <div class="card">
+        <h2>2. Remote PNG (Wikipedia Logo)</h2>
+        <p>Should show Wikipedia logo:</p>
+        <img src="https://www.wikipedia.org/portal/wikipedia.org/assets/img/Wikipedia-logo-v2.png" alt="Wikipedia Logo" width="135" height="155" />
+    </div>
+
+    <div class="card">
+        <h2>3. Remote JPG (Test Pattern)</h2>
+        <p>Should show a test pattern:</p>
+        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/10/Chess_rdt45.svg/120px-Chess_rdt45.svg.png" alt="Chess Rook" width="120" />
+    </div>
+
+    <div class="card">
+        <h2>4. Data URI (Red Pixel)</h2>
+        <p>Should show a red square:</p>
+        <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg==" alt="Red Pixel" width="50" height="50" />
+    </div>
+
+    <div class="card">
+        <h2>5. Broken Image (should show placeholder with alt text)</h2>
+        <p>Should show "[img] This image does not exist" placeholder:</p>
+        <img src="https://example.com/nonexistent.png" alt="This image does not exist" />
+    </div>
+
+    <div class="card">
+        <h2>6. Broken Image with alt="Image" (should show [img] placeholder)</h2>
+        <p>Should show "[img]" placeholder (not the word "Image"):</p>
+        <img src="https://example.com/also-broken.png" alt="Image" />
+    </div>
+
+    <div class="card">
+        <h2>7. Inline Image in Text</h2>
+        <p>This sentence has an inline <img src="https://www.wikipedia.org/portal/wikipedia.org/assets/img/Wikipedia-logo-v2.png" alt="Wiki" width="20" height="22" style="vertical-align: middle;"> image inside the paragraph.</p>
+    </div>
+
+    <div class="card">
+        <h2>8. SVG Image (should show [img] placeholder - no SVG support yet)</h2>
+        <p>Should show "[img]" placeholder:</p>
+        <img src="https://upload.wikimedia.org/wikipedia/commons/4/4f/SVG_Logo.svg" alt="SVG Logo" width="100" />
+    </div>
+
+    <div class="card">
+        <h2>Verification</h2>
+        <p>Check the debug output for these log entries:</p>
+        <ul>
+            <li><code>[MakeImage] START</code> - MakeImageAsync called</li>
+            <li><code>[MakeImage] candidates=N</code> - URI candidates found</li>
+            <li><code>[ImgTry]</code> - Attempting to load image</li>
+            <li><code>[ImgTryStream] len=X</code> - Stream received from ImageLoader</li>
+            <li><code>[ImgLoadOK]</code> - Image decoded successfully</li>
+            <li><code>[ImgLoadFail]</code> - Image decode failed</li>
+            <li><code>[ImgSkipSvg]</code> - SVG skipped (no support)</li>
+            <li><code>[ImgFallbackUri]</code> - Falling back to UriSource</li>
+        </ul>
+        <p>If local logo + remote images load, and broken images show placeholders, this test <span class="success">PASSED</span>.</p>
+        <p>If images don't load at all, check that <code>imgLoader</code> is wired up in MainPage.xaml.cs <span class="fail">FAILED</span>.</p>
+    </div>
+</body>
+
+</html>

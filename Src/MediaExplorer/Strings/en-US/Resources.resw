@@ -117,11 +117,10 @@
   <resheader name="writer">
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
-  <data name="LoadingError.Text" xml:space="preserve">
-    <value>Unable to load content from the Messenger server.
-Please verify your internet connection.</value>
+  <data name="ForwardAppBarButton.Label" xml:space="preserve">
+    <value>forward</value>
   </data>
-  <data name="Retry.Content" xml:space="preserve">
-    <value>Retry</value>
+  <data name="HomeAppBarButton.Label" xml:space="preserve">
+    <value>home</value>
   </data>
 </root>

@@ -1,41 +1,30 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
-    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
-    <Platform Condition="'$(Platform)' == ''">x86</Platform>
-    <ProjectGuid>{1A2AD0F7-8745-4417-8FA0-8D2539CE7081}</ProjectGuid>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
+    <ProjectGuid>{C7BA2C48-4C93-476F-B1B3-0727661FD87D}</ProjectGuid>
     <OutputType>AppContainerExe</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>Messenger.UWP</RootNamespace>
+    <RootNamespace>WEBVIEW</RootNamespace>
     <AssemblyName>MediaExplorer</AssemblyName>
     <DefaultLanguage>en-US</DefaultLanguage>
     <TargetPlatformIdentifier>UAP</TargetPlatformIdentifier>
-    <TargetPlatformVersion Condition="'$(TargetPlatformVersion)' == ''">10.0.19041.0</TargetPlatformVersion>
-    <TargetPlatformMinVersion Condition="'$(Platform)' != 'ARM64'">10.0.15063.0</TargetPlatformMinVersion>
-    <TargetPlatformMinVersion Condition="'$(Platform)' == 'ARM64'">10.0.16299.0</TargetPlatformMinVersion>
+    <TargetPlatformVersion Condition=" '$(TargetPlatformVersion)' == '' ">10.0.19041.0</TargetPlatformVersion>
+    <TargetPlatformMinVersion>10.0.15063.0</TargetPlatformMinVersion>
     <MinimumVisualStudioVersion>14</MinimumVisualStudioVersion>
     <FileAlignment>512</FileAlignment>
     <ProjectTypeGuids>{A5A43C5B-DE2A-4C0C-9213-0A381AF9435A};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
     <WindowsXamlEnableOverview>true</WindowsXamlEnableOverview>
-    <GenerateAppInstallerFile>False</GenerateAppInstallerFile>
-    <AppxAutoIncrementPackageRevision>False</AppxAutoIncrementPackageRevision>
-    <AppxSymbolPackageEnabled>False</AppxSymbolPackageEnabled>
-    <AppxBundlePlatforms>x86|x64|arm|arm64</AppxBundlePlatforms>
-    <AppInstallerUpdateFrequency>0</AppInstallerUpdateFrequency>
-    <AppInstallerCheckForUpdateFrequency>OnApplicationRun</AppInstallerCheckForUpdateFrequency>
-    <AppxBundle>Never</AppxBundle>
     <AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>
-    <GenerateTestArtifacts>True</GenerateTestArtifacts>
-    <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
-    <PackageCertificateThumbprint>B4838D6A694108DFA8C426068E68F4CB583E77D2</PackageCertificateThumbprint>
+    <PackageCertificateThumbprint>A0755ED4FA060F045E697279CE237EB1F49028C3</PackageCertificateThumbprint>
     <PackageCertificateKeyFile>MediaExplorer_TemporaryKey.pfx</PackageCertificateKeyFile>
-    <AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
     <DebugSymbols>true</DebugSymbols>
     <OutputPath>bin\x86\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE;NETFX_CORE;WINDOWS_UWP</DefineConstants>
+    <DefineConstants>DEBUG;TRACE;NETFX_CORE;WINDOWS_UWP;USE_NILJS</DefineConstants>
     <NoWarn>;2008</NoWarn>
     <DebugType>full</DebugType>
     <PlatformTarget>x86</PlatformTarget>
@@ -45,7 +34,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x86'">
     <OutputPath>bin\x86\Release\</OutputPath>
-    <DefineConstants>TRACE;NETFX_CORE;WINDOWS_UWP</DefineConstants>
+    <DefineConstants>TRACE;NETFX_CORE;WINDOWS_UWP;USE_NILJS</DefineConstants>
     <Optimize>true</Optimize>
     <NoWarn>;2008</NoWarn>
     <DebugType>pdbonly</DebugType>
@@ -58,7 +47,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|ARM'">
     <DebugSymbols>true</DebugSymbols>
     <OutputPath>bin\ARM\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE;NETFX_CORE;WINDOWS_UWP</DefineConstants>
+    <DefineConstants>DEBUG;TRACE;NETFX_CORE;WINDOWS_UWP;USE_NILJS</DefineConstants>
     <NoWarn>;2008</NoWarn>
     <DebugType>full</DebugType>
     <PlatformTarget>ARM</PlatformTarget>
@@ -68,7 +57,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|ARM'">
     <OutputPath>bin\ARM\Release\</OutputPath>
-    <DefineConstants>TRACE;NETFX_CORE;WINDOWS_UWP</DefineConstants>
+    <DefineConstants>TRACE;NETFX_CORE;WINDOWS_UWP;USE_NILJS</DefineConstants>
     <Optimize>true</Optimize>
     <NoWarn>;2008</NoWarn>
     <DebugType>pdbonly</DebugType>
@@ -81,17 +70,18 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|ARM64'">
     <DebugSymbols>true</DebugSymbols>
     <OutputPath>bin\ARM64\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE;NETFX_CORE;WINDOWS_UWP</DefineConstants>
+    <DefineConstants>DEBUG;TRACE;NETFX_CORE;WINDOWS_UWP;USE_NILJS</DefineConstants>
     <NoWarn>;2008</NoWarn>
     <DebugType>full</DebugType>
     <PlatformTarget>ARM64</PlatformTarget>
     <UseVSHostingProcess>false</UseVSHostingProcess>
     <ErrorReport>prompt</ErrorReport>
     <Prefer32Bit>true</Prefer32Bit>
+    <UseDotNetNativeToolchain>true</UseDotNetNativeToolchain>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|ARM64'">
     <OutputPath>bin\ARM64\Release\</OutputPath>
-    <DefineConstants>TRACE;NETFX_CORE;WINDOWS_UWP</DefineConstants>
+    <DefineConstants>TRACE;NETFX_CORE;WINDOWS_UWP;USE_NILJS</DefineConstants>
     <Optimize>true</Optimize>
     <NoWarn>;2008</NoWarn>
     <DebugType>pdbonly</DebugType>
@@ -104,7 +94,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
     <DebugSymbols>true</DebugSymbols>
     <OutputPath>bin\x64\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE;NETFX_CORE;WINDOWS_UWP</DefineConstants>
+    <DefineConstants>DEBUG;TRACE;NETFX_CORE;WINDOWS_UWP;USE_NILJS</DefineConstants>
     <NoWarn>;2008</NoWarn>
     <DebugType>full</DebugType>
     <PlatformTarget>x64</PlatformTarget>
@@ -114,7 +104,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
     <OutputPath>bin\x64\Release\</OutputPath>
-    <DefineConstants>TRACE;NETFX_CORE;WINDOWS_UWP</DefineConstants>
+    <DefineConstants>TRACE;NETFX_CORE;WINDOWS_UWP;USE_NILJS</DefineConstants>
     <Optimize>true</Optimize>
     <NoWarn>;2008</NoWarn>
     <DebugType>pdbonly</DebugType>
@@ -128,62 +118,61 @@
     <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
   </PropertyGroup>
   <ItemGroup>
-    <PRIResource Include="Strings\en-US\Resources.resw" />
-    <PRIResource Include="Strings\fr-FR\Resources.resw" />
-    <AppxManifest Include="Package.appxmanifest">
-      <SubType>Designer</SubType>
-    </AppxManifest>
-    <ApplicationDefinition Include="App.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </ApplicationDefinition>
-    <Page Include="Views\MainPage.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </Page>
     <Compile Include="App.xaml.cs">
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
-    <Compile Include="Views\MainPage.xaml.cs">
+    <Compile Include="Engine\BrowserApi.cs" />
+    <Compile Include="Engine\Core\LayoutEngine.cs" />
+    <Compile Include="Engine\Core\Painter.cs" />
+    <Compile Include="Engine\Core\RenderBox.cs" />
+    <Compile Include="Engine\Core\RenderObject.cs" />
+    <Compile Include="Engine\Core\RenderPipeline.cs" />
+    <Compile Include="Engine\Core\RenderText.cs" />
+    <Compile Include="Engine\Core\RenderTreeBuilder.cs" />
+    <Compile Include="Engine\Core\VirtualizingRenderer.cs" />
+    <Compile Include="Engine\CssComputed.cs" />
+    <Compile Include="Engine\CssLoader.cs" />
+    <Compile Include="Engine\CssMini.cs" />
+    <Compile Include="Engine\CssParser.cs" />
+    <Compile Include="Engine\TableRenderer.cs" />
+    <Compile Include="Engine\CustomHtmlEngine.cs" />
+    <Compile Include="Engine\DomBasicRenderer.cs" />
+    <Compile Include="Engine\FlexPanel.cs" />
+    <Compile Include="Engine\FontRegistry.cs" />
+    <Compile Include="Engine\HtmlLite.cs" />
+    <Compile Include="Engine\HtmlLiteParser.cs" />
+    <Compile Include="Engine\HtmlTag.cs" />
+    <Compile Include="Engine\JavaScriptEngine.cs" />
+    <Compile Include="Engine\JsRuntimeAbstraction.cs" />
+    <Compile Include="Engine\LiteDomUtil.cs" />
+    <Compile Include="Engine\MiniJs.cs" />
+    <Compile Include="Engine\ModuleLoader.cs" />
+    <Compile Include="Engine\OpenRouterClient.cs" />
+    <Compile Include="Engine\RendererStyles.cs" />
+    <Compile Include="Engine\ResourceManager.cs" />
+    <Compile Include="Engine\SandboxPolicy.cs" />
+    <!-- <Compile Include="Engine\SimpleWrapPanel.cs" /> -->
+    <Compile Include="Engine\UiThreadHelper.cs" />
+    <Compile Include="Engine\VideoHost.cs" />
+    <Compile Include="MainPage.xaml.cs">
       <DependentUpon>MainPage.xaml</DependentUpon>
     </Compile>
-    <None Include="MediaExplorer_TemporaryKey.pfx" />
+    <Compile Include="SettingsPage.xaml.cs">
+      <DependentUpon>SettingsPage.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Content Include="Properties\Default.rd.xml" />
-    <Content Include="Assets\AppIcon.scale-100.png" />
-    <Content Include="Assets\AppIcon.scale-125.png" />
-    <Content Include="Assets\AppIcon.scale-150.png" />
-    <Content Include="Assets\AppIcon.scale-200.png" />
-    <Content Include="Assets\AppIcon.scale-400.png" />
-    <Content Include="Assets\AppIcon.targetsize-16.png" />
-    <Content Include="Assets\AppIcon.targetsize-16_altform-unplated.png" />
-    <Content Include="Assets\AppIcon.targetsize-24.png" />
-    <Content Include="Assets\AppIcon.targetsize-24_altform-unplated.png" />
-    <Content Include="Assets\AppIcon.targetsize-256.png" />
-    <Content Include="Assets\AppIcon.targetsize-256_altform-unplated.png" />
-    <Content Include="Assets\AppIcon.targetsize-32.png" />
-    <Content Include="Assets\AppIcon.targetsize-32_altform-unplated.png" />
-    <Content Include="Assets\AppIcon.targetsize-48.png" />
-    <Content Include="Assets\AppIcon.targetsize-48_altform-unplated.png" />
-    <Content Include="Assets\AppIcon.targetsize-64.png" />
-    <Content Include="Assets\AppIcon.targetsize-64_altform-unplated.png" />
-    <Content Include="Assets\AppIcon.targetsize-96.png" />
-    <Content Include="Assets\AppIcon.targetsize-96_altform-unplated.png" />
-    <Content Include="Assets\Badge.scale-100.png" />
-    <Content Include="Assets\Badge.scale-125.png" />
-    <Content Include="Assets\Badge.scale-150.png" />
-    <Content Include="Assets\Badge.scale-200.png" />
-    <Content Include="Assets\Badge.scale-400.png" />
-    <Content Include="Assets\BigTile.scale-100.png" />
-    <Content Include="Assets\BigTile.scale-125.png" />
-    <Content Include="Assets\BigTile.scale-150.png" />
-    <Content Include="Assets\BigTile.scale-200.png" />
-    <Content Include="Assets\BigTile.scale-400.png" />
-    <Content Include="Assets\MediumTile.scale-100.png" />
-    <Content Include="Assets\MediumTile.scale-125.png" />
-    <Content Include="Assets\MediumTile.scale-150.png" />
-    <Content Include="Assets\MediumTile.scale-200.png" />
-    <Content Include="Assets\MediumTile.scale-400.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <AppxManifest Include="Package.appxmanifest">
+      <SubType>Designer</SubType>
+    </AppxManifest>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Assets\LargeTile.scale-100.png" />
+    <Content Include="Assets\LargeTile.scale-125.png" />
+    <Content Include="Assets\LargeTile.scale-150.png" />
+    <Content Include="Assets\LargeTile.scale-200.png" />
+    <Content Include="Assets\LargeTile.scale-400.png" />
     <Content Include="Assets\SmallTile.scale-100.png" />
     <Content Include="Assets\SmallTile.scale-125.png" />
     <Content Include="Assets\SmallTile.scale-150.png" />
@@ -192,64 +181,89 @@
     <Content Include="Assets\SplashScreen.scale-100.png" />
     <Content Include="Assets\SplashScreen.scale-125.png" />
     <Content Include="Assets\SplashScreen.scale-150.png" />
-    <Content Include="Assets\SplashScreen.scale-200.png" />
     <Content Include="Assets\SplashScreen.scale-400.png" />
-    <Content Include="Assets\Store.scale-100.png" />
-    <Content Include="Assets\Store.scale-125.png" />
-    <Content Include="Assets\Store.scale-150.png" />
-    <Content Include="Assets\Store.scale-200.png" />
-    <Content Include="Assets\Store.scale-400.png" />
-    <Content Include="Assets\WideTile.scale-100.png" />
-    <Content Include="Assets\WideTile.scale-125.png" />
-    <Content Include="Assets\WideTile.scale-150.png" />
-    <Content Include="Assets\WideTile.scale-200.png" />
-    <Content Include="Assets\WideTile.scale-400.png" />
-    <Content Include="Web\bundle.js" />
-    <Content Include="Web\bundle.css" />
-    <None Include="bundleconfig.json" />
-    <None Include="CSS\acrylic.css" />
-    <None Include="CSS\cancel-media-queries.css" />
-    <None Include="CSS\cards.css" />
-    <None Include="CSS\dialogs.css" />
-    <None Include="CSS\hide-broken-features.css" />
-    <None Include="CSS\info-panel.css" />
-    <None Include="CSS\master-detail.css" />
-    <None Include="CSS\picture-album.css" />
-    <None Include="CSS\picture-info.css" />
-    <None Include="CSS\picture-viewer.css" />
-    <None Include="CSS\settings-panel.css" />
-    <None Include="JavaScript\helpers\alert.js" />
-    <None Include="JavaScript\helpers\dispatcher.js" />
-    <None Include="JavaScript\helpers\dom.js" />
-    <None Include="JavaScript\helpers\navigation.js" />
-    <None Include="JavaScript\helpers\polyfill.js" />
-    <None Include="JavaScript\helpers\react-internal.js" />
-    <None Include="JavaScript\messenger-pwa\views\info-panel.js" />
-    <None Include="JavaScript\messenger-pwa\views\master-detail.js" />
-    <None Include="JavaScript\messenger-pwa\index.js" />
-    <None Include="JavaScript\messenger-pwa\selectors.js" />
-    <None Include="JavaScript\messenger-pwa\version.js" />
-    <Compile Include="Converters\BooleanToVisibilityConverter.cs" />
-    <Compile Include="Helpers\SplashScreenExtension.cs" />
-    <Compile Include="Helpers\UserAgentHelper.cs" />
-    <Compile Include="Helpers\WebViewInjector.cs" />
-    <Compile Include="ViewModels\MainViewModel.cs" />
-    <Compile Include="ViewModels\ViewModelBase.cs" />
+    <Content Include="Assets\Square150x150Logo.scale-100.png" />
+    <Content Include="Assets\Square150x150Logo.scale-125.png" />
+    <Content Include="Assets\Square150x150Logo.scale-150.png" />
+    <Content Include="Assets\Square150x150Logo.scale-400.png" />
+    <Content Include="Assets\Square44x44Logo.altform-lightunplated_targetsize-16.png" />
+    <Content Include="Assets\Square44x44Logo.altform-lightunplated_targetsize-24.png" />
+    <Content Include="Assets\Square44x44Logo.altform-lightunplated_targetsize-256.png" />
+    <Content Include="Assets\Square44x44Logo.altform-lightunplated_targetsize-32.png" />
+    <Content Include="Assets\Square44x44Logo.altform-lightunplated_targetsize-48.png" />
+    <Content Include="Assets\Square44x44Logo.altform-unplated_targetsize-16.png" />
+    <Content Include="Assets\Square44x44Logo.altform-unplated_targetsize-256.png" />
+    <Content Include="Assets\Square44x44Logo.altform-unplated_targetsize-32.png" />
+    <Content Include="Assets\Square44x44Logo.altform-unplated_targetsize-48.png" />
+    <Content Include="Assets\Square44x44Logo.scale-100.png" />
+    <Content Include="Assets\Square44x44Logo.scale-125.png" />
+    <Content Include="Assets\Square44x44Logo.scale-150.png" />
+    <Content Include="Assets\Square44x44Logo.scale-400.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-16.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-24.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-256.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-32.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-48.png" />
+    <Content Include="Assets\StoreLogo.scale-100.png" />
+    <Content Include="Assets\StoreLogo.scale-125.png" />
+    <Content Include="Assets\StoreLogo.scale-150.png" />
+    <Content Include="Assets\StoreLogo.scale-200.png" />
+    <Content Include="Assets\StoreLogo.scale-400.png" />
+    <Content Include="Assets\Wide310x150Logo.scale-100.png" />
+    <Content Include="Assets\Wide310x150Logo.scale-125.png" />
+    <Content Include="Assets\Wide310x150Logo.scale-150.png" />
+    <Content Include="Assets\Wide310x150Logo.scale-400.png" />
+    <Content Include="Engine\fix_lines.py" />
+    <Content Include="Engine\text.py" />
+    <Content Include="External\test.mp3" />
+    <Content Include="Html\css\phone.css" />
+    <Content Include="Html\test_boxmodel.html" />
+    <Content Include="Html\test_forms.html" />
+    <Content Include="Html\test_images.html" />
+    <Content Include="Html\test_rendering.html" />
+    <Content Include="Html\test_tables.html" />
+    <Content Include="Html\test_typography.html" />
+    <Content Include="Html\welcome.css" />
+    <Content Include="Html\welcome.html" />
+    <Content Include="Html\welcome.js" />
+    <Content Include="Properties\Default.rd.xml" />
+    <Content Include="Assets\LockScreenLogo.scale-200.png" />
+    <Content Include="Assets\SplashScreen.scale-200.png" />
+    <Content Include="Assets\Square150x150Logo.scale-200.png" />
+    <Content Include="Assets\Square44x44Logo.scale-200.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
+    <Content Include="Assets\Wide310x150Logo.scale-200.png" />
+    <Content Include="Html\test_rendering0.html" />
+  </ItemGroup>
+  <ItemGroup>
+    <ApplicationDefinition Include="App.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </ApplicationDefinition>
+    <Page Include="MainPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="SettingsPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NETCore.UniversalWindowsPlatform">
-      <Version>6.2.9</Version>
+      <Version>6.2.14</Version>
     </PackageReference>
-    <PackageReference Include="BuildBundlerMinifier">
-      <Version>3.1.430</Version>
+    <PackageReference Include="NiL.JS">
+      <Version>2.5.1294</Version>
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <SDKReference Include="WindowsMobile, Version=10.0.19041.0">
-      <Name>Windows Mobile Extensions for the UWP</Name>
-    </SDKReference>
+    <PRIResource Include="Strings\en-US\Resources.resw" />
   </ItemGroup>
-  <PropertyGroup Condition="'$(VisualStudioVersion)' == '' or '$(VisualStudioVersion)' &lt; '14.0'">
+  <ItemGroup>
+    <None Include="MediaExplorer_TemporaryKey.pfx" />
+  </ItemGroup>
+  <PropertyGroup Condition=" '$(VisualStudioVersion)' == '' or '$(VisualStudioVersion)' &lt; '14.0' ">
     <VisualStudioVersion>14.0</VisualStudioVersion>
   </PropertyGroup>
   <Import Project="$(MSBuildExtensionsPath)\Microsoft\WindowsXaml\v$(VisualStudioVersion)\Microsoft.Windows.UI.Xaml.CSharp.targets" />
