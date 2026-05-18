@@ -34,6 +34,31 @@ namespace WEBVIEW
         private bool _barExpanded = false;
         private string _appBarMode = "Semi"; // "Full", "Semi", "Hided"
 
+        // Magic Bubble: long-tap triggers existing AI summary (reuses AiOverlay)
+        private DateTime _holdingStart;
+
+        // DevTools
+        private bool _devToolsEnabled;
+        private System.Text.StringBuilder _devConsoleBuffer = new System.Text.StringBuilder();
+
+        public bool DevToolsEnabled
+        {
+            get => _devToolsEnabled;
+            set
+            {
+                _devToolsEnabled = value;
+                Ui(() =>
+                {
+                    if (DevToolsPanel != null)
+                        DevToolsPanel.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+                    if (DevToolsRow != null)
+                        DevToolsRow.Height = value ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+                    if (value && DevConsoleText != null && string.IsNullOrEmpty(DevConsoleText.Text))
+                        DevToolsLog("[DevTools] Console ready.");
+                });
+            }
+        }
+
         private Uri _currentUri;
         private bool _welcomeShown;
         private FrameworkElement _activeVisual;
@@ -106,6 +131,10 @@ namespace WEBVIEW
             if (ContentArea != null)
                 ContentArea.Tapped += (s, e) => CollapseBar();
 
+            // Magic Bubble: long-tap / long-press on content area
+            if (ContentArea != null)
+                ContentArea.Holding += ContentArea_Holding;
+
             _resources = new ResourceManager(_http);
 
             try { if (ContentArea != null) JavaScriptEngine.RegisterVisualRoot(ContentArea); } catch { }
@@ -132,9 +161,10 @@ namespace WEBVIEW
 
             SizeChanged += MainPage_SizeChanged;
 
-            Loaded += (s, e) => { try { ApplyAppBarMode(); ApplyRenderMode(); } catch { } };
+            Loaded += (s, e) => { try { ApplyAppBarMode(); ApplyRenderMode(); ApplyDevTools(); } catch { } };
             try { ApplyAppBarMode(); } catch { }
             try { ApplyRenderMode(); } catch { }
+            try { ApplyDevTools(); } catch { }
 
             Task.Run(() => RunNilJsStartupTest());
         }
@@ -186,6 +216,25 @@ namespace WEBVIEW
             if (BarStrip != null) BarStrip.IsHitTestVisible = true;
             if (BarContent != null) BarContent.IsHitTestVisible = false;
             UpdateBarClip();
+        }
+
+        // --- Magic Bubble (long-tap triggers existing AI summary) ---
+
+        private void ContentArea_Holding(object sender, HoldingRoutedEventArgs e)
+        {
+            if (e.HoldingState == Windows.UI.Input.HoldingState.Started)
+            {
+                _holdingStart = DateTime.Now;
+            }
+            else if (e.HoldingState == Windows.UI.Input.HoldingState.Completed)
+            {
+                var elapsed = DateTime.Now - _holdingStart;
+                if (elapsed.TotalMilliseconds >= 500)
+                {
+                    // Long press — reuse existing AiOverlay + OpenRouter summary
+                    AiButton_Click(null, null);
+                }
+            }
         }
 
         private void ToggleBar()
@@ -621,6 +670,17 @@ namespace WEBVIEW
             catch { }
         }
 
+        public void ApplyDevTools()
+        {
+            try
+            {
+                var s = Windows.Storage.ApplicationData.Current.LocalSettings;
+                if (s.Values.TryGetValue("DevToolsEnabled", out var v) && v is bool enabled)
+                    DevToolsEnabled = enabled;
+            }
+            catch { }
+        }
+
         public void ApplyAppBarMode()
         {
             _appBarMode = LoadAppBarMode();
@@ -672,7 +732,7 @@ namespace WEBVIEW
             set
             {
                 _browser.RenderMode = value;
-                _welcomeEngine.RenderMode = value;
+                _welcomeEngine.RenderModeString = value;
             }
         }
 
@@ -1218,6 +1278,114 @@ namespace WEBVIEW
                 }
             }
             catch { }
+        }
+
+        // --- DevTools ---
+
+        private void DevToolsLog(string message)
+        {
+            _devConsoleBuffer.AppendLine(message);
+            if (DevConsoleText != null)
+                DevConsoleText.Text = _devConsoleBuffer.ToString();
+            if (DevConsoleOutput != null)
+                DevConsoleOutput.ChangeView(null, DevConsoleOutput.ScrollableHeight, null);
+        }
+
+        private void DevConsoleTab_Click(object sender, RoutedEventArgs e)
+        {
+            if (DevConsoleContent != null) DevConsoleContent.Visibility = Visibility.Visible;
+            if (DevDomContent != null) DevDomContent.Visibility = Visibility.Collapsed;
+            if (DevNetworkContent != null) DevNetworkContent.Visibility = Visibility.Collapsed;
+            if (DevConsoleTab != null) DevConsoleTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xCC, 0xCC, 0xCC));
+            if (DevDomTab != null) DevDomTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevNetworkTab != null) DevNetworkTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+        }
+
+        private void DevDomTab_Click(object sender, RoutedEventArgs e)
+        {
+            if (DevConsoleContent != null) DevConsoleContent.Visibility = Visibility.Collapsed;
+            if (DevDomContent != null) DevDomContent.Visibility = Visibility.Visible;
+            if (DevNetworkContent != null) DevNetworkContent.Visibility = Visibility.Collapsed;
+            if (DevConsoleTab != null) DevConsoleTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevDomTab != null) DevDomTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xCC, 0xCC, 0xCC));
+            if (DevNetworkTab != null) DevNetworkTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+
+            // Populate DOM tree text (stub)
+            try
+            {
+                var dom = _welcomeEngine.GetActiveDom();
+                if (dom != null && DevDomText != null)
+                    DevDomText.Text = DumpDomTree(dom, 0);
+                else if (DevDomText != null)
+                    DevDomText.Text = "(no DOM loaded)";
+            }
+            catch { }
+        }
+
+        private void DevNetworkTab_Click(object sender, RoutedEventArgs e)
+        {
+            if (DevConsoleContent != null) DevConsoleContent.Visibility = Visibility.Collapsed;
+            if (DevDomContent != null) DevDomContent.Visibility = Visibility.Collapsed;
+            if (DevNetworkContent != null) DevNetworkContent.Visibility = Visibility.Visible;
+            if (DevConsoleTab != null) DevConsoleTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevDomTab != null) DevDomTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevNetworkTab != null) DevNetworkTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xCC, 0xCC, 0xCC));
+
+            if (DevNetworkText != null)
+                DevNetworkText.Text = "[Network tab — stub. Future: fetch log from ResourceManager.]";
+        }
+
+        private void DevToolsClose_Click(object sender, RoutedEventArgs e)
+        {
+            DevToolsEnabled = false;
+            // Also save to settings
+            try { ApplicationData.Current.LocalSettings.Values["DevToolsEnabled"] = false; } catch { }
+        }
+
+        private void DevConsoleRun_Click(object sender, RoutedEventArgs e)
+        {
+            var code = DevConsoleInput?.Text?.Trim();
+            if (string.IsNullOrEmpty(code)) return;
+
+            DevToolsLog("> " + code);
+            DevConsoleInput.Text = "";
+
+            try
+            {
+                var result = _browser.EvaluateExpression(code);
+                DevToolsLog("← " + (result ?? "undefined"));
+            }
+            catch (Exception ex)
+            {
+                DevToolsLog("✕ " + ex.Message);
+            }
+        }
+
+        private string DumpDomTree(BrowserCore.Engine.LiteElement node, int depth)
+        {
+            if (node == null) return "";
+            var sb = new System.Text.StringBuilder();
+            var indent = new string(' ', depth * 2);
+            if (node.IsText)
+            {
+                var text = (node.Text ?? "").Trim();
+                if (text.Length > 0)
+                    sb.AppendLine(indent + "#text: \"" + (text.Length > 40 ? text.Substring(0, 40) + "..." : text) + "\"");
+            }
+            else
+            {
+                sb.Append(indent + "<" + (node.Tag ?? "unknown"));
+                if (node.Attr != null)
+                {
+                    foreach (var kv in node.Attr)
+                        sb.Append(" " + kv.Key + "=\"" + (kv.Value.Length > 20 ? kv.Value.Substring(0, 20) + "..." : kv.Value) + "\"");
+                }
+                sb.AppendLine(">");
+                if (node.Children != null)
+                    foreach (var child in node.Children)
+                        sb.Append(DumpDomTree(child, depth + 1));
+            }
+            return sb.ToString();
         }
     }
 }

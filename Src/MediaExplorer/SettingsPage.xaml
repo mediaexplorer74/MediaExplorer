@@ -68,6 +68,10 @@
 
             <PivotItem Header="Advanced">
                 <StackPanel Margin="16,12,16,0">
+                    <!-- DevTools toggle -->
+                    <ToggleSwitch x:Name="DevToolsToggle" Header="Developer Tools" IsOn="False" Foreground="White" Margin="0,0,0,16"/>
+                    <TextBlock Text="Enable DevTools console &amp; DOM inspector (for developers)" Foreground="#888888" FontSize="12" Margin="0,0,0,16" TextWrapping="Wrap"/>
+
                     <!-- API key -->
                     <TextBlock Text="OpenRouter API Key" Foreground="White" FontSize="14" Margin="0,0,0,4"/>
                     <TextBox x:Name="AiKeyBox" PlaceholderText="sk-or-v1-..." Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" Margin="0,0,0,16"/>
@@ -81,7 +85,7 @@
                 <StackPanel Margin="16,20,16,0">
                     <TextBlock Text="MediaExplorer" FontSize="22" FontWeight="Bold" Foreground="White" Margin="0,0,0,8"/>
                     <TextBlock Text="Retro alternative browser for Windows 10 Mobile" Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,12"/>
-                    <TextBlock Text="Version: 0.18.30-T1 (dev build)" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
+                    <TextBlock Text="Version: 0.20.0 (dev build)" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
                     <TextBlock Text="Built for Lumia 950 / 1020" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
                     <TextBlock Text="Custom HTML/CSS/JS engine" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
                     <TextBlock Text="Engine: NiL.JS + Jint" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,16"/>

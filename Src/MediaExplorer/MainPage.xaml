@@ -93,19 +93,82 @@
 
     <Grid x:Name="RootGrid" Background="#202020">
         <Grid.RowDefinitions>
+            <RowDefinition Height="0" x:Name="DevToolsRow"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
+        <!-- ===== DevTools Panel (top third, toggleable) ===== -->
+        <Grid Grid.Row="0" x:Name="DevToolsPanel" Background="#1A1A1A" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- DevTools tab bar + close -->
+            <Border Grid.Row="0" Background="#2D2D2D" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="4,2">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Tabs -->
+                    <Button Grid.Column="0" x:Name="DevConsoleTab" Content="Console" Background="Transparent" Foreground="#CCCCCC" BorderThickness="0" FontSize="12" Padding="8,4" Click="DevConsoleTab_Click"/>
+                    <Button Grid.Column="1" x:Name="DevDomTab" Content="DOM" Background="Transparent" Foreground="#888888" BorderThickness="0" FontSize="12" Padding="8,4" Click="DevDomTab_Click" Visibility="Collapsed"/>
+                    <Button Grid.Column="2" x:Name="DevNetworkTab" Content="Network" Background="Transparent" Foreground="#888888" BorderThickness="0" FontSize="12" Padding="8,4" Click="DevNetworkTab_Click" Visibility="Collapsed"/>
+
+                    <!-- DevTools close -->
+                    <Button Grid.Column="4" x:Name="DevToolsClose" Content="✕" Background="Transparent" Foreground="#FF6666" BorderThickness="0" FontSize="14" Padding="8,4" Click="DevToolsClose_Click"/>
+                </Grid>
+            </Border>
+
+            <!-- Console tab content -->
+            <Grid Grid.Row="1" x:Name="DevConsoleContent">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Console output -->
+                <ScrollViewer Grid.Row="0" x:Name="DevConsoleOutput" VerticalScrollBarVisibility="Auto" Padding="8,4" Background="#111111">
+                    <TextBlock x:Name="DevConsoleText" Foreground="#00FF00" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap"/>
+                </ScrollViewer>
+
+                <!-- Console input -->
+                <Grid Grid.Row="1" Background="#2D2D2D" BorderBrush="#3E3E3E" BorderThickness="0,1,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0" x:Name="DevConsoleInput" PlaceholderText="> Enter JS..." Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" FontFamily="Consolas" FontSize="12" Margin="4,2"/>
+                    <Button Grid.Column="1" x:Name="DevConsoleRun" Content="▶" Background="#333333" Foreground="#00FF00" BorderThickness="1" BorderBrush="#555555" Margin="2" Click="DevConsoleRun_Click"/>
+                </Grid>
+            </Grid>
+
+            <!-- DOM tab content (stub) -->
+            <ScrollViewer Grid.Row="1" x:Name="DevDomContent" Visibility="Collapsed" Padding="8,4" Background="#111111">
+                <TextBlock x:Name="DevDomText" Foreground="#CCCCCC" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"/>
+            </ScrollViewer>
+
+            <!-- Network tab content (stub) -->
+            <ScrollViewer Grid.Row="1" x:Name="DevNetworkContent" Visibility="Collapsed" Padding="8,4" Background="#111111">
+                <TextBlock x:Name="DevNetworkText" Foreground="#CCCCCC" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"/>
+            </ScrollViewer>
+        </Grid>
+
         <!-- ===== Content Area ===== -->
-        <Grid Grid.Row="0" x:Name="ContentArea" Background="White" ManipulationMode="TranslateX">
+        <Grid Grid.Row="1" x:Name="ContentArea" Background="White" ManipulationMode="TranslateX">
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" CacheMode="BitmapCache">
                 <StackPanel x:Name="ContentHost"/>
             </ScrollViewer>
         </Grid>
 
         <!-- ===== Bottom AppBar (collapsible) ===== -->
-        <Grid Grid.Row="1" Height="24" x:Name="BottomBar">
+        <Grid Grid.Row="2" Height="24" x:Name="BottomBar">
 
             <!-- Expanded content (renders first = behind BarStrip) -->
             <Border Background="#2D2D2D" BorderBrush="#000000" BorderThickness="0,1,0,0" Padding="4,4,4,4" x:Name="BarContent" IsHitTestVisible="False">
@@ -173,7 +236,7 @@
         </Grid>
 
         <!-- ===== Loading Overlay ===== -->
-        <Grid x:Name="LoadingOverlay" Grid.RowSpan="2" Background="#AA000000" Visibility="Collapsed">
+        <Grid x:Name="LoadingOverlay" Grid.Row="1" Grid.RowSpan="2" Background="#AA000000" Visibility="Collapsed">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                 <ProgressRing x:Name="LoadingRing" Width="48" Height="48" Foreground="White" IsActive="False" Margin="0,0,0,12"/>
                 <TextBlock x:Name="OverlayStatusText" Text="Loading..." Foreground="White" FontSize="14" HorizontalAlignment="Center" Opacity="0.9"/>
@@ -181,7 +244,7 @@
         </Grid>
 
         <!-- ===== Error Overlay ===== -->
-        <Grid x:Name="ErrorOverlay" Grid.RowSpan="2" Background="#CC202020" Visibility="Collapsed">
+        <Grid x:Name="ErrorOverlay" Grid.Row="1" Grid.RowSpan="2" Background="#CC202020" Visibility="Collapsed">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="400">
                 <SymbolIcon Symbol="Important" Foreground="#FF5555" Width="48" Height="48" Margin="0,0,0,16"/>
                 <TextBlock Text="Aw, Snap!" Foreground="White" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
@@ -191,7 +254,7 @@
         </Grid>
 
         <!-- ===== AI Overlay ===== -->
-        <Grid x:Name="AiOverlay" Grid.RowSpan="2" Background="#E6000000" Visibility="Collapsed">
+        <Grid x:Name="AiOverlay" Grid.Row="1" Grid.RowSpan="2" Background="#E6000000" Visibility="Collapsed">
             <Border Background="#2D2D2D" MaxWidth="500" MinWidth="280" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="16">
                 <Grid>
                     <Grid.RowDefinitions>
@@ -212,7 +275,7 @@
         </Grid>
 
         <!-- ===== Reading Mode Overlay ===== -->
-        <Grid x:Name="ReadingOverlay" Grid.RowSpan="2" Background="#F5F0E8" Visibility="Collapsed">
+        <Grid x:Name="ReadingOverlay" Grid.Row="1" Grid.RowSpan="2" Background="#F5F0E8" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>

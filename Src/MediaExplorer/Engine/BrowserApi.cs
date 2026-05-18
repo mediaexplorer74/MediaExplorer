@@ -84,8 +84,8 @@ namespace BrowserCore.Api
 
         public string RenderMode
         {
-            get => _engine.RenderMode;
-            set => _engine.RenderMode = value;
+            get => _engine.RenderModeString;
+            set => _engine.RenderModeString = value;
         }
 
         public BrowserHost()

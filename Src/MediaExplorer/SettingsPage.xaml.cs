@@ -71,6 +71,17 @@ namespace WEBVIEW
                 }
                 catch { }
             };
+
+            DevToolsToggle.Toggled += (s, e) =>
+            {
+                try
+                {
+                    var on = DevToolsToggle.IsOn;
+                    SaveDevToolsEnabled(on);
+                    if (MainPage.Current != null) MainPage.Current.DevToolsEnabled = on;
+                }
+                catch { }
+            };
         }
 
         private void GoBack()
@@ -118,6 +129,10 @@ namespace WEBVIEW
                     int idx = mode == "Full" ? 0 : mode == "Rich" ? 1 : 2;
                     RenderModeCombo.SelectedIndex = idx;
                 }
+
+                // DevTools
+                if (DevToolsToggle != null)
+                    DevToolsToggle.IsOn = LoadDevToolsEnabled();
             }
             catch { }
         }
@@ -210,6 +225,27 @@ namespace WEBVIEW
             try
             {
                 Windows.Storage.ApplicationData.Current.LocalSettings.Values["RenderMode"] = mode;
+            }
+            catch { }
+        }
+
+        private static bool LoadDevToolsEnabled()
+        {
+            try
+            {
+                var s = Windows.Storage.ApplicationData.Current.LocalSettings;
+                if (s.Values.TryGetValue("DevToolsEnabled", out var v) && v is bool b)
+                    return b;
+            }
+            catch { }
+            return false;
+        }
+
+        private static void SaveDevToolsEnabled(bool enabled)
+        {
+            try
+            {
+                Windows.Storage.ApplicationData.Current.LocalSettings.Values["DevToolsEnabled"] = enabled;
             }
             catch { }
         }

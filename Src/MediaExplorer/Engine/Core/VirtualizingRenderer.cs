@@ -268,6 +268,144 @@ namespace BrowserCore.Engine.Core
             }
         }
 
+        /// <summary>
+        /// Incremental patch: apply only the changed nodes to the canvas.
+        /// Much cheaper than full UpdateView when only a few nodes changed.
+        /// </summary>
+        public void PatchAdded(RenderObject subtreeRoot)
+        {
+            if (subtreeRoot == null) return;
+            // Only patch if the node is in the current viewport
+            var viewport = GetViewportRect();
+            var newlyVisible = new HashSet<RenderObject>();
+            CollectVisible(subtreeRoot, viewport, 0, 0, newlyVisible);
+
+            foreach (var node in newlyVisible)
+            {
+                if (_activeElements.ContainsKey(node)) continue;
+                PlaceVisualOnCanvas(node);
+            }
+        }
+
+        /// <summary>
+        /// Patch style/attribute changes on an existing node.
+        /// Updates the visual in-place without recreating it.
+        /// </summary>
+        public void PatchStyle(RenderObject node)
+        {
+            if (node == null) return;
+            UIElement el;
+            if (!_activeElements.TryGetValue(node, out el)) return;
+
+            // Update bounds
+            if (el is FrameworkElement fe)
+            {
+                fe.Width = EnsureValid(node.Bounds.Width);
+                fe.Height = EnsureValid(node.Bounds.Height);
+            }
+
+            // Update position
+            double ax = 0, ay = 0;
+            var cur = node;
+            while (cur != null)
+            {
+                ax += cur.Bounds.X;
+                ay += cur.Bounds.Y;
+                cur = cur.Parent;
+            }
+            Canvas.SetLeft(el, EnsureValid(ax));
+            Canvas.SetTop(el, EnsureValid(ay));
+
+            // Update style-dependent properties
+            ApplyStyleToVisual(el, node);
+        }
+
+        private void PlaceVisualOnCanvas(RenderObject node)
+        {
+            var visual = GetOrCreateVisual(node);
+            if (visual == null) return;
+
+            double ax = 0, ay = 0;
+            var cur = node;
+            while (cur != null)
+            {
+                ax += cur.Bounds.X;
+                ay += cur.Bounds.Y;
+                cur = cur.Parent;
+            }
+
+            if (visual is FrameworkElement fe)
+            {
+                fe.Width = EnsureValid(node.Bounds.Width);
+                fe.Height = EnsureValid(node.Bounds.Height);
+            }
+            Canvas.SetLeft(visual, EnsureValid(ax));
+            Canvas.SetTop(visual, EnsureValid(ay));
+            _canvas.Children.Add(visual);
+            _activeElements[node] = visual;
+        }
+
+        private void ApplyStyleToVisual(UIElement el, RenderObject node)
+        {
+            var style = node.Style;
+            if (style == null) return;
+
+            if (el is TextBlock tb)
+            {
+                if (style.FontSize.HasValue) tb.FontSize = style.FontSize.Value;
+                if (style.ForegroundColor.HasValue) tb.Foreground = new SolidColorBrush(style.ForegroundColor.Value);
+                if (!string.IsNullOrEmpty(style.FontFamilyName)) tb.FontFamily = new FontFamily(style.FontFamilyName);
+                if (style.FontWeight.HasValue) tb.FontWeight = style.FontWeight.Value;
+            }
+            else if (el is Border b)
+            {
+                if (style.Background != null) b.Background = style.Background;
+                if (style.BorderBrush != null) b.BorderBrush = style.BorderBrush;
+                if (style.BorderThickness != default(Thickness)) b.BorderThickness = style.BorderThickness;
+                if (style.BorderRadius != default(CornerRadius)) b.CornerRadius = style.BorderRadius;
+            }
+            else if (el is Button btn)
+            {
+                if (style.Background != null) btn.Background = style.Background;
+                if (style.ForegroundColor.HasValue) btn.Foreground = new SolidColorBrush(style.ForegroundColor.Value);
+                if (style.BorderBrush != null) btn.BorderBrush = style.BorderBrush;
+                if (style.BorderThickness != default(Thickness)) btn.BorderThickness = style.BorderThickness;
+                if (style.FontSize.HasValue) btn.FontSize = style.FontSize.Value;
+            }
+            else if (el is TextBox tbx)
+            {
+                if (style.Background != null) tbx.Background = style.Background;
+                if (style.ForegroundColor.HasValue) tbx.Foreground = new SolidColorBrush(style.ForegroundColor.Value);
+                if (style.BorderBrush != null) tbx.BorderBrush = style.BorderBrush;
+                if (style.BorderThickness != default(Thickness)) tbx.BorderThickness = style.BorderThickness;
+                if (style.FontSize.HasValue) tbx.FontSize = style.FontSize.Value;
+            }
+            else if (el is Grid g)
+            {
+                if (style.BackgroundColor.HasValue) g.Background = new SolidColorBrush(style.BackgroundColor.Value);
+            }
+        }
+
+        private Rect GetViewportRect()
+        {
+            double horizontalOffset = _scrollViewer.HorizontalOffset;
+            double verticalOffset = _scrollViewer.VerticalOffset;
+            double viewportWidth = _scrollViewer.ViewportWidth;
+            double viewportHeight = _scrollViewer.ViewportHeight;
+
+            if (viewportWidth == 0) viewportWidth = _scrollViewer.ActualWidth;
+            if (viewportHeight == 0) viewportHeight = _scrollViewer.ActualHeight;
+            if (viewportWidth == 0) viewportWidth = 800;
+            if (viewportHeight == 0) viewportHeight = 600;
+
+            double buffer = 200;
+            return new Rect(
+                EnsureValid(horizontalOffset - buffer),
+                EnsureValid(verticalOffset - buffer),
+                EnsureValid(viewportWidth + 2 * buffer),
+                EnsureValid(viewportHeight + 2 * buffer));
+        }
+
         private void RemoveSubtreeVisuals(RenderObject node)
         {
             if (node == null) return;

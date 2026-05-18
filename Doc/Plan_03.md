@@ -8,7 +8,7 @@
 
 ---
 
-## Current State (as of session 2.18)
+## Current State (as of session 3.2)
 
 | Phase | Title | Status |
 |-------|-------|--------|
@@ -21,7 +21,7 @@
 | 6 | ES Modules (NiL.JS native module loader) | ✅ DONE |
 | 7 | Service Worker + Offline-First | ⏸ DEFERRED (after Phase T + 8B) |
 | 8A | MutationObserver API (NiL.JS host object) | ✅ DONE |
-| 8B | Incremental Re-render (VirtualizingRenderer.Patch) | 🔴 PENDING |
+| 8B | Incremental Re-render (VirtualizingRenderer.Patch) | ✅ DONE |
 | 9/14/15 | CSS Property Expansion (batches 1–4) | 🟡 IN PROGRESS |
 | 10 | DevTools Console + Inspector | 🔴 PENDING |
 | 11 | UI Polish (loading, swipe, reading mode) | ✅ DONE |
@@ -30,10 +30,10 @@
 | 16/17/18 | Image Loading Fix + Diagnostics | ✅ DONE |
 
 **Known active issues:**
-- Images partially loading (SVG unsupported; `elementSize=NaNxNaN` still appears in logs)
+- Images partially loading (SVG unsupported; `elementSize=NaNxNaN` should be fixed by NaN guards in 8B)
 - White screen on dzen.ru / ya.ru (may still manifest — not fully confirmed fixed)
 - NiL.JS exceptions on complex sites (expected, engine limitation)
-- No systematic testing infrastructure — every bug is found by accident
+- No systematic testing infrastructure — every bug is found by accident (Phase T partially addresses this)
 
 ---
 
@@ -475,11 +475,32 @@ The README already lists three rendering modes, and the basic AppBar mode switch
 
 ### Mode definitions
 
-| Mode | JS | CSS | Images | AI cursor | Use case |
-|------|----|-----|--------|-----------|----------|
-| FULL | NiL.JS enabled | Full cascade | Enabled | Optional | Modern sites |
-| RICH | Minimal inline JS only | Full cascade | Enabled | Enabled | Reading + AI |
-| POOR | Disabled | Base styles only | Disabled | Disabled | Text/FIDO-style |
+| Mode | JS | CSS | Images | AI cursor | Magic Bubble | Use case |
+|------|----|-----|--------|-----------|--------------|----------|
+| FULL | NiL.JS enabled | Full cascade | Enabled | Optional | ✅ Long-tap → AI element explanation | Modern sites |
+| RICH | MiniRunner only (timeouts/analytics-kill) | Full cascade | Enabled | Enabled | ✅ Long-tap → AI element explanation | Reading + AI |
+| POOR | Disabled | Minimal inline (reader stylesheet) | Disabled | Enabled | ✅ Long-tap → AI content summary | E-book / FIDO-style |
+
+### User philosophy (beyond technical implementation)
+
+**RICH — "Reading mode with AI companion"**
+- Technical: skip NiL.JS module loading, run only MiniRunner for timeouts/analytics-kill
+- User experience: full visual fidelity (CSS + images) but no heavy JS execution
+- **Magic Bubble**: long-tap / long-click on any element → overlay popup with AI-powered explanation of that element's content
+- Initial implementation: stub popup (placeholder UI, no AI call yet)
+
+**POOR — "E-book mode with magic summary"**
+- Technical: no JS, minimal inline stylesheet, no images — plain text reading experience
+- User experience: imitate an "e-reader" — strip CSS noise, show clean text, preserve readability
+- **Magic Bubble**: long-tap / long-click anywhere → overlay popup with AI summary of the entire page content
+- Initial implementation: stub popup (placeholder UI, no AI call yet)
+
+**Magic Bubble — shared component**
+- Trigger: long-tap (touch) or long mouse press (>500ms) on content area
+- UI: semi-transparent overlay popup near the tapped position
+- Content: depends on mode (RICH = element explanation, POOR = page summary)
+- Phase 15 scope: UI stub only (show popup with placeholder text like "[AI: analyzing...]")
+- Phase 12+ integration: wire to DeepSeek/OpenRouter for actual AI responses
 
 ### Implementation
 
@@ -745,9 +766,9 @@ Testing via T-S-009 (hacker-news Firebase app) — it ships a service worker and
 
 | Phase | Title | Priority | Effort | Depends on |
 |-------|-------|----------|--------|------------|
-| **T** | **Testing Infrastructure** | 🔴 | 3–4 days | — |
-| **8B** | **Incremental Re-render** | 🔴 | 4–6 days | T, 8A |
-| **15** | Rendering Modes (FULL/RICH/POOR) | 🟡 | 2–3 days | T |
+| **T** | **Testing Infrastructure** | 🔴 | 3–4 days | — | ✅ DONE |
+| **8B** | **Incremental Re-render** | 🔴 | 4–6 days | T, 8A | ✅ DONE |
+| **15** | Rendering Modes (FULL/RICH/POOR) | 🟡 | 2–3 days | T | ⏳ NEXT |
 | **16** | CSS: transform, calc, Grid areas, transitions | 🟡 | 5–7 days | T, 16.1 before 16.4 |
 | **10** | DevTools (Console + DOM + Network) | 🟡 | 3–5 days | T |
 | **17** | Robustness & Memory | 🟡 | 2–3 days | T |
@@ -760,12 +781,12 @@ Testing via T-S-009 (hacker-news Firebase app) — it ships a service worker and
 ## Recommended Session Sequence
 
 ```
-Session 2.19: Phase T — test.html (Sections A+B+C), TestLogger, about:test routing
-Session 2.20: Phase T — site matrix first run, Perf_Baseline.md, reference screenshots
-Session 2.21: Phase 8B — CascadeSingle + InvalidateSubtree
-Session 2.22: Phase 8B — VirtualizingRenderer.Patch + wire to CustomHtmlEngine
-Session 2.23: Phase 15 — RenderMode enum + POOR/RICH implementations
-Session 2.24: Phase 16.1 — transform (rotate/scale/translate)
+Session 2.19: Phase T — test.html (Sections A+B+C), TestLogger, about:test routing ✅
+Session 2.20: Phase T — site matrix first run, Perf_Baseline.md, reference screenshots ✅
+Session 2.21: Phase 8B — CascadeSingle + InvalidateSubtree ✅
+Session 2.22: Phase 8B — VirtualizingRenderer.Patch + wire to CustomHtmlEngine ✅
+Session 2.23: Phase 15 — RenderMode enum + POOR/RICH implementations ← NEXT
+Session 2.24: Phase 16.1 — transform (rotate/scale/translate) [ALREADY DONE]
 Session 2.25: Phase 16.2 — calc() + vw/vh resolver
 Session 2.26: Phase 16.3 — grid-template-areas
 Session 2.27: Phase 16.4 — basic CSS transitions
@@ -786,9 +807,9 @@ HTML → LiteElement (HtmlParser)
   → JsDomElement ↔ NiL.JS (ES Modules, ModuleResolver)
                 ↔ MutationObserver (8A done)
                           ↓ mutations
-             MutationProcessor → CssLoader.CascadeSingle(node)   [8B]
-                               → LayoutEngine.InvalidateSubtree  [8B]
-                               → VirtualizingRenderer.Patch()    [8B]
+              MutationProcessor → CssLoader.CascadeSingle(node)   [8B ✅]
+                                → LayoutEngine.InvalidateSubtree  [8B ✅]
+                                → VirtualizingRenderer.Patch()    [8B ✅]
                                          ↓
             ServiceWorker (Phase 7) intercepts fetch → sw_cache\
                                          ↓

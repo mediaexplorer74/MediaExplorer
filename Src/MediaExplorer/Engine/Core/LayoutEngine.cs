@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Windows.Foundation;
 
 namespace BrowserCore.Engine.Core
@@ -35,6 +36,36 @@ namespace BrowserCore.Engine.Core
                 node.IsDirty = false;
                 ClearDirtyDescendants(node);
             }
+        }
+
+        /// <summary>
+        /// Mark a subtree as dirty for layout invalidation.
+        /// Propagates dirty flag to all descendants.
+        /// </summary>
+        public static void InvalidateSubtree(RenderObject node)
+        {
+            if (node == null) return;
+            node.MarkDirty(); // marks node + ancestors
+            MarkSubtreeDirty(node);
+        }
+
+        /// <summary>
+        /// Relayout only the dirty subtree. Async wrapper for UI thread dispatch.
+        /// </summary>
+        public static async Task RelayoutSubtreeAsync(RenderObject root, Size viewportSize, Func<Task> uiThreadDispatch)
+        {
+            if (root == null) return;
+            await uiThreadDispatch().ConfigureAwait(false);
+            PerformIncrementalLayout(root, viewportSize);
+        }
+
+        private static void MarkSubtreeDirty(RenderObject node)
+        {
+            if (node == null) return;
+            node.IsDirty = true;
+            if (node.Children != null)
+                for (int i = 0; i < node.Children.Count; i++)
+                    MarkSubtreeDirty(node.Children[i]);
         }
 
         private static void CollectDirty(RenderObject node, List<RenderObject> result)

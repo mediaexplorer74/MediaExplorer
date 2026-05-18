@@ -26,6 +26,9 @@ namespace WEBVIEW.Engine
     /// </summary>
     public static class CssLoader
     {
+        // Cached parsed rules from last ComputeAsync call (for incremental re-cascade)
+        private static List<CssRule> _cachedRules = new List<CssRule>();
+
         // Compiled regex for hot patterns
         private static readonly Regex _importUrlRx = new Regex(@"@import\s+(url\((['""]?)(?<u>[^)'""]+)\2\)|(['""])(?<u2>[^'""]+)\4)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private static readonly Regex _minWidthRx = new Regex(@"min-width\s*:\s*(?<v>[0-9]+)px", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -206,6 +209,13 @@ namespace WEBVIEW.Engine
             // 4.5) Resolve CSS variables
             ResolveVariables(allRules);
 
+            // Cache rules for incremental re-cascade
+            lock (_cachedRules)
+            {
+                _cachedRules.Clear();
+                _cachedRules.AddRange(allRules);
+            }
+
             // 5) Compute per-element cascaded styles
             try
             {
@@ -246,7 +256,7 @@ namespace WEBVIEW.Engine
             public Uri BaseUri;
         }
 
-        private sealed class CssRule
+        internal sealed class CssRule
         {
             public List<SelectorChain> Selectors = new List<SelectorChain>(); // comma-separated selectors
             public Dictionary<string, CssDecl> Declarations = new Dictionary<string, CssDecl>(StringComparer.OrdinalIgnoreCase);
@@ -254,24 +264,23 @@ namespace WEBVIEW.Engine
             public Uri BaseUri;        // for url() resolving
         }
 
-        private sealed class CssDecl
+        internal sealed class CssDecl
         {
-            public string Name;       // canonicalized (lowercase)
-            public string Value;      // raw value
-            public bool Important;    // !important
-            public int Specificity;   // computed from selector where used
+            public string Name;
+            public string Value;
+            public bool Important;
+            public int Specificity;
         }
 
-        /// <summary>Single selector fragment with combinators, e.g. "div.foo #bar > span"</summary>
-        private sealed class SelectorChain
+        internal sealed class SelectorChain
         {
             public List<SelectorSegment> Segments = new List<SelectorSegment>(); // left-to-right parsed
             public int Specificity; // computed from segments
         }
 
-        private enum Combinator { Descendant, Child }
+        internal enum Combinator { Descendant, Child }
 
-        private sealed class SelectorSegment
+        internal sealed class SelectorSegment
         {
             public string Tag;                    // e.g. "div"
             public string Id;                     // e.g. "main"
@@ -768,6 +777,380 @@ namespace WEBVIEW.Engine
         // ===========================
         // Stage 3: Cascade
         // ===========================
+
+        /// <summary>
+        /// Cascade styles for a single node and its subtree (incremental re-style).
+        /// Uses cached rules from the last ComputeAsync call.
+        /// </summary>
+        public static Dictionary<LiteElement, CssComputed> CascadeSingle(
+            LiteElement root,
+            Dictionary<LiteElement, CssComputed> existingStyles)
+        {
+            var result = new Dictionary<LiteElement, CssComputed>();
+            if (root == null) return result;
+
+            List<CssRule> rules;
+            lock (_cachedRules)
+            {
+                if (_cachedRules.Count == 0) return result;
+                rules = _cachedRules;
+            }
+
+            // Build selector index (same as full cascade, but reused for subtree)
+            var selIndex = new Dictionary<string, List<CssRule>>(StringComparer.OrdinalIgnoreCase);
+            for (int ri = 0; ri < rules.Count; ri++)
+            {
+                var rule = rules[ri];
+                if (rule.Selectors == null || rule.Selectors.Count == 0) continue;
+                var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                for (int ci = 0; ci < rule.Selectors.Count; ci++)
+                {
+                    var chain = rule.Selectors[ci];
+                    if (chain.Segments == null || chain.Segments.Count == 0) continue;
+                    var lastSeg = chain.Segments[chain.Segments.Count - 1];
+
+                    if (!string.IsNullOrEmpty(lastSeg.Tag))
+                        if (seenKeys.Add(lastSeg.Tag))
+                            AddToSelIndex(selIndex, lastSeg.Tag, rule);
+
+                    if (!string.IsNullOrEmpty(lastSeg.Id))
+                        if (seenKeys.Add("#" + lastSeg.Id))
+                            AddToSelIndex(selIndex, "#" + lastSeg.Id, rule);
+
+                    if (lastSeg.Classes != null)
+                    {
+                        for (int cl = 0; cl < lastSeg.Classes.Count; cl++)
+                        {
+                            var k = "." + lastSeg.Classes[cl];
+                            if (seenKeys.Add(k))
+                                AddToSelIndex(selIndex, k, rule);
+                        }
+                    }
+
+                    if (string.IsNullOrEmpty(lastSeg.Tag) && string.IsNullOrEmpty(lastSeg.Id) &&
+                        (lastSeg.Classes == null || lastSeg.Classes.Count == 0))
+                    {
+                        if (seenKeys.Add("*"))
+                            AddToSelIndex(selIndex, "*", rule);
+                    }
+                }
+            }
+
+            // Walk subtree and cascade
+            CascadeSubtreeWalk(root, rules, selIndex, existingStyles, result);
+            return result;
+        }
+
+        private static void CascadeSubtreeWalk(
+            LiteElement node,
+            List<CssRule> rules,
+            Dictionary<string, List<CssRule>> selIndex,
+            Dictionary<LiteElement, CssComputed> existingStyles,
+            Dictionary<LiteElement, CssComputed> result)
+        {
+            if (node == null || node.IsText)
+            {
+                if (node != null && !node.IsText)
+                    CascadeSingleNode(node, rules, selIndex, existingStyles, result);
+                return;
+            }
+
+            CascadeSingleNode(node, rules, selIndex, existingStyles, result);
+
+            if (node.Children != null)
+            {
+                for (int i = 0; i < node.Children.Count; i++)
+                    CascadeSubtreeWalk(node.Children[i], rules, selIndex, existingStyles, result);
+            }
+        }
+
+        private static void CascadeSingleNode(
+            LiteElement n,
+            List<CssRule> rules,
+            Dictionary<string, List<CssRule>> selIndex,
+            Dictionary<LiteElement, CssComputed> existingStyles,
+            Dictionary<LiteElement, CssComputed> result)
+        {
+            if (n.IsText) return;
+
+            var candidates = new List<CssRule>();
+            var seenRules = new HashSet<CssRule>();
+
+            TryAddFromIndex(selIndex, seenRules, candidates, n.Tag);
+            string nid;
+            if (n.Attr != null && n.Attr.TryGetValue("id", out nid) && !string.IsNullOrEmpty(nid))
+                TryAddFromIndex(selIndex, seenRules, candidates, "#" + nid);
+            string ncls;
+            if (n.Attr != null && n.Attr.TryGetValue("class", out ncls) && !string.IsNullOrEmpty(ncls))
+            {
+                var classParts = ncls.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                for (int cp = 0; cp < classParts.Length; cp++)
+                    TryAddFromIndex(selIndex, seenRules, candidates, "." + classParts[cp]);
+            }
+            TryAddFromIndex(selIndex, seenRules, candidates, "*");
+
+            var perNode = new List<Tuple<CssDecl, SelectorChain, int>>();
+
+            for (int ci = 0; ci < candidates.Count; ci++)
+            {
+                var rule = candidates[ci];
+                for (int si = 0; si < rule.Selectors.Count; si++)
+                {
+                    var chain = rule.Selectors[si];
+                    if (Matches(n, chain))
+                    {
+                        foreach (var kv in rule.Declarations)
+                        {
+                            var decl = kv.Value;
+                            var d = new CssDecl
+                            {
+                                Name = decl.Name,
+                                Value = ResolveUrlIfNeeded(decl.Value, rule.BaseUri),
+                                Important = decl.Important,
+                                Specificity = chain.Specificity
+                            };
+                            perNode.Add(Tuple.Create(d, chain, rule.SourceOrder));
+                        }
+                    }
+                }
+            }
+
+            // Inline style
+            string style;
+            if (n.Attr != null && n.Attr.TryGetValue("style", out style) && !string.IsNullOrWhiteSpace(style))
+            {
+                var decls = ParseDeclarations(style);
+                foreach (var d in decls)
+                {
+                    d.Specificity = 1000;
+                    perNode.Add(Tuple.Create(d, (SelectorChain)null, int.MaxValue));
+                }
+            }
+
+            if (perNode.Count == 0)
+            {
+                // Inherit from parent if no rules match
+                CssComputed parentCss = null;
+                if (n.Parent != null)
+                    existingStyles.TryGetValue(n.Parent, out parentCss);
+                if (parentCss == null && result.Count > 0)
+                {
+                    // Try result dict (parent may have been computed in this batch)
+                    result.TryGetValue(n.Parent, out parentCss);
+                }
+                if (parentCss != null)
+                {
+                    var inherited = new CssComputed();
+                    InheritFrom(parentCss, inherited);
+                    result[n] = inherited;
+                }
+                return;
+            }
+
+            // Group by property and resolve cascade
+            var byProp = new Dictionary<string, List<Tuple<CssDecl, SelectorChain, int>>>(StringComparer.OrdinalIgnoreCase);
+            for (int ii = 0; ii < perNode.Count; ii++)
+            {
+                var t = perNode[ii];
+                List<Tuple<CssDecl, SelectorChain, int>> grp;
+                if (!byProp.TryGetValue(t.Item1.Name, out grp))
+                {
+                    grp = new List<Tuple<CssDecl, SelectorChain, int>>();
+                    byProp[t.Item1.Name] = grp;
+                }
+                grp.Add(t);
+            }
+
+            var chosen = new Dictionary<string, CssDecl>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in byProp)
+            {
+                var grp = kv.Value;
+                grp.Sort((a, b) =>
+                {
+                    int c = b.Item1.Important.CompareTo(a.Item1.Important);
+                    if (c != 0) return c;
+                    c = b.Item1.Specificity.CompareTo(a.Item1.Specificity);
+                    if (c != 0) return c;
+                    return b.Item3.CompareTo(a.Item3);
+                });
+                chosen[kv.Key] = grp[0].Item1;
+            }
+
+            // Parent context
+            CssComputed parentCss2 = null;
+            if (n.Parent != null)
+                existingStyles.TryGetValue(n.Parent, out parentCss2);
+            if (parentCss2 == null && result.Count > 0)
+                result.TryGetValue(n.Parent, out parentCss2);
+
+            var css = new CssComputed();
+            if (parentCss2 != null && parentCss2.CustomProperties != null)
+            {
+                foreach (var kv in parentCss2.CustomProperties)
+                {
+                    css.CustomProperties[kv.Key] = kv.Value;
+                    css.Map[kv.Key] = kv.Value;
+                }
+            }
+
+            var rawCustom = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var d in chosen.Values)
+            {
+                if (IsCustomPropertyName(d.Name))
+                    rawCustom[d.Name] = d.Value ?? string.Empty;
+            }
+
+            foreach (var key in rawCustom.Keys.ToList())
+            {
+                var resolvedCustom = ResolveCustomPropertyReferences(rawCustom[key], css, rawCustom, new HashSet<string>(StringComparer.Ordinal) { key });
+                rawCustom[key] = resolvedCustom;
+                css.CustomProperties[key] = resolvedCustom;
+                css.Map[key] = resolvedCustom;
+            }
+
+            foreach (var d in chosen.Values)
+            {
+                if (IsCustomPropertyName(d.Name)) continue;
+                var val = ResolveCustomPropertyReferences(d.Value, css, rawCustom, new HashSet<string>());
+                css.Map[d.Name] = val;
+            }
+
+            // Resolve typed properties (same logic as full cascade, abbreviated for common props)
+            double posVal;
+            if (TryPx(DictGet(css.Map, "left"), out posVal)) css.Left = posVal;
+            if (TryPx(DictGet(css.Map, "top"), out posVal)) css.Top = posVal;
+
+            double sizeVal;
+            if (TryPx(DictGet(css.Map, "width"), out sizeVal)) css.Width = sizeVal;
+            else if (TryPercent(DictGet(css.Map, "width"), out sizeVal)) css.WidthPercent = sizeVal;
+            if (TryPx(DictGet(css.Map, "height"), out sizeVal)) css.Height = sizeVal;
+            else if (TryPercent(DictGet(css.Map, "height"), out sizeVal)) css.HeightPercent = sizeVal;
+
+            var fgColor = TryColor(DictGet(css.Map, "color"));
+            if (fgColor.HasValue) css.ForegroundColor = fgColor;
+            else if (parentCss2 != null) css.ForegroundColor = parentCss2.ForegroundColor;
+
+            var bgColor = TryColor(ExtractBackgroundColor(css.Map));
+            if (bgColor.HasValue) css.BackgroundColor = bgColor;
+
+            var ffRaw = DictGet(css.Map, "font-family");
+            var resolved = SelectFontFamily(ffRaw);
+            if (!string.IsNullOrEmpty(resolved)) css.FontFamilyName = resolved;
+            else if (parentCss2 != null) css.FontFamilyName = parentCss2.FontFamilyName;
+
+            double px;
+            var fsRaw = DictGet(css.Map, "font-size");
+            if (!string.IsNullOrEmpty(fsRaw))
+            {
+                if (fsRaw == "xx-small") css.FontSize = 9;
+                else if (fsRaw == "x-small") css.FontSize = 10;
+                else if (fsRaw == "small") css.FontSize = 13;
+                else if (fsRaw == "medium") css.FontSize = 16;
+                else if (fsRaw == "large") css.FontSize = 18;
+                else if (fsRaw == "x-large") css.FontSize = 24;
+                else if (fsRaw == "xx-large") css.FontSize = 32;
+                else if (TryPx(fsRaw, out px)) css.FontSize = px;
+            }
+            if (!css.FontSize.HasValue && parentCss2 != null) css.FontSize = parentCss2.FontSize;
+            else if (!css.FontSize.HasValue) css.FontSize = 16;
+
+            var fwRaw = DictGet(css.Map, "font-weight");
+            if (!string.IsNullOrEmpty(fwRaw))
+            {
+                if (fwRaw == "bold" || fwRaw == "700") css.FontWeight = FontWeights.Bold;
+                else if (fwRaw == "normal" || fwRaw == "400") css.FontWeight = FontWeights.Normal;
+                else { int w; if (int.TryParse(fwRaw, out w)) css.FontWeight = MakeFontWeight(w); }
+            }
+            else if (parentCss2 != null) css.FontWeight = parentCss2.FontWeight;
+
+            var fsStyle = DictGet(css.Map, "font-style");
+            if (!string.IsNullOrEmpty(fsStyle))
+            {
+                if (fsStyle == "italic") css.FontStyle = Windows.UI.Text.FontStyle.Italic;
+                else if (fsStyle == "normal") css.FontStyle = Windows.UI.Text.FontStyle.Normal;
+            }
+            else if (parentCss2 != null) css.FontStyle = parentCss2.FontStyle;
+
+            css.Display = Safe(DictGet(css.Map, "display"));
+            if (string.IsNullOrEmpty(css.Display) && parentCss2 != null) css.Display = parentCss2.Display;
+
+            css.Position = Safe(DictGet(css.Map, "position"));
+            css.Float = Safe(DictGet(css.Map, "float"));
+            css.Clear = Safe(DictGet(css.Map, "clear"));
+            css.Visibility = Safe(DictGet(css.Map, "visibility"));
+            if (string.IsNullOrEmpty(css.Visibility)) css.Visibility = "visible";
+
+            css.Overflow = Safe(DictGet(css.Map, "overflow"));
+            if (string.IsNullOrEmpty(css.Overflow)) css.Overflow = "visible";
+
+            css.TextDecoration = Safe(DictGet(css.Map, "text-decoration"));
+            css.WhiteSpace = Safe(DictGet(css.Map, "white-space"));
+            css.ListStyleType = Safe(DictGet(css.Map, "list-style-type"));
+
+            // text-align (enum conversion)
+            var taRaw = Safe(DictGet(css.Map, "text-align"));
+            if (!string.IsNullOrEmpty(taRaw))
+            {
+                var taLow = taRaw.ToLowerInvariant();
+                if (taLow == "left") css.TextAlign = Windows.UI.Xaml.TextAlignment.Left;
+                else if (taLow == "center") css.TextAlign = Windows.UI.Xaml.TextAlignment.Center;
+                else if (taLow == "right") css.TextAlign = Windows.UI.Xaml.TextAlignment.Right;
+                else if (taLow == "justify") css.TextAlign = Windows.UI.Xaml.TextAlignment.Justify;
+            }
+
+            Thickness th;
+            if (TryThickness(DictGet(css.Map, "margin"), out th)) css.Margin = th;
+            if (TryThickness(DictGet(css.Map, "padding"), out th)) css.Padding = th;
+
+            double bVal;
+            if (TryPx(DictGet(css.Map, "border-width"), out bVal)) css.BorderThickness = new Thickness(bVal);
+            var bColor = TryColor(DictGet(css.Map, "border-color"));
+            if (bColor.HasValue) css.BorderBrushColor = bColor;
+
+            css.BorderRadius = TryCornerRadius(DictGet(css.Map, "border-radius"));
+
+            double gRow, gCol;
+            if (TryGapShorthand(DictGet(css.Map, "gap"), out gRow, out gCol))
+            {
+                css.Gap = gRow; css.RowGap = gRow; css.ColumnGap = gCol;
+            }
+
+            int zIdx;
+            if (TryInt(DictGet(css.Map, "z-index"), out zIdx)) css.ZIndex = zIdx;
+
+            var transform = DictGet(css.Map, "transform");
+            if (!string.IsNullOrEmpty(transform)) css.Transform = transform;
+
+            var transformOrigin = DictGet(css.Map, "transform-origin");
+            if (!string.IsNullOrEmpty(transformOrigin)) css.TransformOrigin = transformOrigin;
+
+            double opacity;
+            if (TryDouble(DictGet(css.Map, "opacity"), out opacity)) css.Opacity = opacity;
+
+            var boxShadow = DictGet(css.Map, "box-shadow");
+            if (!string.IsNullOrEmpty(boxShadow)) css.BoxShadow = boxShadow;
+
+            result[n] = css;
+        }
+
+        private static void InheritFrom(CssComputed parent, CssComputed child)
+        {
+            if (parent.ForegroundColor.HasValue) child.ForegroundColor = parent.ForegroundColor;
+            if (!string.IsNullOrEmpty(parent.FontFamilyName)) child.FontFamilyName = parent.FontFamilyName;
+            if (parent.FontSize.HasValue) child.FontSize = parent.FontSize;
+            if (parent.FontWeight.HasValue) child.FontWeight = parent.FontWeight;
+            if (parent.FontStyle.HasValue) child.FontStyle = parent.FontStyle;
+            if (!string.IsNullOrEmpty(parent.Visibility)) child.Visibility = parent.Visibility;
+            if (!string.IsNullOrEmpty(parent.ListStyleType)) child.ListStyleType = parent.ListStyleType;
+            if (parent.CustomProperties != null)
+            {
+                foreach (var kv in parent.CustomProperties)
+                {
+                    child.CustomProperties[kv.Key] = kv.Value;
+                    child.Map[kv.Key] = kv.Value;
+                }
+            }
+        }
 
         private static Dictionary<LiteElement, CssComputed> CascadeIntoComputedStyles(LiteElement root, List<CssRule> rules, Action<string> log)
         {
@@ -2316,6 +2699,31 @@ namespace WEBVIEW.Engine
         private static bool TryDouble(string s, out double v)
         {
             return double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v);
+        }
+
+        private static bool TryInt(string s, out int v)
+        {
+            return int.TryParse(s, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out v);
+        }
+
+        private static CornerRadius TryCornerRadius(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return default(CornerRadius);
+            var parts = s.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) return default(CornerRadius);
+            double v0;
+            if (parts.Length == 1 && TryPx(parts[0], out v0)) return new CornerRadius(v0);
+            if (parts.Length >= 2)
+            {
+                double v1;
+                TryPx(parts[0], out v0);
+                TryPx(parts[1], out v1);
+                double v2 = v0, v3 = v1;
+                if (parts.Length >= 3) { double tmp; TryPx(parts[2], out tmp); v2 = tmp; }
+                if (parts.Length >= 4) { double tmp; TryPx(parts[3], out tmp); v3 = tmp; }
+                return new CornerRadius(v0, v1, v2, v3);
+            }
+            return default(CornerRadius);
         }
 
         private static double _viewportWidth = 360;

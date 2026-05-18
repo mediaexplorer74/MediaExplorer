@@ -18,7 +18,7 @@
     <ProjectTypeGuids>{A5A43C5B-DE2A-4C0C-9213-0A381AF9435A};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
     <WindowsXamlEnableOverview>true</WindowsXamlEnableOverview>
     <AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>
-    <PackageCertificateThumbprint>42343F0D7B8418676532A0ABBCB8C5880A7D6A62</PackageCertificateThumbprint>
+    <PackageCertificateThumbprint>A0755ED4FA060F045E697279CE237EB1F49028C3</PackageCertificateThumbprint>
     <PackageCertificateKeyFile>MediaExplorer_TemporaryKey.pfx</PackageCertificateKeyFile>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">

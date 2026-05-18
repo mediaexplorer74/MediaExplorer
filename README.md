@@ -1,21 +1,25 @@
-# MediaExplorer 0.18.30-T1 - dev branch (museum build; pre-alpha)
+# MediaExplorer 0.20.0 - dev branch (museum build; pre-alpha)
+
 ![](/Images/logo.png)
+
 
 ## About / Об этой "музейной" штучке
 MediaExplorer (another strange "WebView" codename) is planned as alternative Browser for old sweet Windows 10 Mobile (W10M, >15063). 
 
 Based on my old fork of https://github.com/UDAIE-A/WEBVIEW . 
 
+
 ## Abstract / What's this? / Чё это?!
 
-MediaExplorer is an autobiographical thing, the idea of which arose somewhere in 2021, about 5 years ago (although my nickname of the same name is 40 years old, he has been since the days of the introduction of Internet Explorer and Media Player). The essence of the project is the following version of a web browser for old-school Winphones, so that it is not based on Chakra (Mike's htmlEDGE engine). In the era of the powerful heyday of AI, sometimes I strain all sorts of DeepSeek in the "background" mode-and with a plan to bring the project at least to the opening of simple sites like DuckDickGo :)
+MediaExplorer is an autobiographical thing, the idea of which arose somewhere in 2021, about 5 years ago (although my nickname of the same name is approx. 40 years old, he has been since the days of the introduction of Internet Explorer and Media Player). The essence of the project is the following version of a web browser for old-school Winphones, so that it is not based on Chakra (MS's htmlEDGE engine). In the era of the powerful heyday of AI, sometimes I strain all sorts of DeepSeek in the "background" mode-and with a plan to bring the project at least to the opening of simple sites like DuckDickGo :)
 
-MediaExplorer -- автобиографичная вещь, идея которой возникла где-то в 2021 году, лет так 5 назад (хотя одноименному нику-то моему лет так почи 40, он со времен пояаления Internet Explorer и Media Player). Суть проекта -- ислледовательский вариант веб-браузерочка для олдскульных винфонов, да такой, чтоб не базировался на Чакре (майковском движке htmlEDGE). В эпоху мощного расцвета ИИ иногда в "фоновом режиме" напрягаю всякие DeepSeek-и c планом довести проект хоть до открытия простеньких сайтов типа DuckDickGo :)
+MediaExplorer -- автобиографичная вещь, идея которой возникла где-то в 2021 году, лет так 5 назад (хотя одноименному нику-то моему лет так почти 40, он со времен появления Internet Explorer и Media Player). Суть проекта -- исследовательский вариант веб-браузера для олдскульных винфонов, да такой, чтоб не базировался на Чакре (майковском движке htmlEDGE). В эпоху мощного расцвета ИИ иногда в "фоновом режиме" напрягаю всякие DeepSeek-и c планом довести проект хоть до открытия простеньких сайтов типа DuckDickGo :)
 
 For more tech. info see /Doc folder (Plans, Summeries on partially completed "dev phases").
 
 
 ## Screenshots
+
 ![](/Images/snapshot01.png)
 ![](/Images/snapshot02.png)
 ![](/Images/snapshot03.png)
@@ -36,6 +40,7 @@ Project status: This is a homemade browser engine (HTML/CSS/JS) for W10M without
 
 :: Changed things :: 
 
+- DevTools Console (stub)
 - Snapshot button at App Bar -- did usual screnshot / long-weight (big) screenshot and stores it to Pictures/MediaExplorer folder.
 - 3 UI modes: HIDED ("App Bar Strip"); SEMI ("Semi-visivle&Expandable App Bar"); FULL (Usual App Bar)
 - 3 "Rendering" modes : FULL (JS+HTML); RICH (Lite JS+HTML for Easy Reading+ AI "magic cursor") ; POOR (Hello, old-school FIDO!))) 
@@ -47,7 +52,9 @@ Project status: This is a homemade browser engine (HTML/CSS/JS) for W10M without
 
 
 :: Что изменил ::
-- Разработчиеская пимпа "Snapshot" в app bar -- делает обычный / долговязый ("большой") скриншот в папке Pictures/MediaExplorer.
+
+-  DevTools (заглушка)
+- Разработческая пимпа "Snapshot" в app bar -- делает обычный / долговязый ("большой") скриншот в папке Pictures/MediaExplorer.
 - 3 режима UI: Скрытный ("Нижния панель как полоска"); Полу-открытый (Привет, Surface Duo!); Полный (обычная нижняя панель)
 - 3 режима рендеринга : Полный (JS+HTML); Обогащённый (Лайтовый JS+HTML для ИИ-режима чтения с "волшебным курсором") ; Обедненный (Привет, FIDO-NET!))) 
 - BarStrip высота 8→20px	MainPage.xaml	Полоску видно + легко кликнуть мышью
@@ -57,18 +64,21 @@ Project status: This is a homemade browser engine (HTML/CSS/JS) for W10M without
 - Ctrl+B → toggle bar	MainPage.xaml.cs	Быстрое скрытие/показ панели
 - Теперь панель работает и на мышке: клик по полоске, Ctrl+L для URL, Ctrl+B для сворачивания/разворачивания.
 
-## Not ready / Problems / Knows Bugs
 
-- This src is 100 % "neuro-slop" except ported WebView!
+## Problems / Knows Bugs / Limitaions
+
+- This src is 100 % "neuro-slop" made by AI (except UDAIE-A's WebView src code, ported from WP8 to UWP)!
 - Not tested on any W10M device , no any appx yet.
-- All experimental features (retro-futuristic UI, AI support, etc.) are HIGLY BUGGED (damaged / сломаны, по русски говоря!)
+- All experimental features (retro-futuristic UI, AI support, etc.) are HIGHLY UNFINISHED (недопилены, по-русски говоря!)
 
 
 ## Credits / Благодарности
 - https://github.com/UDAIE-A Developer of original WEBVIEW for Windows Phone 8.1
+- https://github.com/UDAIE-A/WEBVIEW WebView, experimental alternative browser (wp8, not uwp)
 
 ## ..
 As is. No support. RnD only. DIY.
+
 
 ## .
 [m][e] May, 18 2026

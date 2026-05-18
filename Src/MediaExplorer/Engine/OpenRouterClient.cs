@@ -19,11 +19,7 @@ namespace BrowserCore.Engine
                 return "Error: No page content to summarize.";
 
             var escaped = JsonValue.CreateStringValue(pageText).Stringify();
-            var json = $@"{{""model"":""deepseek/deepseek-v4-flash:free"",
-""messages"":[{{""role"":""system"",
-""content"":""Summarize the following web page content in 3-5 concise bullet points. Focus on key facts and main topic.""}},
-{{""role"":""user"",""content"":{escaped}}}],
-""max_tokens"":500,""temperature"":0.3}}";
+            var json = $@"{{""model"":""deepseek/deepseek-chat"",""messages"":[{{""role"":""system"",""content"":""Summarize the following web page content in 3-5 concise bullet points. Focus on key facts and main topic.""}},{{""role"":""user"",""content"":{escaped}}}],""max_tokens"":500,""temperature"":0.3}}";
 
             try
             {
