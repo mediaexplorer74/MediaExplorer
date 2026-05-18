@@ -315,6 +315,38 @@ Maintain a handwritten reference table in `Doc/Perf_Baseline.md` with expected r
 
 Maintain a `/Images/tests/` folder in the repo with reference screenshots for each T-C-xxx test case and each T-S-xxx target site. When a CSS change is made, compare the new render against the reference screenshot visually. Low-tech but effective for a solo project.
 
+### T.5 — Snapshot Button (AppBar Screenshot)
+
+Add a **Snapshot** button (📷 camera icon) to the bottom AppBar. On click:
+1. Captures the `ContentArea` using `RenderTargetBitmap`
+2. Encodes to PNG via `PngBitmapEncoder`
+3. Saves to `Pictures\MediaExplorer\` folder with auto-generated filename:
+   - `about:test` → `test_YYYYMMDD_HHMMSS.png`
+   - `ya.ru` → `ya_ru_YYYYMMDD_HHMMSS.png`
+   - `duckduckgo.com` → `duckduckgo_com_YYYYMMDD_HHMMSS.png`
+4. Shows status message: `"Snapshot saved: <filename>"`
+
+Filename sanitization: replace `.` → `_`, strip scheme, remove query/fragment.
+
+```csharp
+// MainPage.xaml.cs — SnapshotButton_Click
+private async void SnapshotButton_Click(object sender, RoutedEventArgs e)
+{
+    var bitmap = new RenderTargetBitmap();
+    await bitmap.RenderAsync(ContentArea);
+    var pixels = await bitmap.GetPixelsAsync();
+    // Encode to PNG → save to Pictures\MediaExplorer\
+}
+```
+
+**Files affected:**
+
+| File | Change |
+|------|--------|
+| `MainPage.xaml` | Add SnapshotButton (Grid.Column 6, FontIcon Glyph="&#xE722;") |
+| `MainPage.xaml.cs` | Add SnapshotButton_Click handler + filename sanitization |
+| `Doc/Plan_03.md` | This section (T.5) |
+
 ### Files affected
 
 | File | Change |

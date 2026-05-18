@@ -18,7 +18,7 @@
     <ProjectTypeGuids>{A5A43C5B-DE2A-4C0C-9213-0A381AF9435A};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
     <WindowsXamlEnableOverview>true</WindowsXamlEnableOverview>
     <AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>
-    <PackageCertificateThumbprint>A0755ED4FA060F045E697279CE237EB1F49028C3</PackageCertificateThumbprint>
+    <PackageCertificateThumbprint>42343F0D7B8418676532A0ABBCB8C5880A7D6A62</PackageCertificateThumbprint>
     <PackageCertificateKeyFile>MediaExplorer_TemporaryKey.pfx</PackageCertificateKeyFile>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
@@ -151,6 +151,7 @@
     <Compile Include="Engine\RendererStyles.cs" />
     <Compile Include="Engine\ResourceManager.cs" />
     <Compile Include="Engine\SandboxPolicy.cs" />
+    <Compile Include="Engine\TestLogger.cs" />
     <!-- <Compile Include="Engine\SimpleWrapPanel.cs" /> -->
     <Compile Include="Engine\UiThreadHelper.cs" />
     <Compile Include="Engine\VideoHost.cs" />
@@ -225,6 +226,7 @@
     <Content Include="Html\test_typography.html" />
     <Content Include="Html\welcome.css" />
     <Content Include="Html\welcome.html" />
+    <Content Include="Html\test.html" />
     <Content Include="Html\welcome.js" />
     <Content Include="Properties\Default.rd.xml" />
     <Content Include="Assets\LockScreenLogo.scale-200.png" />

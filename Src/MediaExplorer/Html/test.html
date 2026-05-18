@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>MediaExplorer Test Suite</title>
+    <style>
+        /* === Global test styles === */
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            padding: 16px;
+            background: #f5f5f5;
+            color: #333;
+            margin: 0;
+        }
+        h1 { color: #0078D7; margin-bottom: 4px; }
+        h2 { color: #444; border-bottom: 1px solid #ccc; padding-bottom: 4px; margin-top: 24px; }
+        .section-label {
+            background: #0078D7;
+            color: white;
+            padding: 4px 12px;
+            font-weight: bold;
+            font-size: 14px;
+            display: inline-block;
+            margin-bottom: 12px;
+        }
+        .test-card {
+            background: white;
+            border: 1px solid #ddd;
+            padding: 12px;
+            margin-bottom: 12px;
+            border-radius: 4px;
+        }
+        .test-id {
+            font-family: monospace;
+            font-size: 11px;
+            color: #888;
+            background: #eee;
+            padding: 2px 6px;
+            border-radius: 2px;
+        }
+        .expected {
+            font-size: 12px;
+            color: #666;
+            font-style: italic;
+            margin-top: 6px;
+        }
+        .pass { color: green; font-weight: bold; }
+        .fail { color: red; font-weight: bold; }
+
+        /* === Section B: CSS test cells === */
+        .css-cell {
+            border: 1px solid #ccc;
+            padding: 8px;
+            margin-bottom: 8px;
+            background: #fafafa;
+        }
+        .css-cell .label {
+            font-size: 12px;
+            color: #555;
+            margin-bottom: 4px;
+        }
+    </style>
+</head>
+<body>
+
+<!-- ======================== HEADER ======================== -->
+<h1>MediaExplorer Test Suite</h1>
+<p style="font-size:12px; color:#888;">Navigate via <code>ms-appx:///Html/test.html</code> or <code>about:test</code></p>
+
+<!-- ======================== SECTION A: HTML STRUCTURE ======================== -->
+<div class="section-label">Section A — HTML Structure</div>
+
+<!-- T-H-001: Headings -->
+<div class="test-card">
+    <span class="test-id">T-H-001</span>
+    <h2>Headings</h2>
+    <h1>H1 Heading</h1>
+    <h2>H2 Heading</h2>
+    <h3>H3 Heading</h3>
+    <h4>H4 Heading</h4>
+    <h5>H5 Heading</h5>
+    <h6>H6 Heading</h6>
+    <div class="expected">Expected: decreasing font size, all bold</div>
+</div>
+
+<!-- T-H-002: Lists -->
+<div class="test-card">
+    <span class="test-id">T-H-002</span>
+    <h2>Lists</h2>
+    <ul>
+        <li>Apple</li>
+        <li>Banana</li>
+        <li>Cherry</li>
+    </ul>
+    <ol>
+        <li>First</li>
+        <li>Second</li>
+        <li>Third</li>
+    </ol>
+    <div class="expected">Expected: bullets for ul, numbers for ol</div>
+</div>
+
+<!-- T-H-003: Table -->
+<div class="test-card">
+    <span class="test-id">T-H-003</span>
+    <h2>Table with colspan/rowspan</h2>
+    <table style="border-collapse:collapse; width:100%;">
+        <tr>
+            <th colspan="2" style="border:1px solid #999; padding:6px; background:#eee;">Header (colspan=2)</th>
+        </tr>
+        <tr>
+            <td style="border:1px solid #999; padding:6px;">A</td>
+            <td style="border:1px solid #999; padding:6px;">B</td>
+        </tr>
+        <tr>
+            <td style="border:1px solid #999; padding:6px;">C</td>
+            <td style="border:1px solid #999; padding:6px;">D</td>
+        </tr>
+    </table>
+    <div class="expected">Expected: bordered table, header spans 2 columns</div>
+</div>
+
+<!-- T-H-004: Forms -->
+<div class="test-card">
+    <span class="test-id">T-H-004</span>
+    <h2>Form Elements</h2>
+    <form>
+        <input type="text" placeholder="Enter text" style="width:200px; padding:4px; margin:4px 0;"><br>
+        <input type="checkbox" id="cb1"> <label for="cb1">Checkbox</label><br>
+        <input type="password" placeholder="Password" style="width:200px; padding:4px; margin:4px 0;"><br>
+        <select style="padding:4px; margin:4px 0;">
+            <option>Option 1</option>
+            <option>Option 2</option>
+        </select><br>
+        <button type="button" style="padding:6px 16px; margin:4px 0;">Submit</button>
+    </form>
+    <div class="expected">Expected: text input, checkbox, password, dropdown, button</div>
+</div>
+
+<!-- T-H-005: Inline elements -->
+<div class="test-card">
+    <span class="test-id">T-H-005</span>
+    <h2>Inline Elements</h2>
+    <p>This is <strong>bold</strong>, <em>italic</em>, <code>code</code>,
+       <a href="#">link</a>, and <abbr title="abbreviation">abbr</abbr>.</p>
+    <div class="expected">Expected: bold, italic, monospace code, blue link</div>
+</div>
+
+<!-- T-H-006: Blockquote + Pre -->
+<div class="test-card">
+    <span class="test-id">T-H-006</span>
+    <h2>Blockquote &amp; Pre</h2>
+    <blockquote style="border-left:3px solid #0078D7; padding-left:12px; margin:8px 0; color:#555;">
+        This is a blockquote with a left border.
+    </blockquote>
+    <pre style="background:#eee; padding:8px; overflow-x:auto;">function hello() {
+    console.log("pre-formatted");
+}</pre>
+    <div class="expected">Expected: indented quote, monospace pre block</div>
+</div>
+
+<!-- T-H-007: Images -->
+<div class="test-card">
+    <span class="test-id">T-H-007</span>
+    <h2>Images</h2>
+    <p>Remote image:</p>
+    <img src="https://upload.wikimedia.org/wikipedia/en/a/a9/Example.jpg" alt="Example" style="max-width:200px;">
+    <p>Broken image (should show alt):</p>
+    <img src="https://broken.invalid/image.png" alt="Broken Image">
+    <div class="expected">Expected: Wikipedia example.jpg loads; broken shows placeholder</div>
+</div>
+
+<!-- T-H-008: Nested divs -->
+<div class="test-card">
+    <span class="test-id">T-H-008</span>
+    <h2>Nested Divs &amp; Spans</h2>
+    <div style="background:#eee; padding:10px; margin:4px 0;">
+        Outer div
+        <span style="color:red;">Red span</span>
+        <div style="background:#ccc; margin:5px; padding:8px;">Inner div</div>
+    </div>
+    <div class="expected">Expected: gray outer, red text, lighter gray inner</div>
+</div>
+
+<!-- ======================== SECTION B: CSS PROPERTIES ======================== -->
+<div class="section-label" style="margin-top:24px;">Section B — CSS Properties</div>
+
+<!-- T-C-001: box-sizing -->
+<div class="test-card">
+    <span class="test-id">T-C-001</span>
+    <h2>box-sizing: border-box</h2>
+    <div style="width:200px; padding:20px; border:5px solid black; box-sizing:border-box; background:#fde;">
+        Total width should be 200px (including padding+border)
+    </div>
+    <div class="expected">Expected: box is exactly 200px wide, content squeezed</div>
+</div>
+
+<!-- T-C-002: flexbox -->
+<div class="test-card">
+    <span class="test-id">T-C-002</span>
+    <h2>Flexbox Row</h2>
+    <div style="display:flex; gap:10px; background:#edf; padding:8px;">
+        <div style="flex:1; background:pink; padding:5px;">1 (flex:1)</div>
+        <div style="flex:2; background:lightblue; padding:5px;">2 (flex:2, twice as wide)</div>
+        <div style="flex:1; background:lightgreen; padding:5px;">3 (flex:1)</div>
+    </div>
+    <div class="expected">Expected: 3 colored boxes in row, middle is wider</div>
+</div>
+
+<!-- T-C-003: text-overflow -->
+<div class="test-card">
+    <span class="test-id">T-C-003</span>
+    <h2>text-overflow: ellipsis</h2>
+    <div style="width:150px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; border:1px solid #999; padding:4px;">
+        This text is too long and should be cut with ellipsis
+    </div>
+    <div class="expected">Expected: text cut off with "..." at end</div>
+</div>
+
+<!-- T-C-004: background-image -->
+<div class="test-card">
+    <span class="test-id">T-C-004</span>
+    <h2>background-image</h2>
+    <div style="width:100px; height:100px; background-image:url(https://httpbin.org/image/png); background-size:cover; border:1px solid #999;">
+    </div>
+    <div class="expected">Expected: small image fills the 100x100 box</div>
+</div>
+
+<!-- T-C-005: border-radius -->
+<div class="test-card">
+    <span class="test-id">T-C-005</span>
+    <h2>border-radius</h2>
+    <div style="border-radius:12px; background:gold; padding:10px; width:120px; text-align:center;">
+        Rounded corners
+    </div>
+    <div class="expected">Expected: gold box with rounded corners (may be rectangular on W10M)</div>
+</div>
+
+<!-- T-C-006: position relative+absolute -->
+<div class="test-card">
+    <span class="test-id">T-C-006</span>
+    <h2>position: relative + absolute</h2>
+    <div style="position:relative; height:60px; background:#eed; border:1px solid #999;">
+        Relative container
+        <div style="position:absolute; right:5px; top:5px; background:coral; padding:3px;">
+            Absolute child
+        </div>
+    </div>
+    <div class="expected">Expected: coral box in top-right corner of container</div>
+</div>
+
+<!-- T-C-007: CSS Grid -->
+<div class="test-card">
+    <span class="test-id">T-C-007</span>
+    <h2>CSS Grid (3 columns)</h2>
+    <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px;">
+        <div style="background:tomato; padding:5px; color:white;">Col 1</div>
+        <div style="background:gold; padding:5px;">Col 2</div>
+        <div style="background:lightgreen; padding:5px;">Col 3</div>
+    </div>
+    <div class="expected">Expected: 3 equal columns (fallback to block if grid unsupported)</div>
+</div>
+
+<!-- T-C-008: transform rotate -->
+<div class="test-card">
+    <span class="test-id">T-C-008</span>
+    <h2>transform: rotate()</h2>
+    <div style="display:inline-block; transform:rotate(15deg); background:skyblue; padding:8px 16px; margin:20px;">
+        Rotated 15°
+    </div>
+    <div style="display:inline-block; transform:rotate(-30deg); background:orange; padding:8px 16px; margin:20px;">
+        Rotated -30°
+    </div>
+    <div class="expected">Expected: two boxes tilted at different angles</div>
+</div>
+
+<!-- T-C-009: opacity -->
+<div class="test-card">
+    <span class="test-id">T-C-009</span>
+    <h2>opacity</h2>
+    <div style="display:flex; gap:8px; align-items:center;">
+        <div style="background:red; width:60px; height:40px; opacity:1.0;">100%</div>
+        <div style="background:red; width:60px; height:40px; opacity:0.6;">60%</div>
+        <div style="background:red; width:60px; height:40px; opacity:0.3;">30%</div>
+    </div>
+    <div class="expected">Expected: three red boxes fading from solid to transparent</div>
+</div>
+
+<!-- T-C-010: visibility -->
+<div class="test-card">
+    <span class="test-id">T-C-010</span>
+    <h2>visibility: hidden</h2>
+    <div style="display:flex; gap:5px;">
+        <div style="background:blue; width:40px; height:40px; color:white; text-align:center;">1</div>
+        <div style="background:blue; width:40px; height:40px; visibility:hidden;">2</div>
+        <div style="background:blue; width:40px; height:40px; color:white; text-align:center;">3</div>
+    </div>
+    <div class="expected">Expected: gap where hidden element is (space preserved)</div>
+</div>
+
+<!-- T-C-011: calc() -->
+<div class="test-card">
+    <span class="test-id">T-C-011</span>
+    <h2>calc() + vw/vh</h2>
+    <div style="width:200px; background:#eee; border:1px solid #999; padding:4px;">
+        Container: 200px
+        <div style="width:calc(100% - 40px); background:lime; padding:4px;">
+            calc(100% - 40px) → should be 160px
+        </div>
+    </div>
+    <div style="width:50vw; background:lightyellow; padding:4px; margin-top:8px;">
+        50vw wide (half viewport)
+    </div>
+    <div class="expected">Expected: inner green bar narrower than container; yellow bar half screen</div>
+</div>
+
+<!-- T-C-012: transform scale -->
+<div class="test-card">
+    <span class="test-id">T-C-012</span>
+    <h2>transform: scale()</h2>
+    <div style="display:inline-block; transform:scale(1.5); background:purple; color:white; padding:8px; margin:10px;">
+        Scaled 1.5x
+    </div>
+    <div style="display:inline-block; transform:scale(0.7); background:teal; color:white; padding:8px; margin:10px;">
+        Scaled 0.7x
+    </div>
+    <div class="expected">Expected: purple box bigger, teal box smaller</div>
+</div>
+
+<!-- T-C-013: transform translate -->
+<div class="test-card">
+    <span class="test-id">T-C-013</span>
+    <h2>transform: translate()</h2>
+    <div style="background:#eee; height:60px; border:1px dashed #999; position:relative;">
+        <div style="transform:translateX(40px) translateY(10px); background:navy; color:white; padding:4px 8px; display:inline-block;">
+            Translated
+        </div>
+    </div>
+    <div class="expected">Expected: navy box shifted right 40px and down 10px</div>
+</div>
+
+<!-- T-C-014: grid-template-areas -->
+<div class="test-card">
+    <span class="test-id">T-C-014</span>
+    <h2>grid-template-areas</h2>
+    <div style="display:grid; grid-template-areas: 'header header' 'sidebar main' 'footer footer'; grid-template-columns: 1fr 2fr; gap:4px;">
+        <div style="grid-area:header; background:#333; color:white; padding:6px;">Header</div>
+        <div style="grid-area:sidebar; background:#666; color:white; padding:6px;">Sidebar</div>
+        <div style="grid-area:main; background:#ddd; padding:6px;">Main Content</div>
+        <div style="grid-area:footer; background:#333; color:white; padding:6px;">Footer</div>
+    </div>
+    <div class="expected">Expected: 4 areas in classic layout (fallback to block if unsupported)</div>
+</div>
+
+<!-- T-C-015: transition (manual test) -->
+<div class="test-card">
+    <span class="test-id">T-C-015</span>
+    <h2>CSS Transitions (manual)</h2>
+    <div id="transition-box" style="width:80px; height:40px; background:#0078D7; color:white; text-align:center; line-height:40px; cursor:pointer; transition: opacity 0.3s; border-radius:4px;">
+        Tap me
+    </div>
+    <div class="expected">Expected: tap → opacity changes with fade (if transitions supported)</div>
+</div>
+
+<!-- ======================== SECTION C: JS BEHAVIOR ======================== -->
+<div class="section-label" style="margin-top:24px;">Section C — JavaScript Behavior</div>
+
+<div class="test-card">
+    <span class="test-id">T-J-xxx</span>
+    <h2>JS Test Results</h2>
+    <div id="js-results" style="font-family:monospace; font-size:12px; background:#1e1e1e; color:#d4d4d4; padding:12px; border-radius:4px;">
+        Running tests...
+    </div>
+    <script>
+    (function() {
+        var results = document.getElementById('js-results');
+        if (!results) return;
+        var passed = 0, failed = 0;
+        var html = '';
+
+        function assert(name, condition, actual) {
+            if (condition) {
+                html += '<div style="color:#4ec9b0;">[PASS] ' + name + '</div>';
+                passed++;
+            } else {
+                html += '<div style="color:#f44747;">[FAIL] ' + name +
+                    (actual !== undefined ? ' — got: ' + actual : '') + '</div>';
+                failed++;
+            }
+        }
+
+        // T-J-001: Basic arithmetic
+        var x = 10;
+        assert('T-J-001 var-arithmetic', x * 2 === 20);
+
+        // T-J-002: let block scoping
+        try {
+            eval('{ let y = 5; }');
+            assert('T-J-002 let-block-scope', typeof y === 'undefined', typeof y);
+        } catch(e) {
+            assert('T-J-002 let-block-scope', false, 'eval error: ' + e.message);
+        }
+
+        // T-J-003: Array methods
+        var arr = [1,2,3];
+        assert('T-J-003 Array.map', arr.map(function(n){ return n*2; }).join(',') === '2,4,6');
+        assert('T-J-003 Array.filter', arr.filter(function(n){ return n > 1; }).length === 2);
+
+        // T-J-004: String methods
+        assert('T-J-004 String.includes', 'hello world'.includes('world'));
+        assert('T-J-004 String.trim', '  hi  '.trim() === 'hi');
+
+        // T-J-005: setTimeout
+        var timerFired = false;
+        setTimeout(function(){ timerFired = true; }, 10);
+        setTimeout(function(){
+            assert('T-J-005 setTimeout-fires', timerFired);
+        }, 100);
+
+        // T-J-006: DOM access
+        var el = document.getElementById('js-results');
+        assert('T-J-006 getElementById', el !== null);
+        assert('T-J-006 element.tagName', el.tagName === 'DIV' || el.tagName === 'div', el ? el.tagName : 'null');
+
+        // T-J-007: DOM mutation
+        var div = document.createElement('div');
+        div.innerHTML = '<span>test</span>';
+        assert('T-J-007 createElement+innerHTML', div.innerHTML.indexOf('test') >= 0, div.innerHTML);
+
+        // T-J-008: JSON
+        var obj = JSON.parse('{"a":1,"b":"two"}');
+        assert('T-J-008 JSON.parse', obj.a === 1 && obj.b === 'two');
+        assert('T-J-008 JSON.stringify', JSON.stringify({x:42}) === '{"x":42}');
+
+        // T-J-009: Promise
+        var pFired = false;
+        try {
+            Promise.resolve(42).then(function(v){ pFired = (v === 42); });
+            setTimeout(function(){ assert('T-J-009 Promise.resolve.then', pFired); }, 150);
+        } catch(e) {
+            assert('T-J-009 Promise', false, 'Promise not supported');
+        }
+
+        // T-J-010: setAttribute + class change
+        var testEl = document.createElement('div');
+        testEl.setAttribute('class', 'old-class');
+        assert('T-J-010 setAttribute-class', testEl.getAttribute('class') === 'old-class');
+        testEl.setAttribute('class', 'new-class');
+        assert('T-J-010 setAttribute-class-change', testEl.getAttribute('class') === 'new-class');
+
+        // T-J-011: appendChild
+        var parent = document.createElement('div');
+        var child = document.createElement('span');
+        child.textContent = 'child';
+        parent.appendChild(child);
+        assert('T-J-011 appendChild', parent.childNodes.length === 1);
+
+        // T-J-012: removeChild
+        parent.removeChild(child);
+        assert('T-J-012 removeChild', parent.childNodes.length === 0);
+
+        // Summary (delayed for async tests)
+        setTimeout(function(){
+            html += '<hr style="border-color:#555;">';
+            html += '<b style="color:#dcdcaa;">Results: ' + passed + ' passed, ' + failed + ' failed</b>';
+            results.innerHTML = html;
+        }, 300);
+    })();
+    </script>
+</div>
+
+<!-- ======================== SECTION D: SITE MATRIX ======================== -->
+<div class="section-label" style="margin-top:24px;">Section D — Site Smoke Test Matrix</div>
+
+<div class="test-card">
+    <span class="test-id">T-S-xxx</span>
+    <h2>Manual Site Tests</h2>
+    <p style="font-size:13px;">Navigate to each URL manually and check minimum acceptable result:</p>
+    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <tr style="background:#eee;">
+            <th style="border:1px solid #999; padding:4px; text-align:left;">ID</th>
+            <th style="border:1px solid #999; padding:4px; text-align:left;">URL</th>
+            <th style="border:1px solid #999; padding:4px; text-align:left;">Minimum Result</th>
+        </tr>
+        <tr><td style="border:1px solid #999; padding:4px;">T-S-001</td><td style="border:1px solid #999; padding:4px;">duckduckgo.com</td><td style="border:1px solid #999; padding:4px;">Search box visible, typing works</td></tr>
+        <tr><td style="border:1px solid #999; padding:4px;">T-S-002</td><td style="border:1px solid #999; padding:4px;">ya.ru</td><td style="border:1px solid #999; padding:4px;">Logo + search bar visible</td></tr>
+        <tr><td style="border:1px solid #999; padding:4px;">T-S-003</td><td style="border:1px solid #999; padding:4px;">dzen.ru</td><td style="border:1px solid #999; padding:4px;">Page structure visible, no crash</td></tr>
+        <tr><td style="border:1px solid #999; padding:4px;">T-S-004</td><td style="border:1px solid #999; padding:4px;">httpbin.org/html</td><td style="border:1px solid #999; padding:4px;">Text readable (Moby Dick)</td></tr>
+        <tr><td style="border:1px solid #999; padding:4px;">T-S-005</td><td style="border:1px solid #999; padding:4px;">example.com</td><td style="border:1px solid #999; padding:4px;">Renders correctly</td></tr>
+        <tr><td style="border:1px solid #999; padding:4px;">T-S-006</td><td style="border:1px solid #999; padding:4px;">lite.cnn.com</td><td style="border:1px solid #999; padding:4px;">Articles list visible</td></tr>
+        <tr><td style="border:1px solid #999; padding:4px;">T-S-007</td><td style="border:1px solid #999; padding:4px;">text.npr.org</td><td style="border:1px solid #999; padding:4px;">Articles readable</td></tr>
+        <tr><td style="border:1px solid #999; padding:4px;">T-S-008</td><td style="border:1px solid #999; padding:4px;">lobste.rs</td><td style="border:1px solid #999; padding:4px;">Link list visible</td></tr>
+        <tr><td style="border:1px solid #999; padding:4px;">T-S-009</td><td style="border:1px solid #999; padding:4px;">hacker-news.firebaseapp.com</td><td style="border:1px solid #999; padding:4px;">Loads or degrades gracefully</td></tr>
+        <tr><td style="border:1px solid #999; padding:4px;">T-S-010</td><td style="border:1px solid #999; padding:4px;">about:test</td><td style="border:1px solid #999; padding:4px;">This page — all T-H/T-C pass visually</td></tr>
+    </table>
+</div>
+
+<!-- Footer -->
+<div style="margin-top:24px; padding:12px; background:#333; color:#aaa; font-size:11px; text-align:center; border-radius:4px;">
+    MediaExplorer Test Suite v0.1 — Plan 03 Phase T — 2026-05-18
+</div>
+
+</body>
+</html>

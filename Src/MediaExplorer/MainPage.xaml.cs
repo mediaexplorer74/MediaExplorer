@@ -10,6 +10,9 @@ using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Navigation;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Animation;
+using Windows.UI.Xaml.Media.Imaging;
+using Windows.Graphics.Imaging;
+using System.Runtime.InteropServices.WindowsRuntime;
 using BrowserCore.Engine;
 using BrowserCore.Api;
 using Windows.Web.Http;
@@ -51,6 +54,7 @@ namespace WEBVIEW
             if (ForwardButton != null) ForwardButton.Click += ForwardButton_Click;
             if (SettingsButton != null) SettingsButton.Click += SettingsButton_Click;
             if (AiButton != null) AiButton.Click += AiButton_Click;
+            if (SnapshotButton != null) SnapshotButton.Click += SnapshotButton_Click;
             if (AiCloseButton != null) AiCloseButton.Click += AiCloseButton_Click;
             if (AiCopyButton != null) AiCopyButton.Click += AiCopyButton_Click;
             if (ReaderCloseButton != null) ReaderCloseButton.Click += ReaderCloseButton_Click;
@@ -322,6 +326,28 @@ namespace WEBVIEW
                 UpdateStatusMessage("Enter a URL.");
                 return;
             }
+
+            // about:scheme routing
+            if (address.StartsWith("about:", StringComparison.OrdinalIgnoreCase))
+            {
+                var aboutPage = address.Substring(6).Trim().ToLowerInvariant();
+                if (aboutPage == "test")
+                {
+                    address = "ms-appx:///Html/test.html";
+                }
+                else if (aboutPage == "blank")
+                {
+                    ResetContentHost();
+                    UpdateStatusMessage("about:blank");
+                    return;
+                }
+                else
+                {
+                    UpdateStatusMessage("Unknown about: page — " + address);
+                    return;
+                }
+            }
+
             if (!address.StartsWith("http", StringComparison.OrdinalIgnoreCase) &&
                 !address.StartsWith("file", StringComparison.OrdinalIgnoreCase) &&
                 !address.StartsWith("ms-appx", StringComparison.OrdinalIgnoreCase))
@@ -425,6 +451,16 @@ namespace WEBVIEW
             int seq = _renderSequence;
             double w = 0, h = 0;
             try { w = element.Width; h = element.Height; } catch { }
+            
+            // NaN guard: use ActualWidth/ActualHeight as fallback
+            bool hasNaN = double.IsNaN(w) || double.IsNaN(h) || double.IsInfinity(w) || double.IsInfinity(h);
+            if (hasNaN)
+            {
+                try { w = element.ActualWidth; h = element.ActualHeight; } catch { }
+                if (double.IsNaN(w) || double.IsInfinity(w)) w = 0;
+                if (double.IsNaN(h) || double.IsInfinity(h)) h = 0;
+            }
+            
             System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady seq=" + seq + " currentSeq=" + _renderSequence + " elementSize=" + w + "x" + h + " type=" + element.GetType().Name);
             Ui(() =>
             {
@@ -644,6 +680,329 @@ namespace WEBVIEW
         {
             _resources.ClearCache();
             UpdateStatusMessage("Cache cleared.");
+        }
+
+        // --- Snapshot (screenshot) ---
+
+        private async void SnapshotButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("[Snapshot] START");
+
+                // Check if page is scrollable and tall enough to warrant scrolling capture
+                ScrollViewer sv = null;
+                try
+                {
+                    for (int i = 0; i < Windows.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(ContentArea); i++)
+                    {
+                        var child = Windows.UI.Xaml.Media.VisualTreeHelper.GetChild(ContentArea, i);
+                        if (child is ScrollViewer) { sv = (ScrollViewer)child; break; }
+                    }
+                }
+                catch { }
+
+                // If scrollable height is significant (more than 1.5x viewport), use scrolling mode
+                if (sv != null && sv.ScrollableHeight > sv.ViewportHeight * 1.5)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] Page is tall (" + sv.ScrollableHeight + " > " + (sv.ViewportHeight * 1.5) + "), using SnapshotWithScrolling");
+                    SnapshotWithScrolling();
+                    return;
+                }
+
+                // Otherwise, use basic snapshot (faster)
+                System.Diagnostics.Debug.WriteLine("[Snapshot] Page fits in viewport, using basic snapshot");
+
+                // Prefer _activeVisual (the rendered page Border) over ContentArea
+                FrameworkElement target = _activeVisual;
+                if (target == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] _activeVisual is null, falling back to ContentHost");
+                    target = ContentHost;
+                }
+                if (target == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] FAIL: no render target available");
+                    UpdateStatusMessage("Snapshot: nothing to capture.");
+                    return;
+                }
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] target=" + target.GetType().Name + " ActualSize=" + target.ActualWidth + "x" + target.ActualHeight);
+
+                UpdateStatusMessage("Taking snapshot...");
+
+                var bitmap = new RenderTargetBitmap();
+                await bitmap.RenderAsync(target);
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] bitmap.PixelWidth=" + bitmap.PixelWidth + " PixelHeight=" + bitmap.PixelHeight);
+
+                if (bitmap.PixelWidth == 0 || bitmap.PixelHeight == 0)
+                {
+                    // Fallback: try rendering ContentArea (visible viewport)
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] Zero-size bitmap, trying ContentArea fallback");
+                    if (ContentArea != null)
+                    {
+                        bitmap = new RenderTargetBitmap();
+                        await bitmap.RenderAsync(ContentArea);
+                        System.Diagnostics.Debug.WriteLine("[Snapshot] fallback bitmap=" + bitmap.PixelWidth + "x" + bitmap.PixelHeight);
+                    }
+                    if (bitmap.PixelWidth == 0 || bitmap.PixelHeight == 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine("[Snapshot] FAIL: still zero-size");
+                        UpdateStatusMessage("Snapshot failed: could not capture content.");
+                        return;
+                    }
+                }
+
+                var pixelBuffer = await bitmap.GetPixelsAsync();
+                var pixels = pixelBuffer.ToArray();
+                System.Diagnostics.Debug.WriteLine("[Snapshot] pixels.Length=" + pixels.Length);
+
+                var filename = GenerateSnapshotFilename();
+                System.Diagnostics.Debug.WriteLine("[Snapshot] filename=" + filename);
+
+                await SavePngAsync(bitmap, pixels, filename);
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] DONE");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[Snapshot] ERROR: " + ex.GetType().Name + " — " + ex.Message);
+                if (ex.InnerException != null)
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] Inner: " + ex.InnerException.Message);
+                UpdateStatusMessage("Snapshot failed: " + ex.Message, overrideStartup: true);
+            }
+        }
+
+        // --- Snapshot with scrolling support (full-page capture) ---
+
+        private async void SnapshotWithScrolling()
+        {
+            try
+            {
+                if (ContentHost.Children.Count == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] FAIL: ContentHost has no children");
+                    UpdateStatusMessage("Snapshot: nothing to capture.");
+                    return;
+                }
+
+                UpdateStatusMessage("Taking full-page snapshot...");
+
+                // Find the ScrollViewer inside ContentArea
+                ScrollViewer sv = null;
+                try
+                {
+                    for (int i = 0; i < Windows.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(ContentArea); i++)
+                    {
+                        var child = Windows.UI.Xaml.Media.VisualTreeHelper.GetChild(ContentArea, i);
+                        if (child is ScrollViewer) { sv = (ScrollViewer)child; break; }
+                    }
+                }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[Snapshot] Find SV error: " + ex.Message); }
+
+                if (sv == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] No ScrollViewer found, using basic snapshot");
+                    SnapshotButton_Click(null, null);
+                    return;
+                }
+
+                double originalOffset = sv.VerticalOffset;
+                double viewportHeight = sv.ViewportHeight;
+                double totalHeight = sv.ScrollableHeight + viewportHeight;
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] Viewport=" + viewportHeight + " Total=" + totalHeight + " Scrollable=" + sv.ScrollableHeight);
+
+                // Calculate number of captures needed (limit to 50 to prevent memory issues)
+                int captures = (int)Math.Ceiling(totalHeight / viewportHeight);
+                if (captures > 50) captures = 50;
+                if (captures < 1) captures = 1;
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] Will capture " + captures + " frames");
+
+                var frames = new List<byte[]>();
+                int frameWidth = 0, frameHeight = 0;
+
+                try
+                {
+                    for (int i = 0; i < captures; i++)
+                    {
+                        double offset = i * viewportHeight;
+                        if (offset > sv.ScrollableHeight) offset = sv.ScrollableHeight;
+
+                        System.Diagnostics.Debug.WriteLine("[Snapshot] Scrolling to offset " + offset + " (frame " + (i + 1) + "/" + captures + ")");
+                        UpdateStatusMessage("Capturing frame " + (i + 1) + "/" + captures + "...");
+
+                        // Scroll to position
+                        sv.ChangeView(null, offset, null, true);
+
+                        // Wait for rendering to complete
+                        await Task.Delay(250);
+
+                        // Capture the frame
+                        var bitmap = new RenderTargetBitmap();
+                        await bitmap.RenderAsync(ContentArea);
+
+                        if (bitmap.PixelWidth == 0 || bitmap.PixelHeight == 0)
+                        {
+                            System.Diagnostics.Debug.WriteLine("[Snapshot] Frame " + (i + 1) + " is empty, skipping");
+                            continue;
+                        }
+
+                        frameWidth = bitmap.PixelWidth;
+                        frameHeight = bitmap.PixelHeight;
+
+                        var pixelBuffer = await bitmap.GetPixelsAsync();
+                        frames.Add(pixelBuffer.ToArray());
+
+                        System.Diagnostics.Debug.WriteLine("[Snapshot] Frame " + (i + 1) + " captured: " + frameWidth + "x" + frameHeight);
+                    }
+                }
+                finally
+                {
+                    // Restore original scroll position
+                    try { sv.ChangeView(null, originalOffset, null, true); } catch { }
+                }
+
+                if (frames.Count == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] FAIL: no frames captured");
+                    UpdateStatusMessage("Snapshot failed: could not capture content.");
+                    return;
+                }
+
+                // Stitch frames together vertically
+                System.Diagnostics.Debug.WriteLine("[Snapshot] Stitching " + frames.Count + " frames...");
+                UpdateStatusMessage("Stitching " + frames.Count + " frames...");
+
+                int totalPixelHeight = frameHeight * frames.Count;
+                var stitchedPixels = new byte[frameWidth * totalPixelHeight * 4];
+
+                for (int i = 0; i < frames.Count; i++)
+                {
+                    var frame = frames[i];
+                    int destOffset = i * frameWidth * frameHeight * 4;
+                    Array.Copy(frame, 0, stitchedPixels, destOffset, frame.Length);
+                }
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] Stitched size: " + frameWidth + "x" + totalPixelHeight);
+
+                var filename = GenerateSnapshotFilename();
+                await SaveStitchedPngAsync(frameWidth, totalPixelHeight, stitchedPixels, filename);
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] DONE");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[Snapshot] OUTER error: " + ex.GetType().Name + " — " + ex.Message);
+                if (ex.InnerException != null)
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] Inner: " + ex.InnerException.Message);
+                UpdateStatusMessage("Snapshot failed: " + ex.Message, overrideStartup: true);
+            }
+        }
+
+        private async Task SaveStitchedPngAsync(int width, int height, byte[] pixels, string filename)
+        {
+            System.Diagnostics.Debug.WriteLine("[Snapshot] Saving stitched PNG: " + width + "x" + height + " pixels=" + pixels.Length);
+
+            var folder = await Windows.Storage.KnownFolders.PicturesLibrary.CreateFolderAsync(
+                "MediaExplorer", Windows.Storage.CreationCollisionOption.OpenIfExists);
+
+            System.Diagnostics.Debug.WriteLine("[Snapshot] Folder: " + folder.Path);
+
+            var file = await folder.CreateFileAsync(filename, Windows.Storage.CreationCollisionOption.GenerateUniqueName);
+
+            System.Diagnostics.Debug.WriteLine("[Snapshot] File: " + file.Name);
+
+            using (var stream = await file.OpenAsync(Windows.Storage.FileAccessMode.ReadWrite))
+            {
+                System.Diagnostics.Debug.WriteLine("[Snapshot] Encoding PNG...");
+
+                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, stream);
+                encoder.SetPixelData(
+                    BitmapPixelFormat.Bgra8,
+                    BitmapAlphaMode.Ignore,
+                    (uint)width,
+                    (uint)height,
+                    96.0, 96.0,
+                    pixels);
+                await encoder.FlushAsync();
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] PNG flushed");
+            }
+
+            System.Diagnostics.Debug.WriteLine("[Snapshot] File saved successfully");
+            UpdateStatusMessage("Full-page snapshot saved: " + filename, overrideStartup: true);
+        }
+
+        private async Task SavePngAsync(RenderTargetBitmap bitmap, byte[] pixels, string filename)
+        {
+            System.Diagnostics.Debug.WriteLine("[Snapshot] Saving to Pictures\\MediaExplorer\\" + filename);
+
+            var folder = await Windows.Storage.KnownFolders.PicturesLibrary.CreateFolderAsync(
+                "MediaExplorer", Windows.Storage.CreationCollisionOption.OpenIfExists);
+
+            System.Diagnostics.Debug.WriteLine("[Snapshot] Folder path=" + folder.Path);
+
+            var file = await folder.CreateFileAsync(filename, Windows.Storage.CreationCollisionOption.GenerateUniqueName);
+
+            System.Diagnostics.Debug.WriteLine("[Snapshot] File created: " + file.Name);
+
+            using (var stream = await file.OpenAsync(Windows.Storage.FileAccessMode.ReadWrite))
+            {
+                System.Diagnostics.Debug.WriteLine("[Snapshot] Stream opened, encoding PNG...");
+
+                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, stream);
+                encoder.SetPixelData(
+                    BitmapPixelFormat.Bgra8,
+                    BitmapAlphaMode.Ignore,
+                    (uint)bitmap.PixelWidth,
+                    (uint)bitmap.PixelHeight,
+                    96.0, 96.0,
+                    pixels);
+                await encoder.FlushAsync();
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] PNG encoded and flushed");
+            }
+
+            System.Diagnostics.Debug.WriteLine("[Snapshot] Stream closed, file saved");
+            UpdateStatusMessage("Snapshot saved: " + filename, overrideStartup: true);
+        }
+
+        private string GenerateSnapshotFilename()
+        {
+            string baseName = "snapshot";
+            try
+            {
+                if (_currentUri != null)
+                {
+                    var host = _currentUri.Host;
+                    if (string.IsNullOrWhiteSpace(host))
+                    {
+                        var path = _currentUri.AbsolutePath.Trim('/');
+                        if (!string.IsNullOrWhiteSpace(path))
+                            host = path;
+                        else
+                            host = _currentUri.Scheme;
+                    }
+                    if (!string.IsNullOrWhiteSpace(host))
+                    {
+                        baseName = host.Replace('.', '_').Replace(':', '_').Replace('/', '_').Replace('\\', '_');
+                        var pathPart = _currentUri.AbsolutePath.Trim('/');
+                        if (!string.IsNullOrWhiteSpace(pathPart) && pathPart != host)
+                        {
+                            var safePath = pathPart.Replace('/', '_').Replace('\\', '_');
+                            if (safePath.Length > 30) safePath = safePath.Substring(0, 30);
+                            baseName += "_" + safePath;
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            return $"{baseName}_{timestamp}.png";
         }
 
         private static string LoadHomePage()

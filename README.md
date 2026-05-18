@@ -1,4 +1,4 @@
-# MediaExplorer 0.14.18 - main branch (museum build; pre-alpha)
+# MediaExplorer 0.18.30-T1 - dev branch (museum build; pre-alpha)
 ![](/Images/logo.png)
 
 ## About / Об этой "музейной" штучке
@@ -16,7 +16,9 @@ For more tech. info see /Doc folder (Plans, Summeries on partially completed "de
 
 
 ## Screenshots
-![](/Images/welcome.png)
+![](/Images/snapshot01.png)
+![](/Images/snapshot02.png)
+![](/Images/snapshot03.png)
 
 
 ## Status / Статус
@@ -34,6 +36,7 @@ Project status: This is a homemade browser engine (HTML/CSS/JS) for W10M without
 
 :: Changed things :: 
 
+- Snapshot button at App Bar -- did usual screnshot / long-weight (big) screenshot and stores it to Pictures/MediaExplorer folder.
 - 3 UI modes: HIDED ("App Bar Strip"); SEMI ("Semi-visivle&Expandable App Bar"); FULL (Usual App Bar)
 - 3 "Rendering" modes : FULL (JS+HTML); RICH (Lite JS+HTML for Easy Reading+ AI "magic cursor") ; POOR (Hello, old-school FIDO!))) 
 - Indicator 2→3px, wider than 30→36px MainPage.xaml is visually more noticeable
@@ -44,7 +47,7 @@ Project status: This is a homemade browser engine (HTML/CSS/JS) for W10M without
 
 
 :: Что изменил ::
-
+- Разработчиеская пимпа "Snapshot" в app bar -- делает обычный / долговязый ("большой") скриншот в папке Pictures/MediaExplorer.
 - 3 режима UI: Скрытный ("Нижния панель как полоска"); Полу-открытый (Привет, Surface Duo!); Полный (обычная нижняя панель)
 - 3 режима рендеринга : Полный (JS+HTML); Обогащённый (Лайтовый JS+HTML для ИИ-режима чтения с "волшебным курсором") ; Обедненный (Привет, FIDO-NET!))) 
 - BarStrip высота 8→20px	MainPage.xaml	Полоску видно + легко кликнуть мышью
