@@ -1,0 +1,917 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Text;
+using NiL.JS.BaseLibrary;
+using NiL.JS.Core;
+using NiL.JS.Core.Functions;
+using NiL.JS.Statements;
+
+namespace NiL.JS.Expressions;
+
+#if !NETCORE
+[Serializable]
+#endif
+public sealed class ParameterDescriptor : VariableDescriptor
+{
+    public ObjectDesctructor Destructor { get; internal set; }
+
+    public bool IsRest { get; private set; }
+
+    public override bool IsParameter => true;
+
+    internal ParameterDescriptor(string name, bool rest, int depth)
+        : base(name, depth)
+    {
+        IsRest = rest;
+        isLexicalScoped = true;
+    }
+
+    public override string ToString()
+    {
+        if (IsRest)
+            return "..." + name;
+        return name;
+    }
+}
+
+#if !NETCORE
+[Serializable]
+#endif
+public sealed class ParameterReference : VariableReference
+{
+    public override string Name
+    {
+        get { return _descriptor.name; }
+    }
+
+    internal ParameterReference(string name, bool rest, int depth)
+    {
+        _descriptor = new ParameterDescriptor(name, rest, depth);
+        _descriptor.references.Add(this);
+    }
+
+    public override JSValue Evaluate(Context context)
+    {
+        if (_descriptor.cacheContext != context)
+            throw new InvalidOperationException();
+
+        return _descriptor.cacheValue;
+    }
+
+    public override T Visit<T>(Visitor<T> visitor)
+    {
+        return visitor.Visit(this);
+    }
+
+    public override string ToString()
+    {
+        return Descriptor.ToString();
+    }
+}
+
+#if !(PORTABLE || NETCORE)
+[Serializable]
+#endif
+public sealed class FunctionDefinition : EntityDefinition
+{
+    #region Runtime
+    internal int parametersStored;
+    internal int recursionDepth;
+    #endregion
+
+    internal readonly FunctionInfo _functionInfo;
+    internal ParameterDescriptor[] _parameters;
+    internal CodeBlock _body;
+    internal FunctionKind _kind;
+#if DEBUG
+    internal bool trace;
+#endif
+
+    public CodeBlock Body { get { return _body; } }
+    public ReadOnlyCollection<ParameterDescriptor> Parameters { get { return new ReadOnlyCollection<ParameterDescriptor>(_parameters); } }
+
+    protected internal override bool NeedDecompose
+    {
+        get
+        {
+            return _functionInfo.NeedDecompose;
+        }
+    }
+
+    protected internal override bool ContextIndependent
+    {
+        get
+        {
+            return false;
+        }
+    }
+
+    internal override bool ResultInTempContainer
+    {
+        get { return false; }
+    }
+
+    protected internal override PredictedType ResultType
+    {
+        get
+        {
+            return PredictedType.Function;
+        }
+    }
+
+    public override bool Hoist
+    {
+        get
+        {
+            return _kind != FunctionKind.Arrow
+                && _kind != FunctionKind.AsyncArrow;
+        }
+    }
+
+    public FunctionKind Kind
+    {
+        get
+        {
+            return _kind;
+        }
+    }
+
+    public bool Strict
+    {
+        get
+        {
+            return _body?.Strict ?? false;
+        }
+        internal set
+        {
+            if (_body != null)
+                _body._strict = value;
+        }
+    }
+
+    private FunctionDefinition(string name)
+        : base(name)
+    {
+        _functionInfo = new FunctionInfo();
+    }
+
+    internal FunctionDefinition()
+        : this("anonymous")
+    {
+        _parameters = new ParameterDescriptor[0];
+        _body = new CodeBlock(new CodeNode[0])
+        {
+            _strict = true,
+            _variables = new VariableDescriptor[0]
+        };
+    }
+
+    internal static ParseDelegate ParseFunction(FunctionKind kind)
+    {
+        return new ParseDelegate((ParseInfo info, ref int index) => Parse(info, ref index, kind));
+    }
+
+    internal static CodeNode ParseFunction(ParseInfo state, ref int index)
+    {
+        return Parse(state, ref index, FunctionKind.Function);
+    }
+
+    internal static Expression Parse(ParseInfo state, ref int index, FunctionKind kind)
+    {
+        string code = state.Code;
+        int position = index;
+        switch (kind)
+        {
+            case FunctionKind.AsyncAnonymousFunction:
+            case FunctionKind.AnonymousFunction:
+            case FunctionKind.AnonymousGenerator:
+            {
+                break;
+            }
+            case FunctionKind.Function:
+            {
+                if (!Parser.Validate(code, "function", ref position))
+                    return null;
+
+                if (code[position] == '*')
+                {
+                    kind = FunctionKind.Generator;
+                    position++;
+                }
+                else if ((code[position] != '(') && (!Tools.IsWhiteSpace(code[position])))
+                    return null;
+
+                break;
+            }
+            case FunctionKind.Getter:
+            {
+                if (!Parser.Validate(code, "get ", ref position))
+                    return null;
+
+                break;
+            }
+            case FunctionKind.Setter:
+            {
+                if (!Parser.Validate(code, "set ", ref position))
+                    return null;
+
+                break;
+            }
+            case FunctionKind.AsyncMethod:
+            {
+                break;
+            }
+            case FunctionKind.MethodGenerator:
+            case FunctionKind.Method:
+            {
+                if (code[position] == '*')
+                {
+                    kind = FunctionKind.MethodGenerator;
+                    position++;
+                }
+                else if (kind == FunctionKind.MethodGenerator)
+                    throw new ArgumentException("mode");
+
+                break;
+            }
+            case FunctionKind.AsyncArrow:
+            {
+                if (!Parser.Validate(code, "async", ref position))
+                    return null;
+
+                break;
+            }
+            case FunctionKind.Arrow:
+            {
+                break;
+            }
+            case FunctionKind.AsyncFunction:
+            {
+                if (!Parser.Validate(code, "async", ref position))
+                    return null;
+
+                Tools.SkipSpaces(code, ref position);
+
+                if (!Parser.Validate(code, "function", ref position))
+                    return null;
+
+                break;
+            }
+            default:
+                throw new NotImplementedException(kind.ToString());
+        }
+
+        Tools.SkipSpaces(state.Code, ref position);
+
+        var parameters = new List<ParameterDescriptor>();
+        CodeBlock body = null;
+        string name = null;
+        bool arrowWithSinglePrm = false;
+        int nameStartPos = 0;
+        bool containsDestructuringPrms = false;
+        var oldVariablesCount = state.Variables.Count;
+        FunctionDefinition func = null;
+
+        if (kind != FunctionKind.Arrow)
+        {
+            if (code[position] != '(')
+            {
+                nameStartPos = position;
+                if (Parser.ValidateName(code, ref position, false, true, state.Strict))
+                    name = Tools.Unescape(code.Substring(nameStartPos, position - nameStartPos), state.Strict);
+                else if ((kind == FunctionKind.Getter || kind == FunctionKind.Setter) && Parser.ValidateString(code, ref position, false))
+                    name = Tools.Unescape(code.Substring(nameStartPos + 1, position - nameStartPos - 2), state.Strict);
+                else if ((kind == FunctionKind.Getter || kind == FunctionKind.Setter) && Parser.ValidateNumber(code, ref position))
+                    name = Tools.Unescape(code.Substring(nameStartPos, position - nameStartPos), state.Strict);
+                else
+                    ExceptionHelper.ThrowSyntaxError("Invalid function name", code, nameStartPos, position - nameStartPos);
+
+                Tools.SkipSpaces(code, ref position);
+
+                if (code[position] != '(')
+                    ExceptionHelper.ThrowUnknownToken(code, position);
+            }
+            else if (kind == FunctionKind.Getter || kind == FunctionKind.Setter)
+                ExceptionHelper.ThrowSyntaxError("Getter and Setter must have name", code, index);
+            else if (kind == FunctionKind.Method || kind == FunctionKind.MethodGenerator || kind == FunctionKind.AsyncMethod)
+                ExceptionHelper.ThrowSyntaxError("Method must have name", code, index);
+
+            position++;
+        }
+        else if (code[position] != '(')
+        {
+            arrowWithSinglePrm = true;
+        }
+        else
+        {
+            position++;
+        }
+
+        Tools.SkipSpaces(code, ref position);
+
+        if (code[position] == ',')
+            ExceptionHelper.ThrowSyntaxError(Strings.UnexpectedToken, code, position);
+
+        var oldFunctionScopeLevel = state.FunctionScopeLevel;
+        state.LexicalScopeLevel++;
+        state.FunctionScopeLevel = state.LexicalScopeLevel;
+
+        try
+        {
+            while (code[position] != ')')
+            {
+                if (parameters.Count == 255 || (kind == FunctionKind.Setter && parameters.Count == 1) || kind == FunctionKind.Getter)
+                    ExceptionHelper.ThrowSyntaxError(string.Format(Strings.TooManyArgumentsForFunction, name), code, index);
+
+                bool rest = Parser.Validate(code, "...", ref position);
+
+                ObjectDesctructor destructor = null;
+                int n = position;
+                if (!Parser.ValidateName(code, ref position, state.Strict))
+                {
+                    if (code[position] is '{' or '[')
+                        destructor = (ObjectDesctructor)ObjectDesctructor.Parse(state, ref position);
+
+                    if (destructor == null)
+                        ExceptionHelper.ThrowUnknownToken(code, nameStartPos);
+
+                    containsDestructuringPrms = true;
+                }
+
+                var pname = Tools.Unescape(code.Substring(n, position - n), state.Strict);
+                var reference = new ParameterReference(pname, rest, state.LexicalScopeLevel)
+                {
+                    Position = n,
+                    Length = position - n
+                };
+                var desc = reference.Descriptor as ParameterDescriptor;
+
+                if (destructor != null)
+                    desc.Destructor = destructor;
+
+                parameters.Add(desc);
+
+                Tools.SkipSpaces(state.Code, ref position);
+                if (arrowWithSinglePrm)
+                {
+                    position--;
+                    break;
+                }
+
+                if (code[position] == '=')
+                {
+                    if (rest)
+                        ExceptionHelper.ThrowSyntaxError("Rest parameters can not has an initializers", code, position);
+                    do
+                        position++;
+                    while (Tools.IsWhiteSpace(code[position]));
+                    desc.initializer = ExpressionTree.Parse(state, ref position, false, false);
+                }
+
+                if (code[position] == ',')
+                {
+                    if (rest)
+                        ExceptionHelper.ThrowSyntaxError("Rest parameters must be the last in parameters list", code, position);
+                    do
+                        position++;
+                    while (Tools.IsWhiteSpace(code[position]));
+                }
+
+                state.Variables.Add(desc);
+            }
+
+            if (kind == FunctionKind.Setter)
+            {
+                if (parameters.Count != 1)
+                    ExceptionHelper.ThrowSyntaxError("Setter must has only one argument", code, index);
+            }
+
+            position++;
+            Tools.SkipSpaces(code, ref position);
+
+            if (kind == FunctionKind.Arrow || kind == FunctionKind.AsyncArrow)
+            {
+                if (!Parser.Validate(code, "=>", ref position))
+                    ExceptionHelper.ThrowSyntaxError("Expected \"=>\"", code, position);
+                Tools.SkipSpaces(code, ref position);
+            }
+
+            if (code[position] != '{')
+            {
+                if (kind == FunctionKind.Arrow || kind == FunctionKind.AsyncArrow)
+                {
+                    if (containsDestructuringPrms)
+                        addDestructInnerParams(state, parameters);
+
+                    body = new CodeBlock([new Return(ExpressionTree.Parse(state, ref position, processComma: false))]);
+
+                    body.Position = body._lines[0].Position;
+                    body.Length = body._lines[0].Length;
+                }
+                else
+                    ExceptionHelper.ThrowUnknownToken(code, position);
+            }
+            else
+            {
+                using (state.WithNewLabelsScope())
+                using (state.WithCodeContext())
+                {
+                    if (kind == FunctionKind.Generator || kind == FunctionKind.MethodGenerator || kind == FunctionKind.AnonymousGenerator)
+                        state.CodeContext |= CodeContext.InGenerator;
+                    else if (kind == FunctionKind.AsyncFunction || kind == FunctionKind.AsyncMethod || kind == FunctionKind.AsyncAnonymousFunction || kind == FunctionKind.AsyncArrow)
+                        state.CodeContext |= CodeContext.InAsync;
+
+                    state.CodeContext |= CodeContext.InFunction;
+                    state.CodeContext |= CodeContext.AllowDirectives;
+                    state.CodeContext &= ~(CodeContext.InExpression | CodeContext.Conditional | CodeContext.InEval);
+
+                    state.AllowReturn++;
+                    try
+                    {
+                        state.AllowBreak.Push(false);
+                        state.AllowContinue.Push(false);
+
+                        if (containsDestructuringPrms)
+                            addDestructInnerParams(state, parameters);
+
+                        body = CodeBlock.Parse(state, ref position) as CodeBlock;
+                    }
+                    finally
+                    {
+                        state.AllowBreak.Pop();
+                        state.AllowContinue.Pop();
+                        state.AllowReturn--;
+                    }
+
+                    if (kind == FunctionKind.Function && string.IsNullOrEmpty(name))
+                        kind = FunctionKind.AnonymousFunction;
+                }
+            }
+
+            if (body._strict || (parameters.Count > 0 && parameters[parameters.Count - 1].IsRest) || kind == FunctionKind.Arrow)
+            {
+                for (var j = parameters.Count; j-- > 1;)
+                    for (var k = j; k-- > 0;)
+                        if (parameters[j].Name == parameters[k].Name)
+                            ExceptionHelper.ThrowSyntaxError("Duplicate names of function parameters not allowed in strict mode", code, index);
+
+                if (name == "arguments" || name == "eval")
+                    ExceptionHelper.ThrowSyntaxError("Functions name can not be \"arguments\" or \"eval\" in strict mode at", code, index);
+
+                for (int j = parameters.Count; j-- > 0;)
+                {
+                    if (parameters[j].Name == "arguments" || parameters[j].Name == "eval")
+                        ExceptionHelper.ThrowSyntaxError("Parameters name cannot be \"arguments\" or \"eval\" in strict mode at", code, parameters[j].references[0].Position, parameters[j].references[0].Length);
+                }
+            }
+
+            func = new FunctionDefinition(name)
+            {
+                _parameters = parameters.ToArray(),
+                _body = body,
+                _kind = kind,
+                Position = index,
+                Length = position - index,
+#if DEBUG
+                trace = body.directives != null ? body.directives.Contains("debug trace") : false
+#endif
+            };
+
+            if (!string.IsNullOrEmpty(name))
+            {
+                func.Reference.ScopeLevel = (state.CodeContext & CodeContext.InExpression) == 0 ? state.LexicalScopeLevel - 1 : state.LexicalScopeLevel;
+                func.Reference.Position = nameStartPos;
+                func.Reference.Length = name.Length;
+
+                func.reference._descriptor.definitionScopeLevel = func.reference.ScopeLevel;
+            }
+
+            if ((state.CodeContext & CodeContext.InExpression) == 0 && kind == FunctionKind.Function)
+            // Позволяет делать вызов сразу при объявлении функции
+            // (в таком случае функция не добавляется в контекст).
+            // Если убрать проверку, то в тех сулчаях,
+            // когда определение и вызов стоят внутри выражения,
+            // будет выдано исключение, потому,
+            // что тогда это уже не определение и вызов функции,
+            // а часть выражения, которые не могут начинаться со слова "function".
+            // За красивыми словами "может/не может" кроется другая хрень: если бы это было выражение,
+            // то прямо тут надо было бы разбирать тот оператор, который стоит после определения функции,
+            // что не разумно
+            {
+                var tindex = position;
+                while (position < code.Length && Tools.IsWhiteSpace(code[position]) && !Tools.IsLineTerminator(code[position]))
+                    position++;
+
+                if (position < code.Length && code[position] == '(')
+                {
+                    var args = new List<Expression>();
+                    position++;
+                    for (; ; )
+                    {
+                        Tools.SkipSpaces(state.Code, ref position);
+
+                        if (code[position] == ')')
+                            break;
+                        else if (code[position] == ',')
+                            do
+                                position++;
+                            while (Tools.IsWhiteSpace(code[position]));
+
+                        args.Add(ExpressionTree.Parse(state, ref position, false, false));
+                    }
+
+                    position++;
+                    index = position;
+                    while (position < code.Length && Tools.IsWhiteSpace(code[position]))
+                        position++;
+
+                    if (position < code.Length && code[position] == ';')
+                        ExceptionHelper.Throw(new SyntaxError("Expression can not start with word \"function\""));
+
+                    return new Call(func, args.ToArray());
+                }
+                else
+                    position = tindex;
+            }
+        }
+        finally
+        {
+            state.Variables.RemoveRange(oldVariablesCount, state.Variables.Count - oldVariablesCount);
+            state.FunctionScopeLevel = oldFunctionScopeLevel;
+            state.LexicalScopeLevel--;
+        }
+
+        if ((state.CodeContext & CodeContext.InExpression) == 0)
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                if ((state.CodeContext & (CodeContext.InEval | CodeContext.InDefaultExport)) == 0)
+                    ExceptionHelper.ThrowSyntaxError("Function must has name", state.Code, index);
+            }
+            else if (kind != FunctionKind.Method)
+            {
+                state.Variables.Add(func.reference._descriptor);
+            }
+        }
+
+        index = position;
+        return func;
+    }
+
+    private static void addDestructInnerParams(ParseInfo state, List<ParameterDescriptor> parameters)
+    {
+        foreach (var p in parameters)
+        {
+            if (p.Destructor != null)
+            {
+                var innerVars = p.Destructor.GetTargetVariables();
+
+                foreach (var v in innerVars)
+                {
+                    v._descriptor = new ParameterDescriptor(v.Name, false, v.ScopeLevel)
+                    {
+                        references = { v }
+                    };
+                    state.Variables.Add(v._descriptor);
+                }
+            }
+        }
+    }
+
+    public override JSValue Evaluate(Context context)
+    {
+        return MakeFunction(context);
+    }
+
+    protected internal override CodeNode[] GetChildrenImpl()
+    {
+        var res = new CodeNode[1 + _parameters.Length + (Reference != null ? 1 : 0)];
+        for (var i = 0; i < _parameters.Length; i++)
+            res[i] = _parameters[i].references[0];
+        res[_parameters.Length] = _body;
+
+        if (Reference != null)
+            res[res.Length - 1] = Reference;
+
+        return res;
+    }
+
+    /// <summary>
+    /// Создаёт функцию, описанную выбранным выражением в контексте указанного сценария.
+    /// </summary>
+    /// <param name="script">Сценарий, контекст которого будет родительским для контекста выполнения функции.</param>
+    /// <returns></returns>
+    public Function MakeFunction(Module script)
+    {
+        return MakeFunction(script.Context);
+    }
+
+    /// <summary>
+    /// Создаёт функцию, описанную выбранным выражением в контексте указанного сценария.
+    /// </summary>
+    /// <param name="script">Сценарий, контекст которого будет родительским для контекста выполнения функции.</param>
+    /// <returns></returns>
+    public Function MakeFunction(Context context)
+    {
+        if (_kind == FunctionKind.Generator || _kind == FunctionKind.MethodGenerator || _kind == FunctionKind.AnonymousGenerator)
+            return new GeneratorFunction(context, this);
+
+        if (_kind == FunctionKind.AsyncFunction || _kind == FunctionKind.AsyncAnonymousFunction || _kind == FunctionKind.AsyncArrow || _kind == FunctionKind.AsyncMethod)
+            return new AsyncFunction(context, this);
+
+        if (_body != null)
+        {
+            if (_body._lines.Length == 0)
+            {
+                return new ConstantFunction(JSValue.notExists, this);
+            }
+            else if (_body._lines.Length == 1)
+            {
+                var ret = _body._lines[0] as Return;
+                if (ret != null && (ret.Value == null || ret.Value.ContextIndependent))
+                {
+                    return new ConstantFunction(ret.Value?.Evaluate(null) ?? JSValue.undefined, this);
+                }
+            }
+        }
+
+        if (!_functionInfo.ContainsArguments
+            && !_functionInfo.ContainsRestParameters
+            && !_functionInfo.ContainsEval
+            && !_functionInfo.ContainsWith
+            && !_functionInfo.ContainsDebugger)
+        {
+            return new SimpleFunction(context, this);
+        }
+
+        return new Function(context, this);
+    }
+
+    public override bool Build(ref CodeNode _this, int expressionDepth, int scopeLevel, Dictionary<string, VariableDescriptor> variables, CodeContext codeContext, InternalCompilerMessageCallback message, FunctionInfo stats, Options opts)
+    {
+        if (_body._built)
+            return false;
+
+        if (stats != null)
+            stats.ContainsInnerEntities = true;
+
+        _codeContext = codeContext;
+
+        codeContext &= ~(CodeContext.Conditional
+                          | CodeContext.InExpression
+                          | CodeContext.InEval);
+
+        if ((codeContext & CodeContext.InLoop) != 0 && message != null)
+            message(MessageLevel.Warning, Position, EndPosition - Position, Strings.FunctionInLoop);
+
+        scopeLevel++;
+
+        List<VariableDescriptor> descriptorsToRestore = [];
+        if (!string.IsNullOrEmpty(_name) && _kind is FunctionKind.Function or FunctionKind.Generator or FunctionKind.AsyncFunction)
+        {
+            if (variables.TryGetValue(_name, out var oldDesc))
+                descriptorsToRestore.Add(oldDesc);
+
+            if (reference._descriptor != oldDesc)
+                variables[_name] = reference._descriptor;
+
+            reference._descriptor.definitionScopeLevel = (_codeContext & CodeContext.InExpression) switch
+            {
+                CodeContext.InExpression => scopeLevel,
+                _ => scopeLevel - 1,
+            };
+        }
+
+        foreach (var prm in _parameters)
+        {
+            if (prm.Destructor is not null)
+            {
+                var dest = prm.Destructor;
+                var innerPrms = dest.GetTargetVariables();
+
+                foreach (var innerPrm in innerPrms)
+                {
+                    if (variables.TryGetValue(innerPrm.Descriptor.name, out var descriptorToRestore))
+                        descriptorsToRestore.Add(descriptorToRestore);
+
+                    variables[innerPrm.Descriptor.name] = innerPrm.Descriptor;
+                    innerPrm.Descriptor.definitionScopeLevel = scopeLevel;
+                }
+            }
+            else
+            {
+                if (variables.TryGetValue(prm.name, out var descriptorToRestore))
+                    descriptorsToRestore.Add(descriptorToRestore);
+
+                variables[prm.name] = prm;
+                prm.definitionScopeLevel = scopeLevel;
+            }
+        }
+
+        foreach (var prm in _parameters)
+        {
+            if (prm.Destructor is not null)
+            {
+                var dest = prm.Destructor;
+                Parser.Build(ref dest, 0, scopeLevel, variables, codeContext, message, _functionInfo, opts);
+                prm.Destructor = dest;
+            }
+
+            if (prm.initializer is not null)
+                Parser.Build(ref prm.initializer, 2, scopeLevel, variables, codeContext, message, _functionInfo, opts);
+        }
+
+        _functionInfo.ContainsRestParameters = _parameters.Length > 0 && _parameters[_parameters.Length - 1].IsRest;
+        _functionInfo.ScopeLevel = scopeLevel;
+
+        var bodyCode = _body as CodeNode;
+        bodyCode.Build(
+            ref bodyCode,
+            0,
+            scopeLevel - (_body._variables is { Length: > 0 } ? 1 : 0),
+            variables,
+            codeContext | CodeContext.InFunction,
+            message,
+            _functionInfo,
+            opts);
+        _body = bodyCode as CodeBlock;
+        _body._suppressScopeIsolation = SuppressScopeIsolationMode.Suppress;
+
+        if (message != null)
+        {
+            for (var i = _parameters.Length; i-- > 0;)
+            {
+                if (_parameters[i].ReferencesCount == 1)
+                    message(MessageLevel.Recomendation, _parameters[i].references[0].Position, 0, "Unused parameter \"" + _parameters[i].name + "\"");
+                else
+                    break;
+            }
+        }
+
+        if (stats != null)
+        {
+            stats.ContainsDebugger |= _functionInfo.ContainsDebugger;
+            stats.ContainsEval |= _functionInfo.ContainsEval;
+            stats.ContainsInnerEntities = true;
+            stats.ContainsTry |= _functionInfo.ContainsTry;
+            stats.ContainsWith |= _functionInfo.ContainsWith;
+            stats.NeedDecompose |= _functionInfo.NeedDecompose;
+            stats.UseCall |= _functionInfo.UseCall;
+            stats.UseGetMember |= _functionInfo.UseGetMember;
+            stats.ContainsThis |= _functionInfo.ContainsThis;
+        }
+
+        var disableCache = _functionInfo.ContainsEval || _functionInfo.ContainsWith;
+        if (disableCache)
+        {
+            foreach (var v in variables)
+                if (v.Value.definitionScopeLevel >= 0)
+                    v.Value.definitionScopeLevel = System.Math.Min(-v.Value.definitionScopeLevel, -1);
+        }
+
+        if (!string.IsNullOrEmpty(_name) && (_kind == FunctionKind.Function || _kind == FunctionKind.Generator))
+            variables.Remove(_name);
+
+        foreach (var prm in _parameters)
+        {
+            if (prm.Destructor is not null)
+            {
+                var innerPrms = prm.Destructor.GetTargetVariables();
+
+                foreach (var innerPrm in innerPrms)
+                    variables.Remove(innerPrm.Descriptor.name);
+            }
+            else
+            {
+                variables.Remove(prm.name);
+            }
+        }
+
+        foreach (var desc in descriptorsToRestore)
+            variables[desc.name] = desc;
+
+        return false;
+    }
+
+    public override void Optimize(ref CodeNode _this, FunctionDefinition owner, InternalCompilerMessageCallback message, Options opts, FunctionInfo stats)
+    {
+        var bd = _body as CodeNode;
+        _body.Optimize(ref bd, this, message, opts, _functionInfo);
+
+        if (_functionInfo.Returns.Count > 0)
+        {
+            _functionInfo.ResultType = _functionInfo.Returns[0].ResultType;
+            for (var i = 1; i < _functionInfo.Returns.Count; i++)
+            {
+                if (_functionInfo.ResultType != _functionInfo.Returns[i].ResultType)
+                {
+                    _functionInfo.ResultType = PredictedType.Ambiguous;
+                    if (message != null
+                        && _functionInfo.ResultType >= PredictedType.Undefined
+                        && _functionInfo.Returns[i].ResultType >= PredictedType.Undefined)
+                        message(MessageLevel.Warning, _parameters[i].references[0].Position, 0, "Type of return value is ambiguous");
+                    break;
+                }
+            }
+        }
+        else
+            _functionInfo.ResultType = PredictedType.Undefined;
+    }
+
+#if !PORTABLE
+    internal override System.Linq.Expressions.Expression TryCompile(bool selfCompile, bool forAssign, Type expectedType, List<CodeNode> dynamicValues)
+    {
+        _body.TryCompile(true, false, null, new List<CodeNode>());
+        return null;
+    }
+#endif
+    public override T Visit<T>(Visitor<T> visitor)
+    {
+        return visitor.Visit(this);
+    }
+
+    public override void Decompose(ref Expression self, IList<CodeNode> result)
+    {
+        CodeNode cn = _body;
+        cn.Decompose(ref cn);
+        _body = (CodeBlock)cn;
+    }
+
+    public override string ToString()
+    {
+        return ToString(false);
+    }
+
+    internal string ToString(bool headerOnly)
+    {
+        StringBuilder code = new StringBuilder();
+        switch (_kind)
+        {
+            case FunctionKind.Generator:
+            {
+                code.Append("functions* ");
+                break;
+            }
+            case FunctionKind.Method:
+            {
+                break;
+            }
+            case FunctionKind.Getter:
+            {
+                code.Append("get ");
+                break;
+            }
+            case FunctionKind.Setter:
+            {
+                code.Append("set ");
+                break;
+            }
+            case FunctionKind.Arrow:
+            {
+                break;
+            }
+            case FunctionKind.AsyncMethod:
+            {
+                code.Append("async ");
+                break;
+            }
+            case FunctionKind.AsyncFunction:
+            {
+                code.Append("async ");
+                goto default;
+            }
+            default:
+            {
+                code.Append("function ");
+                break;
+            }
+        }
+
+        code.Append(_name)
+            .Append("(");
+
+        if (_parameters != null)
+            for (int i = 0; i < _parameters.Length;)
+                code.Append(_parameters[i])
+                    .Append(++i < _parameters.Length ? "," : "");
+
+        code.Append(")");
+
+        if (!headerOnly)
+        {
+            code.Append(" ");
+            if (_kind == FunctionKind.Arrow)
+                code.Append("=> ");
+
+            if (_kind == FunctionKind.Arrow
+                && _body._lines.Length == 1
+                && _body.Position == _body._lines[0].Position)
+                code.Append(_body._lines[0].Children[0].ToString());
+            else
+                code.Append((object)_body ?? "{ [native code] }");
+        }
+
+        return code.ToString();
+    }
+}

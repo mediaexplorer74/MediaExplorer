@@ -145,6 +145,12 @@ namespace BrowserCore.Api
         public bool CanGoBack { get { return _historyIndex > 0; } }
         public bool CanGoForward { get { return _historyIndex >= 0 && _historyIndex < _history.Count - 1; } }
 
+        /// <summary>Expose the current active Lite DOM for DevTools.</summary>
+        public LiteElement GetActiveDom()
+        {
+            return _engine.GetActiveDom();
+        }
+
         private void RaiseStatus(string msg)
         {
             try

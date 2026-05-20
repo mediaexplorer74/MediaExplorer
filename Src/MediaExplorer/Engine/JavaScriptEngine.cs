@@ -42,7 +42,7 @@ namespace BrowserCore.Engine
         private Jint.Engine _jint;
 #endif
 #if USE_NILJS
-        private Context _nil;
+        private GlobalContext _nil;
 #endif
 #if USE_ECMA_EXPERIMENTAL
         private JsInterpreter _exp;
@@ -1575,7 +1575,10 @@ if (mCT.Success)
 var mLog = System.Text.RegularExpressions.Regex.Match(line, @"^\s*console\s*\.\s*(?<kind>log|error|warn)\s*\(\s*['""](?<msg>.*?)['""]\s*\)\s*;?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 if (mLog.Success)
 {
-    try { _host.SetStatus((mLog.Groups["kind"].Value.ToLowerInvariant()) + ": " + mLog.Groups["msg"].Value); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+    var kind = mLog.Groups["kind"].Value.ToLowerInvariant();
+    var msg = mLog.Groups["msg"].Value;
+    try { _host.SetStatus(kind + ": " + msg); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+    try { BrowserCore.Engine.DevToolsLogger.Log("[JS:" + kind.ToUpperInvariant() + "] " + msg); } catch { }
     return true;
 }
 
@@ -2421,7 +2424,7 @@ if (mHrefSet.Success)
 
         private void _nilInit()
         {
-            _nil = new Context();
+            _nil = new GlobalContext();
 
             // ***
             // create host window once and reuse for aliases
@@ -3859,7 +3862,8 @@ if (mHrefSet.Success)
                 }
                 else
                 {
-                    return Tuple.Create<string, Uri, bool, bool, bool>(node.Text ?? string.Empty, baseUri, isModule, true, true);
+                    var uri = isModule ? null : baseUri;
+                    return Tuple.Create<string, Uri, bool, bool, bool>(CollectScriptText(node) ?? string.Empty, uri, isModule, true, true);
                 }
             }
 
@@ -3884,7 +3888,7 @@ if (mHrefSet.Success)
                     }
                     Interlocked.Add(ref _pageScriptBytesUsed, moduleApproxBytes);
 
-                    await _moduleLoader.ExecuteModuleTagAsync(node, resolved, baseUri);
+                    await _moduleLoader.ExecuteModuleTagAsync(node, resolved, baseUri, content);
                     return;
                 }
 
@@ -3999,6 +4003,25 @@ if (mHrefSet.Success)
             if (uri == null) return null;
             try { if (SubresourceAllowed != null && !SubresourceAllowed(uri, "script")) return null; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
             lock (_script404Lock) { if (_script404.Contains(uri.AbsoluteUri)) return null; }
+
+            // Handle ms-appx:/// local package files
+            if (uri.Scheme == "ms-appx")
+            {
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine("[Module] ms-appx fetch: " + uri);
+                    var file = await Windows.Storage.StorageFile.GetFileFromApplicationUriAsync(uri).AsTask().ConfigureAwait(false);
+                    System.Diagnostics.Debug.WriteLine("[Module] ms-appx file found: " + file.Path);
+                    var text = await Windows.Storage.FileIO.ReadTextAsync(file).AsTask().ConfigureAwait(false);
+                    System.Diagnostics.Debug.WriteLine("[Module] ms-appx OK: " + text.Length + " bytes");
+                    return text;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Module] ms-appx FAIL: " + ex.GetType().Name + " - " + ex.Message);
+                    return null;
+                }
+            }
 
             // Identify X/Twitter/CDN hosts
             Func<string, bool> isXHost = h =>

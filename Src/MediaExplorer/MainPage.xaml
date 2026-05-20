@@ -112,17 +112,19 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
                     <!-- Tabs -->
                     <Button Grid.Column="0" x:Name="DevConsoleTab" Content="Console" Background="Transparent" Foreground="#CCCCCC" BorderThickness="0" FontSize="12" Padding="8,4" Click="DevConsoleTab_Click"/>
-                    <Button Grid.Column="1" x:Name="DevDomTab" Content="DOM" Background="Transparent" Foreground="#888888" BorderThickness="0" FontSize="12" Padding="8,4" Click="DevDomTab_Click" Visibility="Collapsed"/>
-                    <Button Grid.Column="2" x:Name="DevNetworkTab" Content="Network" Background="Transparent" Foreground="#888888" BorderThickness="0" FontSize="12" Padding="8,4" Click="DevNetworkTab_Click" Visibility="Collapsed"/>
+                    <Button Grid.Column="1" x:Name="DevDomTab" Content="DOM" Background="Transparent" Foreground="#888888" BorderThickness="0" FontSize="12" Padding="8,4" Click="DevDomTab_Click"/>
+                    <Button Grid.Column="2" x:Name="DevNetworkTab" Content="Network" Background="Transparent" Foreground="#888888" BorderThickness="0" FontSize="12" Padding="8,4" Click="DevNetworkTab_Click"/>
+                    <Button Grid.Column="3" x:Name="DevDebugTab" Content="Debug" Background="Transparent" Foreground="#888888" BorderThickness="0" FontSize="12" Padding="8,4" Click="DevDebugTab_Click"/>
 
                     <!-- DevTools close -->
-                    <Button Grid.Column="4" x:Name="DevToolsClose" Content="✕" Background="Transparent" Foreground="#FF6666" BorderThickness="0" FontSize="14" Padding="8,4" Click="DevToolsClose_Click"/>
+                    <Button Grid.Column="5" x:Name="DevToolsClose" Content="✕" Background="Transparent" Foreground="#FF6666" BorderThickness="0" FontSize="14" Padding="8,4" Click="DevToolsClose_Click"/>
                 </Grid>
             </Border>
 
@@ -135,7 +137,7 @@
 
                 <!-- Console output -->
                 <ScrollViewer Grid.Row="0" x:Name="DevConsoleOutput" VerticalScrollBarVisibility="Auto" Padding="8,4" Background="#111111">
-                    <TextBlock x:Name="DevConsoleText" Foreground="#00FF00" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap"/>
+                    <RichTextBlock x:Name="DevConsoleText" Foreground="#00FF00" FontFamily="Consolas" FontSize="12" IsTextSelectionEnabled="True"/>
                 </ScrollViewer>
 
                 <!-- Console input -->
@@ -149,14 +151,19 @@
                 </Grid>
             </Grid>
 
-            <!-- DOM tab content (stub) -->
+            <!-- DOM tab content -->
             <ScrollViewer Grid.Row="1" x:Name="DevDomContent" Visibility="Collapsed" Padding="8,4" Background="#111111">
-                <TextBlock x:Name="DevDomText" Foreground="#CCCCCC" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"/>
+                <TextBox x:Name="DevDomText" Foreground="#CCCCCC" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" IsReadOnly="True" BorderThickness="0" Background="Transparent"/>
             </ScrollViewer>
 
-            <!-- Network tab content (stub) -->
+            <!-- Network tab content -->
             <ScrollViewer Grid.Row="1" x:Name="DevNetworkContent" Visibility="Collapsed" Padding="8,4" Background="#111111">
-                <TextBlock x:Name="DevNetworkText" Foreground="#CCCCCC" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"/>
+                <TextBox x:Name="DevNetworkText" Foreground="#CCCCCC" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" IsReadOnly="True" BorderThickness="0" Background="Transparent"/>
+            </ScrollViewer>
+
+            <!-- Debug tab content -->
+            <ScrollViewer Grid.Row="1" x:Name="DevDebugContent" Visibility="Collapsed" Padding="8,4" Background="#111111">
+                <TextBox x:Name="DevDebugText" Foreground="#FFA500" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" IsReadOnly="True" BorderThickness="0" Background="Transparent"/>
             </ScrollViewer>
         </Grid>
 
@@ -177,6 +184,7 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
@@ -225,6 +233,11 @@
                     <!-- Snapshot -->
                     <Button Grid.Column="6" x:Name="SnapshotButton" Style="{StaticResource BarButtonStyle}" ToolTipService.ToolTip="Snapshot (screenshot)" Margin="2,0,0,0">
                         <FontIcon Glyph="&#xE722;" FontSize="14"/>
+                    </Button>
+
+                    <!-- Copy -->
+                    <Button Grid.Column="7" x:Name="CopyButton" Style="{StaticResource BarButtonStyle}" ToolTipService.ToolTip="Copy page text" Margin="2,0,0,0">
+                        <FontIcon Glyph="&#xE8C8;" FontSize="14"/>
                     </Button>
                 </Grid>
             </Border>
@@ -301,8 +314,8 @@
         </Grid>
 
         <!-- ===== Status Bar ===== -->
-        <Border Grid.Row="1" Background="#2D2D2D" VerticalAlignment="Bottom" Height="0" IsHitTestVisible="False">
-            <TextBlock x:Name="StatusText" Foreground="#AAAAAA" FontSize="11" TextTrimming="CharacterEllipsis" Margin="8,4"/>
+        <Border Grid.Row="1" Background="#2D2D2D" VerticalAlignment="Bottom" Height="20" IsHitTestVisible="False">
+            <TextBlock x:Name="StatusText" Foreground="#AAAAAA" FontSize="11" TextTrimming="CharacterEllipsis" Margin="8,2"/>
         </Border>
     </Grid>
 </Page>

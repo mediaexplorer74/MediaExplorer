@@ -20,7 +20,7 @@ namespace BrowserCore.Engine
         [Conditional("DEBUG")]
         public static void Pass(string testId, string testName)
         {
-            Debug.WriteLine($"[TEST:PASS] {testId} {testName}");
+            DevToolsLogger.Log($"[TEST:PASS] {testId} {testName}");
         }
 
         /// <summary>
@@ -31,9 +31,9 @@ namespace BrowserCore.Engine
         public static void Fail(string testId, string testName, string actual = null)
         {
             if (string.IsNullOrEmpty(actual))
-                Debug.WriteLine($"[TEST:FAIL] {testId} {testName}");
+                DevToolsLogger.Log($"[TEST:FAIL] {testId} {testName}");
             else
-                Debug.WriteLine($"[TEST:FAIL] {testId} {testName} — got: {actual}");
+                DevToolsLogger.Log($"[TEST:FAIL] {testId} {testName} — got: {actual}");
         }
 
         // ===========================
@@ -47,7 +47,7 @@ namespace BrowserCore.Engine
         [Conditional("DEBUG")]
         public static void Site(string testId, string url, string result)
         {
-            Debug.WriteLine($"[TEST:SITE] {testId} {url} — {result}");
+            DevToolsLogger.Log($"[TEST:SITE] {testId} {url} — {result}");
         }
 
         /// <summary>
@@ -57,7 +57,7 @@ namespace BrowserCore.Engine
         [Conditional("DEBUG")]
         public static void SiteError(string testId, string url, string error)
         {
-            Debug.WriteLine($"[TEST:SITE] {testId} {url} — ERROR: {error}");
+            DevToolsLogger.Log($"[TEST:SITE] {testId} {url} — ERROR: {error}");
         }
 
         // ===========================
@@ -72,9 +72,9 @@ namespace BrowserCore.Engine
         public static void Perf(string url, int cascadeMs, int layoutMs, int paintMs, int totalMs, int nodeCount = 0, int ruleCount = 0)
         {
             if (nodeCount > 0 && ruleCount > 0)
-                Debug.WriteLine($"[TEST:PERF] url={url} nodes={nodeCount} rules={ruleCount} cascade={cascadeMs}ms layout={layoutMs}ms paint={paintMs}ms total={totalMs}ms");
+                DevToolsLogger.Log($"[TEST:PERF] url={url} nodes={nodeCount} rules={ruleCount} cascade={cascadeMs}ms layout={layoutMs}ms paint={paintMs}ms total={totalMs}ms");
             else
-                Debug.WriteLine($"[TEST:PERF] url={url} cascade={cascadeMs}ms layout={layoutMs}ms paint={paintMs}ms total={totalMs}ms");
+                DevToolsLogger.Log($"[TEST:PERF] url={url} cascade={cascadeMs}ms layout={layoutMs}ms paint={paintMs}ms total={totalMs}ms");
         }
 
         /// <summary>
@@ -84,7 +84,7 @@ namespace BrowserCore.Engine
         [Conditional("DEBUG")]
         public static void PerfStage(string phase, int ms)
         {
-            Debug.WriteLine($"[TEST:PERF] phase={phase} ms={ms}");
+            DevToolsLogger.Log($"[TEST:PERF] phase={phase} ms={ms}");
         }
 
         // ===========================

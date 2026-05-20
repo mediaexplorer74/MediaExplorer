@@ -40,6 +40,7 @@ namespace WEBVIEW
         // DevTools
         private bool _devToolsEnabled;
         private System.Text.StringBuilder _devConsoleBuffer = new System.Text.StringBuilder();
+        private System.Text.StringBuilder _debugLogBuffer = new System.Text.StringBuilder();
 
         public bool DevToolsEnabled
         {
@@ -53,7 +54,7 @@ namespace WEBVIEW
                         DevToolsPanel.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
                     if (DevToolsRow != null)
                         DevToolsRow.Height = value ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-                    if (value && DevConsoleText != null && string.IsNullOrEmpty(DevConsoleText.Text))
+                    if (value && DevConsoleText != null && DevConsoleText.Blocks.Count == 0)
                         DevToolsLog("[DevTools] Console ready.");
                 });
             }
@@ -73,6 +74,35 @@ namespace WEBVIEW
             InitializeComponent();
             Current = this;
 
+            // Subscribe to DevToolsLogger to capture TestLogger and JS console output
+            try
+            {
+                BrowserCore.Engine.DevToolsLogger.OnLog += msg =>
+                {
+                    if (_devToolsEnabled)
+                    {
+                        // Must dispatch to UI thread because OnLog can fire from background threads (ResourceManager, ModuleLoader)
+                        Ui(() =>
+                        {
+                            try
+                            {
+                                AppendDevToolsLog(msg);
+                                // Also buffer [DIAG] messages for Debug tab
+                                if (msg.StartsWith("[DIAG]"))
+                                {
+                                    _debugLogBuffer.AppendLine(msg);
+                                    // Limit buffer size
+                                    if (_debugLogBuffer.Length > 50000)
+                                        _debugLogBuffer.Clear();
+                                }
+                            }
+                            catch { }
+                        });
+                    }
+                };
+            }
+            catch { }
+
             if (GoButton != null) GoButton.Click += GoButton_Click;
             if (Omnibox != null) Omnibox.KeyDown += Omnibox_KeyDown;
             if (BackButton != null) BackButton.Click += BackButton_Click;
@@ -80,6 +110,7 @@ namespace WEBVIEW
             if (SettingsButton != null) SettingsButton.Click += SettingsButton_Click;
             if (AiButton != null) AiButton.Click += AiButton_Click;
             if (SnapshotButton != null) SnapshotButton.Click += SnapshotButton_Click;
+            if (CopyButton != null) CopyButton.Click += CopyButton_Click;
             if (AiCloseButton != null) AiCloseButton.Click += AiCloseButton_Click;
             if (AiCopyButton != null) AiCopyButton.Click += AiCopyButton_Click;
             if (ReaderCloseButton != null) ReaderCloseButton.Click += ReaderCloseButton_Click;
@@ -824,6 +855,7 @@ namespace WEBVIEW
                 await SavePngAsync(bitmap, pixels, filename);
 
                 System.Diagnostics.Debug.WriteLine("[Snapshot] DONE");
+                UpdateStatusMessage("Snapshot saved: " + filename);
             }
             catch (Exception ex)
             {
@@ -1065,6 +1097,91 @@ namespace WEBVIEW
             return $"{baseName}_{timestamp}.png";
         }
 
+        // --- Copy page text to clipboard ---
+
+        private void CopyButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var dom = _browser.GetActiveDom();
+                if (dom == null)
+                {
+                    UpdateStatusMessage("Nothing to copy.");
+                    return;
+                }
+
+                var text = ExtractInnerText(dom);
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    UpdateStatusMessage("No text content found.");
+                    return;
+                }
+
+                var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                pkg.SetText(text);
+                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
+                UpdateStatusMessage("Copied " + text.Length + " characters to clipboard.");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[Copy] ERROR: " + ex.Message);
+                UpdateStatusMessage("Copy failed: " + ex.Message);
+            }
+        }
+
+        private string ExtractInnerText(BrowserCore.Engine.LiteElement node)
+        {
+            if (node == null) return "";
+            var sb = new System.Text.StringBuilder();
+            ExtractInnerTextRecursive(node, sb);
+            return sb.ToString().Trim();
+        }
+
+        private void ExtractInnerTextRecursive(BrowserCore.Engine.LiteElement node, System.Text.StringBuilder sb)
+        {
+            if (node == null) return;
+
+            // Skip script/style content
+            if (node.Tag == "script" || node.Tag == "style") return;
+
+            if (node.IsText)
+            {
+                var text = node.Text?.Trim();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    if (sb.Length > 0 && !sb.ToString().EndsWith("\n") && !sb.ToString().EndsWith(" "))
+                        sb.Append(" ");
+                    sb.Append(text);
+                }
+            }
+            else
+            {
+                // Add newline for block elements
+                if (node.Tag == "p" || node.Tag == "div" || node.Tag == "h1" || node.Tag == "h2" || 
+                    node.Tag == "h3" || node.Tag == "h4" || node.Tag == "h5" || node.Tag == "h6" ||
+                    node.Tag == "li" || node.Tag == "br" || node.Tag == "hr")
+                {
+                    if (sb.Length > 0 && !sb.ToString().EndsWith("\n"))
+                        sb.AppendLine();
+                }
+
+                if (node.Children != null)
+                {
+                    foreach (var child in node.Children)
+                        ExtractInnerTextRecursive(child, sb);
+                }
+
+                // Add newline after closing block elements
+                if (node.Tag == "p" || node.Tag == "div" || node.Tag == "h1" || node.Tag == "h2" || 
+                    node.Tag == "h3" || node.Tag == "h4" || node.Tag == "h5" || node.Tag == "h6" ||
+                    node.Tag == "li" || node.Tag == "br")
+                {
+                    if (!sb.ToString().EndsWith("\n"))
+                        sb.AppendLine();
+                }
+            }
+        }
+
         private static string LoadHomePage()
         {
             try
@@ -1282,13 +1399,51 @@ namespace WEBVIEW
 
         // --- DevTools ---
 
-        private void DevToolsLog(string message)
+        private void AppendDevToolsLog(string message)
         {
+            if (DevConsoleText == null) return;
+
+            // Determine color based on message content
+            Windows.UI.Color color = Windows.UI.Colors.Gray;
+            if (message.Contains("[TEST:PASS]")) color = Windows.UI.Colors.LimeGreen;
+            else if (message.Contains("[TEST:FAIL]")) color = Windows.UI.Colors.Red;
+            else if (message.Contains("[TEST:SITE]")) color = Windows.UI.Colors.Yellow;
+            else if (message.Contains("[TEST:PERF]")) color = Windows.UI.Colors.Cyan;
+            else if (message.Contains("[ERROR]") || message.Contains("Exception") || message.Contains("Error:")) color = Windows.UI.Colors.OrangeRed;
+            else if (message.StartsWith("[DIAG]")) color = Windows.UI.Colors.DarkGray;
+
+            // RichTextBlock uses Blocks -> Paragraph -> Inlines
+            if (DevConsoleText.Blocks.Count == 0)
+                DevConsoleText.Blocks.Add(new Windows.UI.Xaml.Documents.Paragraph());
+            
+            var paragraph = (Windows.UI.Xaml.Documents.Paragraph)DevConsoleText.Blocks[0];
+            
+            // Append with color using Inlines
+            var run = new Windows.UI.Xaml.Documents.Run
+            {
+                Text = message + "\n",
+                Foreground = new SolidColorBrush(color)
+            };
+
+            // Limit log size to prevent UI lag
+            if (paragraph.Inlines.Count > 500)
+            {
+                paragraph.Inlines.Clear();
+                _devConsoleBuffer.Clear();
+            }
+
+            paragraph.Inlines.Add(run);
             _devConsoleBuffer.AppendLine(message);
-            if (DevConsoleText != null)
-                DevConsoleText.Text = _devConsoleBuffer.ToString();
+
+            // Auto-scroll
             if (DevConsoleOutput != null)
                 DevConsoleOutput.ChangeView(null, DevConsoleOutput.ScrollableHeight, null);
+        }
+
+        private void DevToolsLog(string message)
+        {
+            // This is for internal DevTools messages, not captured by TraceListener
+            AppendDevToolsLog(message);
         }
 
         private void DevConsoleTab_Click(object sender, RoutedEventArgs e)
@@ -1296,9 +1451,11 @@ namespace WEBVIEW
             if (DevConsoleContent != null) DevConsoleContent.Visibility = Visibility.Visible;
             if (DevDomContent != null) DevDomContent.Visibility = Visibility.Collapsed;
             if (DevNetworkContent != null) DevNetworkContent.Visibility = Visibility.Collapsed;
+            if (DevDebugContent != null) DevDebugContent.Visibility = Visibility.Collapsed;
             if (DevConsoleTab != null) DevConsoleTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xCC, 0xCC, 0xCC));
             if (DevDomTab != null) DevDomTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
             if (DevNetworkTab != null) DevNetworkTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevDebugTab != null) DevDebugTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
         }
 
         private void DevDomTab_Click(object sender, RoutedEventArgs e)
@@ -1306,14 +1463,16 @@ namespace WEBVIEW
             if (DevConsoleContent != null) DevConsoleContent.Visibility = Visibility.Collapsed;
             if (DevDomContent != null) DevDomContent.Visibility = Visibility.Visible;
             if (DevNetworkContent != null) DevNetworkContent.Visibility = Visibility.Collapsed;
+            if (DevDebugContent != null) DevDebugContent.Visibility = Visibility.Collapsed;
             if (DevConsoleTab != null) DevConsoleTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
             if (DevDomTab != null) DevDomTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xCC, 0xCC, 0xCC));
             if (DevNetworkTab != null) DevNetworkTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevDebugTab != null) DevDebugTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
 
-            // Populate DOM tree text (stub)
+            // Populate DOM tree from active browser engine
             try
             {
-                var dom = _welcomeEngine.GetActiveDom();
+                var dom = _browser.GetActiveDom();
                 if (dom != null && DevDomText != null)
                     DevDomText.Text = DumpDomTree(dom, 0);
                 else if (DevDomText != null)
@@ -1327,12 +1486,31 @@ namespace WEBVIEW
             if (DevConsoleContent != null) DevConsoleContent.Visibility = Visibility.Collapsed;
             if (DevDomContent != null) DevDomContent.Visibility = Visibility.Collapsed;
             if (DevNetworkContent != null) DevNetworkContent.Visibility = Visibility.Visible;
+            if (DevDebugContent != null) DevDebugContent.Visibility = Visibility.Collapsed;
             if (DevConsoleTab != null) DevConsoleTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
             if (DevDomTab != null) DevDomTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
             if (DevNetworkTab != null) DevNetworkTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xCC, 0xCC, 0xCC));
+            if (DevDebugTab != null) DevDebugTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
 
+            // Show network log from ResourceManager
             if (DevNetworkText != null)
-                DevNetworkText.Text = "[Network tab — stub. Future: fetch log from ResourceManager.]";
+                DevNetworkText.Text = _resources.GetNetworkLog();
+        }
+
+        private void DevDebugTab_Click(object sender, RoutedEventArgs e)
+        {
+            if (DevConsoleContent != null) DevConsoleContent.Visibility = Visibility.Collapsed;
+            if (DevDomContent != null) DevDomContent.Visibility = Visibility.Collapsed;
+            if (DevNetworkContent != null) DevNetworkContent.Visibility = Visibility.Collapsed;
+            if (DevDebugContent != null) DevDebugContent.Visibility = Visibility.Visible;
+            if (DevConsoleTab != null) DevConsoleTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevDomTab != null) DevDomTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevNetworkTab != null) DevNetworkTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevDebugTab != null) DevDebugTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xCC, 0xCC, 0xCC));
+
+            // Show debug log (filtered [DIAG] messages)
+            if (DevDebugText != null)
+                DevDebugText.Text = _debugLogBuffer.ToString();
         }
 
         private void DevToolsClose_Click(object sender, RoutedEventArgs e)
@@ -1347,17 +1525,27 @@ namespace WEBVIEW
             var code = DevConsoleInput?.Text?.Trim();
             if (string.IsNullOrEmpty(code)) return;
 
-            DevToolsLog("> " + code);
+            // Show input in log
+            AppendDevToolsLog("> " + code);
             DevConsoleInput.Text = "";
 
             try
             {
+                // Try to evaluate as expression first
                 var result = _browser.EvaluateExpression(code);
-                DevToolsLog("← " + (result ?? "undefined"));
+                if (result != null && result != "undefined")
+                    AppendDevToolsLog("← " + result);
+                else
+                {
+                    // If expression returned nothing, try running as statement
+                    // Wrap in console.log to capture output
+                    var wrappedCode = "try { var __r = (" + code + "); if(__r !== undefined) console.log(__r); } catch(e) { console.error(e); }";
+                    _browser.EvaluateAsync(wrappedCode).ConfigureAwait(false);
+                }
             }
             catch (Exception ex)
             {
-                DevToolsLog("✕ " + ex.Message);
+                AppendDevToolsLog("✕ " + ex.Message);
             }
         }
 

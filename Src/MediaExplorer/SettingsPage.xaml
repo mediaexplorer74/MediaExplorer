@@ -85,7 +85,7 @@
                 <StackPanel Margin="16,20,16,0">
                     <TextBlock Text="MediaExplorer" FontSize="22" FontWeight="Bold" Foreground="White" Margin="0,0,0,8"/>
                     <TextBlock Text="Retro alternative browser for Windows 10 Mobile" Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,12"/>
-                    <TextBlock Text="Version: 0.20.0 (dev build)" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
+                    <TextBlock Text="Version: 0.38.0 (museum build)" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
                     <TextBlock Text="Built for Lumia 950 / 1020" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
                     <TextBlock Text="Custom HTML/CSS/JS engine" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
                     <TextBlock Text="Engine: NiL.JS + Jint" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,16"/>

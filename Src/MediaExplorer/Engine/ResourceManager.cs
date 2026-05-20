@@ -53,6 +53,30 @@ namespace BrowserCore.Engine
 
     public Uri LastTextResponseUri { get; private set; }
 
+        // Network log for DevTools (static - shared across all ResourceManager instances)
+        private static readonly List<string> _networkLog = new List<string>();
+        private static readonly object _networkLogLock = new object();
+        private const int NetworkLogMax = 200;
+
+        public string GetNetworkLog()
+        {
+            lock (_networkLogLock)
+            {
+                if (_networkLog.Count == 0) return "(no network requests yet)";
+                return string.Join("\n", _networkLog);
+            }
+        }
+
+        private void LogNetwork(string message)
+        {
+            lock (_networkLogLock)
+            {
+                _networkLog.Add(message);
+                if (_networkLog.Count > NetworkLogMax)
+                    _networkLog.RemoveAt(0);
+            }
+        }
+
         private sealed class HstsEntry { public DateTimeOffset Expiry; public bool IncludeSub; }
         private readonly Dictionary<string, HstsEntry> _hsts = new Dictionary<string, HstsEntry>(StringComparer.OrdinalIgnoreCase);
         private const string HstsStoreKey = "hsts_store_v1";
@@ -202,16 +226,24 @@ namespace BrowserCore.Engine
         {
             if (url == null) return null;
             
+            var startTime = DateTimeOffset.UtcNow;
+            LogNetwork($"[GET] {url}");
+            
             // Handle ms-appx scheme locally
             if (string.Equals(url.Scheme, "ms-appx", StringComparison.OrdinalIgnoreCase))
             {
                 try
                 {
                     var file = await StorageFile.GetFileFromApplicationUriAsync(url);
-                    return await FileIO.ReadTextAsync(file);
+                    var result = await FileIO.ReadTextAsync(file);
+                    var elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                    LogNetwork($"[OK] {url} ({elapsed:F0}ms) [local]");
+                    return result;
                 }
                 catch (Exception ex)
                 {
+                    var elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                    LogNetwork($"[ERR] {url} ({elapsed:F0}ms) {ex.Message}");
                     System.Diagnostics.Debug.WriteLine($"[FetchText] ms-appx failed: {url} {ex.Message}");
                     return null;
                 }
@@ -322,6 +354,8 @@ namespace BrowserCore.Engine
                 }
                 if (resp == null || !resp.IsSuccessStatusCode)
                 {
+                    var elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                    LogNetwork($"[FAIL] {url} ({elapsed:F0}ms) status={(resp != null ? (int)resp.StatusCode : 0)}");
                     try { System.Diagnostics.Debug.WriteLine("[FetchTextFail] url=" + url + " hops=" + hops + " status=" + (resp!=null?(int)resp.StatusCode:0)); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
                     return null;
                 }
@@ -338,6 +372,7 @@ namespace BrowserCore.Engine
                     text = null;
                 }
                 try { var _elapsed = DateTimeOffset.UtcNow - _startFetch; var _msg = "[FetchText] " + url + " in " + (int)_elapsed.TotalMilliseconds + "ms"; System.Diagnostics.Debug.WriteLine(_msg); if (LogSink != null) LogSink(_msg); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                LogNetwork($"[OK] {url} ({(DateTimeOffset.UtcNow - startTime).TotalMilliseconds:F0}ms) {(text?.Length ?? 0)} bytes");
 
                 if (LooksTextual(ct))
                 {
@@ -421,16 +456,24 @@ namespace BrowserCore.Engine
         {
             if (url == null) return null;
 
+            var startTime = DateTimeOffset.UtcNow;
+            LogNetwork($"[IMG] {url}");
+
             // Handle ms-appx scheme locally
             if (string.Equals(url.Scheme, "ms-appx", StringComparison.OrdinalIgnoreCase))
             {
                 try
                 {
                     var file = await StorageFile.GetFileFromApplicationUriAsync(url);
-                    return await file.OpenReadAsync();
+                    var result = await file.OpenReadAsync();
+                    var elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                    LogNetwork($"[OK] {url} ({elapsed:F0}ms) [local]");
+                    return result;
                 }
                 catch (Exception ex)
                 {
+                    var elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                    LogNetwork($"[ERR] {url} ({elapsed:F0}ms) {ex.Message}");
                     System.Diagnostics.Debug.WriteLine($"[FetchImage] ms-appx failed: {url} {ex.Message}");
                     return null;
                 }

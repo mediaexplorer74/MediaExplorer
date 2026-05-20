@@ -1807,9 +1807,8 @@ namespace BrowserCore.Engine
             bool switching = false;
 
             Action<string, Uri> log = (msg, u) => {
-                #if DEBUG
                 System.Diagnostics.Debug.WriteLine($"{msg} {u}");
-                #endif
+                DevToolsLogger.Log($"{msg} {u}");
             };
 
             Func<int, Task<bool>> applyCandidateAsync = null;

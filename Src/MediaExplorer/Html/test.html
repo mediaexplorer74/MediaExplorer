@@ -492,7 +492,32 @@
         <tr><td style="border:1px solid #999; padding:4px;">T-S-008</td><td style="border:1px solid #999; padding:4px;">lobste.rs</td><td style="border:1px solid #999; padding:4px;">Link list visible</td></tr>
         <tr><td style="border:1px solid #999; padding:4px;">T-S-009</td><td style="border:1px solid #999; padding:4px;">hacker-news.firebaseapp.com</td><td style="border:1px solid #999; padding:4px;">Loads or degrades gracefully</td></tr>
         <tr><td style="border:1px solid #999; padding:4px;">T-S-010</td><td style="border:1px solid #999; padding:4px;">about:test</td><td style="border:1px solid #999; padding:4px;">This page — all T-H/T-C pass visually</td></tr>
+        <tr style="background:#ffe;"><td style="border:1px solid #999; padding:4px;">T-S-011</td><td style="border:1px solid #999; padding:4px;"><a href="https://nokiadesignarchive.aalto.fi/">nokiadesignarchive.aalto.fi</a></td><td style="border:1px solid #999; padding:4px;">Network/Timeline visualization or fallback text</td></tr>
     </table>
+</div>
+
+<!-- ======================== SECTION E: ES MODULE TESTS ======================== -->
+<div class="section-label" style="margin-top:24px;">Section E — ES Module Tests</div>
+
+<div class="test-card">
+    <span class="test-id">T-M-001</span>
+    <h2>ES Module: Inline (<code>type="module"</code>, no imports)</h2>
+    <p><a href="TestModule/inline.html">TestModule/inline.html</a></p>
+    <div class="expected">Checks if NiL.JS can execute module-scoped code</div>
+</div>
+
+<div class="test-card">
+    <span class="test-id">T-M-002</span>
+    <h2>ES Module: External <code>import</code>/<code>export</code></h2>
+    <p><a href="TestModule/module-import.html">TestModule/module-import.html</a></p>
+    <div class="expected">Basic <code>import { greet } from './lib.js'</code> — tests ModuleLoader pipeline</div>
+</div>
+
+<div class="test-card">
+    <span class="test-id">T-M-003</span>
+    <h2>ES Module: <code>import.meta.url</code></h2>
+    <p><a href="TestModule/import-meta.html">TestModule/import-meta.html</a></p>
+    <div class="expected">Checks if <code>import.meta.url</code> resolves correctly</div>
 </div>
 
 <!-- Footer -->

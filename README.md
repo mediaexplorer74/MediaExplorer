@@ -1,4 +1,4 @@
-# MediaExplorer 0.20.0 - dev branch (museum build; pre-alpha)
+# MediaExplorer 0.38.0 - dev branch (museum build; pre-alpha)
 
 ![](/Images/logo.png)
 
@@ -40,7 +40,8 @@ Project status: This is a homemade browser engine (HTML/CSS/JS) for W10M without
 
 :: Changed things :: 
 
-- DevTools Console (stub)
+- Improved NiL.JS (planned to ES Modules / Vite support)
+- DevTools Console (Console/DOM/Network/Debug)
 - Snapshot button at App Bar -- did usual screnshot / long-weight (big) screenshot and stores it to Pictures/MediaExplorer folder.
 - 3 UI modes: HIDED ("App Bar Strip"); SEMI ("Semi-visivle&Expandable App Bar"); FULL (Usual App Bar)
 - 3 "Rendering" modes : FULL (JS+HTML); RICH (Lite JS+HTML for Easy Reading+ AI "magic cursor") ; POOR (Hello, old-school FIDO!))) 
@@ -53,7 +54,8 @@ Project status: This is a homemade browser engine (HTML/CSS/JS) for W10M without
 
 :: Что изменил ::
 
--  DevTools (заглушка)
+- Improved NiL.JS (планируется для поддержки ES Modules / Vite)
+-  DevTools (Console/DOM/Network/Debug)
 - Разработческая пимпа "Snapshot" в app bar -- делает обычный / долговязый ("большой") скриншот в папке Pictures/MediaExplorer.
 - 3 режима UI: Скрытный ("Нижния панель как полоска"); Полу-открытый (Привет, Surface Duo!); Полный (обычная нижняя панель)
 - 3 режима рендеринга : Полный (JS+HTML); Обогащённый (Лайтовый JS+HTML для ИИ-режима чтения с "волшебным курсором") ; Обедненный (Привет, FIDO-NET!))) 
@@ -81,4 +83,4 @@ As is. No support. RnD only. DIY.
 
 
 ## .
-[m][e] May, 18 2026
+[m][e] May, 20 2026

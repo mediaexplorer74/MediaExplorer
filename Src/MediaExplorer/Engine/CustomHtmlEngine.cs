@@ -1161,7 +1161,15 @@ namespace BrowserCore.Engine
             bool disableAutoFallback = false)
         {
             var host = (baseUri != null ? baseUri.Host : "null");
-            System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync START host=" + host + " htmlLen=" + (html != null ? html.Length.ToString() : "null") + " vw=" + (viewportWidth.HasValue ? viewportWidth.Value.ToString() : "null") + " js=" + (forceJavascript.HasValue ? forceJavascript.Value.ToString() : "default"));
+            var diagMsg = "[DIAG] RenderAsync START host=" + host + " htmlLen=" + (html != null ? html.Length.ToString() : "null") + " vw=" + (viewportWidth.HasValue ? viewportWidth.Value.ToString() : "null") + " js=" + (forceJavascript.HasValue ? forceJavascript.Value.ToString() : "default");
+            System.Diagnostics.Debug.WriteLine(diagMsg);
+            DevToolsLogger.Log(diagMsg);
+
+            // Diagnostic: check SVG decoder availability
+            var svgType = Type.GetType("Windows.UI.Xaml.Media.Imaging.SvgImageSource, Windows, ContentType=WindowsRuntime");
+            var svgDiag = "[DIAG] SvgType available: " + (svgType != null ? "true" : "false");
+            System.Diagnostics.Debug.WriteLine(svgDiag);
+            DevToolsLogger.Log(svgDiag);
 
             // Ensure we are on the UI thread. If not, marshal the call.
             var uiDisp = _uiDispatcher ?? UiThreadHelper.TryGetDispatcher();
@@ -1213,7 +1221,9 @@ namespace BrowserCore.Engine
                 // POOR mode — e-book style: minimal reader stylesheet, no JS, no images
                 if (_renderMode == RenderModeType.Poor)
                 {
-                    System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Poor mode — reader stylesheet");
+                    var msg = "[DIAG] RenderAsync Poor mode — reader stylesheet";
+                    System.Diagnostics.Debug.WriteLine(msg);
+                    DevToolsLogger.Log(msg);
 
                     // Apply reader stylesheet overrides before building visual tree
                     ApplyReaderStylesheet(dom);
@@ -1469,20 +1479,28 @@ namespace BrowserCore.Engine
 
                 if (allowJs)
                 {
-                    System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase3 JS RunScriptsAsync start");
-                    try { await js.RunScriptsAsync(dom, baseUri); System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase3 JS DONE"); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase3 JS EXC " + ex.Message); }
+                    var msg = "[DIAG] RenderAsync Phase3 JS RunScriptsAsync start";
+                    System.Diagnostics.Debug.WriteLine(msg);
+                    DevToolsLogger.Log(msg);
+                    try { await js.RunScriptsAsync(dom, baseUri); var m2 = "[DIAG] RenderAsync Phase3 JS DONE"; System.Diagnostics.Debug.WriteLine(m2); DevToolsLogger.Log(m2); } catch (Exception ex) { var m3 = "[DIAG] RenderAsync Phase3 JS EXC " + ex.Message; System.Diagnostics.Debug.WriteLine(m3); DevToolsLogger.Log(m3); }
                 }
                 else if (richMode)
                 {
                     // RICH mode: run MiniRunner only for setTimeout/clearTimeout + analytics kill
-                    System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase3 RICH MiniRunner start");
-                    try { RunRichMiniRunner(dom, js); System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase3 RICH MiniRunner DONE"); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase3 RICH MiniRunner EXC " + ex.Message); }
+                    var msg = "[DIAG] RenderAsync Phase3 RICH MiniRunner start";
+                    System.Diagnostics.Debug.WriteLine(msg);
+                    DevToolsLogger.Log(msg);
+                    try { RunRichMiniRunner(dom, js); var m2 = "[DIAG] RenderAsync Phase3 RICH MiniRunner DONE"; System.Diagnostics.Debug.WriteLine(m2); DevToolsLogger.Log(m2); } catch (Exception ex) { var m3 = "[DIAG] RenderAsync Phase3 RICH MiniRunner EXC " + ex.Message; System.Diagnostics.Debug.WriteLine(m3); DevToolsLogger.Log(m3); }
                 }
-                else System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase3 JS SKIPPED allowJs=" + allowJs);
+                else { var msg = "[DIAG] RenderAsync Phase3 JS SKIPPED allowJs=" + allowJs; System.Diagnostics.Debug.WriteLine(msg); DevToolsLogger.Log(msg); }
 
-                System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase4 BuildVisualTreeAsync start");
+                var msg4 = "[DIAG] RenderAsync Phase4 BuildVisualTreeAsync start";
+                System.Diagnostics.Debug.WriteLine(msg4);
+                DevToolsLogger.Log(msg4);
                 var element = await BuildVisualTreeAsync(dom, baseUri, cssFetcher, imageLoader, onNavigate, js, viewportWidth, onFixedBackground, includeDiagnosticsBanner: false).ConfigureAwait(false);
-                System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase4 BuildVisualTreeAsync DONE element=" + (element != null ? element.GetType().Name : "null"));
+                var msg5 = "[DIAG] RenderAsync Phase4 BuildVisualTreeAsync DONE element=" + (element != null ? element.GetType().Name : "null");
+                System.Diagnostics.Debug.WriteLine(msg5);
+                DevToolsLogger.Log(msg5);
 
                 // Auto-fallback (re-render without JS) only makes sense when we
                 // actually attempted JS and are not in app-shell safe-mode.

@@ -4,11 +4,11 @@
 > **Hardware target:** Lumia 950/1020 (Snapdragon 810, 3 GB RAM, 5" 1440p)
 > **Test environment:** x86 emulator (primary) → ARM device (validation)
 > **Engine:** Custom HTML parser + CSS cascade + NiL.JS + XAML renderer (~35 files, ~20 000 lines)
-> **Last plan update:** 2026-05-18 (Plan_03 — post-session 2.18)
+> **Last plan update:** 2026-05-19 (Plan_03 — post-session 3.7)
 
 ---
 
-## Current State (as of session 3.2)
+## Current State (as of session 3.6)
 
 | Phase | Title | Status |
 |-------|-------|--------|
@@ -18,22 +18,28 @@
 | 3 | Layout Offload + VirtualizingRenderer | ✅ DONE |
 | 4 | JavaScript Engine Improvements | ✅ DONE |
 | 5 | Resource Loading (disk cache, priority queue) | ✅ DONE |
-| 6 | ES Modules (NiL.JS native module loader) | ✅ DONE |
+| 6 | ES Modules (NiL.JS native module loader) | ✅ DONE (needs Vite validation) |
 | 7 | Service Worker + Offline-First | ⏸ DEFERRED (after Phase T + 8B) |
 | 8A | MutationObserver API (NiL.JS host object) | ✅ DONE |
 | 8B | Incremental Re-render (VirtualizingRenderer.Patch) | ✅ DONE |
 | 9/14/15 | CSS Property Expansion (batches 1–4) | 🟡 IN PROGRESS |
-| 10 | DevTools Console + Inspector | 🔴 PENDING |
+| **10** | **DevTools Console + Inspector** | **✅ DONE** (Console, DOM, Network, Debug tabs) |
 | 11 | UI Polish (loading, swipe, reading mode) | ✅ DONE |
 | 12 | AI Integration (DeepSeek via OpenRouter) | ✅ DONE |
 | 13 | White Screen Fixes, AppBar Modes, Settings Page | ✅ DONE |
 | 16/17/18 | Image Loading Fix + Diagnostics | ✅ DONE |
+| T | Testing Infrastructure | ✅ DONE |
+| **19** | **DevTools Enhancement & ES Modules Validation** | **🟡 IN PROGRESS** |
+| **20** | **NiL.JS 2.6 Integration (netstandard2.0)** | **✅ DONE** (integration), ⏳ PENDING (test re-run) |
 
 **Known active issues:**
-- Images partially loading (SVG unsupported; `elementSize=NaNxNaN` should be fixed by NaN guards in 8B)
-- White screen on dzen.ru / ya.ru (may still manifest — not fully confirmed fixed)
-- NiL.JS exceptions on complex sites (expected, engine limitation)
-- No systematic testing infrastructure — every bug is found by accident (Phase T partially addresses this)
+- **ES Modules Vite Compatibility**: Phase 6 implementation needs validation against real Vite apps (Nokia Archive uses Vite + D3.js v7)
+- **NiL.JS 2.5.1294**: `SyntaxError: Unexpected token (1:361)` on Vite bundles; `Eval()` cannot parse `import`/`export` declarations
+- **NiL.JS 2.6 Source**: Already in `Src/NiL.JS`, targets `netstandard2.1+`; audit shows NO `Span<T>`, `stackalloc`, `ValueTask`, `IAsyncEnumerable` — downshift to `netstandard1.4`/UWP is feasible
+- **White screen on dzen.ru / ya.ru**: May still manifest.
+
+**New Primary Target:**
+- **Nokia Design Archive** (`nokiadesignarchive.aalto.fi`) — The "Museum Build" benchmark.
 
 ---
 
@@ -762,16 +768,136 @@ Testing via T-S-009 (hacker-news Firebase app) — it ships a service worker and
 
 ---
 
+## Phase 19: DevTools Enhancement & ES Modules Validation
+
+> **Priority: 🟡 Medium — improves debuggability + validates Phase 6**
+> **Effort: 2–3 days / ~400 lines**
+
+### 19.1 DevTools Enhancement (Session 3.6)
+
+**Completed:**
+- DOM tab: Connected `DumpDomTree()` to `_browser.GetActiveDom()`
+- Network tab: Added `_networkLog` to `ResourceManager` with `GetNetworkLog()`
+- Debug tab: New 4th tab for `[DIAG]` engine logs (orange color)
+- All tab handlers updated to manage visibility correctly
+
+**Files changed:**
+- `MainPage.xaml` — Added DevDebugTab + DevDebugContent
+- `MainPage.xaml.cs` — Added `_debugLogBuffer`, `DevDebugTab_Click`
+- `Engine/ResourceManager.cs` — Added network logging
+- `Engine/BrowserApi.cs` — Added `GetActiveDom()`
+
+### 19.2 DevTools Logging Fixes (Session 3.7)
+
+**Problem:** `[Module]` messages from `ModuleLoader` used `Debug.WriteLine()` only — invisible in Console/Debug tabs. Same for `[ImgTry]`/`[ImgSkipSvg]` in `DomBasicRenderer`.
+
+**Changes:**
+- `ModuleLoader.cs` — All `[Module]` diagnostics routed through `DevToolsLogger.Log()` instead of `Debug.WriteLine()` only
+- `DomBasicRenderer.cs` — `log()` lambda (image loading diagnostics) now calls both `Debug.WriteLine()` and `DevToolsLogger.Log()`
+- `CustomHtmlEngine.cs` — Added `[DIAG] SvgType available: true/false` diagnostic on each render
+
+**Result:** Console/Debug tabs now show `[Module] Fetching`, `[Module] Eval error`, `[ImgTry]`, `[ImgSkipSvg]`, and `[DIAG] SvgType available:` messages.
+
+**Observation (Session 3.7):** `SvgType available: true` on desktop target. `SyntaxError: Unexpected token (1:361)` confirmed — NiL.JS 2.5.1294 `Eval()` cannot parse Vite ES module bundles.
+
+### 19.3 ES Module Test Suite (Session 3.7)
+
+**Created `Html/TestModule/`:**
+- `inline.html` — inline `<script type="module">` without imports
+- `module-import.html` — `import { greet } from './lib.js'`
+- `import-meta.html` — `import.meta.url` resolution
+- `lib.js` — exported function + variable
+
+Links added to `Html/test.html` as Section E (T-M-001 through T-M-003).
+
+### 19.4 Next Direction: NiL.JS 2.6 Downshift
+
+After auditing `Src/NiL.JS` (2.6 source), the downshift is feasible:
+
+| Concern | Status |
+|---------|--------|
+| `Span<T>`, `stackalloc`, `ref struct` | **0 occurrences** |
+| `ValueTask`, `IAsyncEnumerable` | **0 occurrences** |
+| `System.Buffers`, `System.IO.Pipelines` | **0 occurrences** |
+| `[Serializable]` (~170 uses) | Already guarded by `#if !(PORTABLE \|\| NETCORE)` |
+| `AppDomain` (2 uses) | Already guarded by `#if !NETCORE` |
+| `CompiledNode.cs` (JIT) | Already guarded by `#if !NETCORE` |
+| `ValueTuple` polyfill | Need to extend `#if NET461` → `#if NET461 \|\| NETSTANDARD1_4` |
+| `System.Reflection.Emit` | Available as NuGet for netstandard1.4 |
+
+Switch from NuGet `NiL.JS 2.5.1294` → project reference `Src/NiL.JS` (with downshift).
+
+---
+
+## Phase 20: NiL.JS 2.6 Integration (netstandard2.0 via local NuGet)
+
+> **Priority: 🔴 Must have — unblocks ES Modules validation**
+> **Effort: 1–2 days / ~100–200 lines changed in NiL.JS + local NuGet package**
+> **Status: ✅ DONE (integration), ⏳ PENDING (test re-run)**
+
+### Background
+
+Current project uses `NiL.JS 2.5.1294` as a NuGet package. Vite bundles fail with `SyntaxError: Unexpected token (1:361)` because `Eval()` cannot parse `import`/`export` declarations. The local source (`Src/NiL.JS`, version 2.6) has better ES module support but targets `netstandard2.1+`.
+
+### What Was Done
+
+**Step 1 — NiL.JS 2.6 netstandard2.0 build:**
+- Added `<TargetFramework>netstandard2.0</TargetFramework>` to `NiL.JS.csproj`
+- Polyfills in `Backward.cs`: `MaybeNullWhenAttribute`, `TypeBuilder.CreateType()` fix
+- `Tools.cs:679`: `Enum.TryParse` → `Enum.Parse` under `NETSTANDARD2_0`
+- Build: `msbuild /p:TargetFramework=netstandard2.0` → 0 errors
+
+**Step 2 — Local NuGet package:**
+- `dotnet pack NiL.JS.csproj` → `local-nuget/NiL.JS.2.6.0-local.nupkg`
+- `nuget.config` with `LocalNiLJS` source → `local-nuget/`
+
+**Step 3 — Switch MediaExplorer reference:**
+- Removed `PackageReference Include="NiL.JS" Version="2.5.1294"`
+- Added `PackageReference Include="NiL.JS" Version="2.6.0-local"` (local NuGet)
+- Linked source approach abandoned (300+ files incompatible with UWP)
+
+**Step 4 — ModuleLoader rewrite:**
+- `IModuleResolver` interface implementation (replaces `ResolveModuleEventArgs`)
+- `Module.ModuleResolversChain.Add(this)` (replaces static event)
+- `RunModule(key, code)` → `new JSModule(key, code, _nil).Run()`
+- `_fetchTasks` for async prefetch of imported modules
+- `ms-appx:///` fetch via `StorageFile.GetFileFromApplicationUriAsync`
+
+**Step 5 — GlobalContext fix (InvalidCastException):**
+- `_nil` type changed: `Context` → `GlobalContext` (both `JavaScriptEngine.cs` and `ModuleLoader.cs`)
+- `_nilInit()`: `new Context()` → `new GlobalContext()`
+- Removed `(GlobalContext)` cast — no longer needed
+
+### Build Result
+```
+0 errors, 1 warning (CS0414: _errorOverlayVisible unused)
+```
+
+### Risks
+
+- `import.meta.url` may not be supported by NiL.JS 2.6 parser
+- `typeof import` syntax may not be supported
+- Vite 568KB bundles may still fail with `SyntaxError` (different from import/export issue)
+
+### Pending
+
+- Re-run ES Module test suite (T-M-001, T-M-002, T-M-003)
+- Nokia Archive validation with real Vite bundles
+
+---
+
 ## Summary & Sequencing
 
 | Phase | Title | Priority | Effort | Depends on |
 |-------|-------|----------|--------|------------|
 | **T** | **Testing Infrastructure** | 🔴 | 3–4 days | — | ✅ DONE |
 | **8B** | **Incremental Re-render** | 🔴 | 4–6 days | T, 8A | ✅ DONE |
-| **15** | Rendering Modes (FULL/RICH/POOR) | 🟡 | 2–3 days | T | ⏳ NEXT |
+| **15** | Rendering Modes (FULL/RICH/POOR) | 🟡 | 2–3 days | T | ✅ DONE |
 | **16** | CSS: transform, calc, Grid areas, transitions | 🟡 | 5–7 days | T, 16.1 before 16.4 |
-| **10** | DevTools (Console + DOM + Network) | 🟡 | 3–5 days | T |
-| **17** | Robustness & Memory | 🟡 | 2–3 days | T |
+| **10** | DevTools (Console + DOM + Network + Debug) | 🟡 | 3–5 days | T | ✅ DONE |
+| **17** | Robustness & Memory |  | 2–3 days | T |
+| **19** | DevTools Enhancement & ES Modules Validation | 🟡 | 2–3 days | 10, 6 |  IN PROGRESS |
+| **20** | NiL.JS 2.6 Integration (netstandard2.0) | ✅ DONE | ~100 lines | 19 | 🔵 PLANNED |
 | **7** | Service Worker + Offline-First | 🟢 | 3–5 days | 8B, 10 |
 
 **Total: ~22–33 working days / ~3300 lines**
@@ -785,17 +911,24 @@ Session 2.19: Phase T — test.html (Sections A+B+C), TestLogger, about:test rou
 Session 2.20: Phase T — site matrix first run, Perf_Baseline.md, reference screenshots ✅
 Session 2.21: Phase 8B — CascadeSingle + InvalidateSubtree ✅
 Session 2.22: Phase 8B — VirtualizingRenderer.Patch + wire to CustomHtmlEngine ✅
-Session 2.23: Phase 15 — RenderMode enum + POOR/RICH implementations ← NEXT
+Session 2.23: Phase 15 — RenderMode enum + POOR/RICH implementations ✅
 Session 2.24: Phase 16.1 — transform (rotate/scale/translate) [ALREADY DONE]
 Session 2.25: Phase 16.2 — calc() + vw/vh resolver
 Session 2.26: Phase 16.3 — grid-template-areas
 Session 2.27: Phase 16.4 — basic CSS transitions
-Session 2.28: Phase 10 — DevTools Console + DOM tab
-Session 2.29: Phase 10 — Network tab + TestLogger integration
+Session 2.28: Phase 10 — DevTools Console + DOM tab ✅
+Session 2.29: Phase 10 — Network tab + TestLogger integration ✅
 Session 2.30: Phase 17 — NaN guards, DOM limit, JS timeout
 Session 2.31: Phase 7 — SwContext + install/fetch events
 Session 2.32: Phase 7 — caches API + ResourceManager integration
 Session 2.33: Full regression run against T-S site matrix; update Perf_Baseline.md
+Session 3.4: DevTools Panel (Console + DOM + Network tabs) ✅
+Session 3.5: DevTools Logger + Nokia Archive Focus ✅
+Session 3.6: DevTools Enhancement (Debug tab, Network log, DOM tree) ✅
+Session 3.7: Phase 19 — DevTools logging fixes, SVG diagnostic, ES Module test suite ✅
+Session 3.8: Phase 20 — NiL.JS 2.6 integration, GlobalContext fix (InvalidCastException) ✅
+Session 3.9: ES Module test re-run (T-M-001/002/003) + Nokia Archive validation ← NEXT
+Session 3.10: ES Modules Validation — Nokia Archive with updated NiL.JS
 ```
 
 ---
@@ -823,8 +956,9 @@ Background:  LayoutEngine.RelayoutSubtreeAsync (dirty subtree only)
              ES Module graph resolution (CPU-bound)
 
 DevTools:    Console → RunInlineJS → log output
-             DOM tab → LiteElement tree (live)
-             Network tab → ResourceManager fetch log (ring buffer 200)
+              DOM tab → LiteElement tree (live via GetActiveDom)
+              Network tab → ResourceManager fetch log (ring buffer 200)
+              Debug tab → [DIAG] engine logs (filtered stream)
 
 Rendering modes:
   FULL:  NiL.JS + CSS cascade + images
@@ -851,6 +985,8 @@ Since this is a one-person retro project with no CI and no unit test framework:
 **Keep `Perf_Baseline.md` honest:** if cascade time doubles after a change, investigate before moving on. The Snapdragon 810 has no headroom.
 
 **The POOR mode is your emergency exit:** if a site crashes the engine, switch to POOR and at least show the user readable text. This is the "museum browser" philosophy — graceful degradation over crash-and-burn.
+
+**Future: Toast Notifications via ErrorOverlay:** The `ErrorOverlay` (`MainPage.xaml`, Grid.Row="1") is designed for "Aw, Snap!" crashes (large centered panel). It could be repurposed as a **toast notification** for non-critical events (Snapshot saved, Copied to clipboard, etc.) by showing it briefly (2-3s) with a transparent background and fading out. This would be far more visible on small screens than the current status bar. *(Idea noted for future implementation)*
 
 ---
 
