@@ -19,6 +19,7 @@ namespace BrowserCore.Engine
         private readonly Regex _importRegex = new Regex("import\\s+(?:[^\\'\";]+?\\s+from\\s+)?['\"](?<spec>[^'\"]+)['\"]", RegexOptions.CultureInvariant);
         private readonly Regex _sideEffectImportRegex = new Regex("import\\s+['\"](?<spec>[^'\"]+)['\"]", RegexOptions.CultureInvariant);
         private readonly Dictionary<string, string> _importMap = new Dictionary<string, string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, Uri> _moduleBaseUris = new Dictionary<string, Uri>(StringComparer.Ordinal);
         private int _inlineCounter;
 
         public ModuleLoader(JavaScriptEngine engine, GlobalContext nil)
@@ -52,6 +53,8 @@ namespace BrowserCore.Engine
             if (_moduleCache.ContainsKey(key)) return;
             if (string.IsNullOrWhiteSpace(key)) return;
 
+            lock (_moduleBaseUris) _moduleBaseUris[key] = moduleUri;
+
             DevToolsLogger.Log("[Module] Fetching: " + moduleUri);
             string source;
             try { source = await FetchModuleTextAsync(moduleUri, baseUri).ConfigureAwait(false); }
@@ -74,6 +77,7 @@ namespace BrowserCore.Engine
         private async Task ExecuteInlineModuleAsync(string key, Uri baseUri, string source)
         {
             if (string.IsNullOrWhiteSpace(source)) return;
+            lock (_moduleBaseUris) _moduleBaseUris[key] = baseUri;
             await PrefetchDependencies(source, baseUri).ConfigureAwait(false);
             RunModule(key, source);
         }
@@ -119,6 +123,7 @@ namespace BrowserCore.Engine
 
                 await PrefetchDependencies(depSource, resolved).ConfigureAwait(false);
 
+                lock (_moduleBaseUris) _moduleBaseUris[depKey] = resolved;
                 CacheModule(depKey, depSource);
             }
         }
@@ -175,37 +180,66 @@ namespace BrowserCore.Engine
             if (request == null) return false;
 
             var spec = request.CmdArgument;
-            var mapped = ResolveBareSpecifier(spec);
-            var url = mapped ?? spec;
+            var absPath = request.AbsolutePath;
+
+            DevToolsLogger.Log("[Module] ResolveModule: spec=" + spec + " absPath=" + absPath);
 
             JSModule cached;
-            if (_moduleCache.TryGetValue(url, out cached))
+            if (!string.IsNullOrEmpty(absPath) && _moduleCache.TryGetValue(absPath, out cached))
             {
+                DevToolsLogger.Log("[Module] Cache hit: " + absPath);
                 result = cached;
                 return true;
             }
 
-            string source = null;
-            string cacheKey = url;
-
-            if (TryResolveUrl(url, out var absUri))
+            if (_moduleCache.TryGetValue(spec, out cached))
             {
-                var fetchTask = _fetchTasks.GetOrAdd(absUri.AbsoluteUri, _ => FetchModuleTextAsync(absUri, null));
-                try { source = fetchTask.GetAwaiter().GetResult(); cacheKey = absUri.AbsoluteUri; }
-                catch { }
+                DevToolsLogger.Log("[Module] Cache hit (spec): " + spec);
+                result = cached;
+                return true;
             }
 
-            if (source == null) return false;
-
-            if (!_moduleCache.ContainsKey(cacheKey))
+            string mapped = ResolveBareSpecifier(spec);
+            if (!string.IsNullOrEmpty(mapped))
             {
-                var module = new JSModule(cacheKey, source, _nil);
-                module.ModuleResolversChain.Add(this);
-                _moduleCache.TryAdd(cacheKey, module);
+                if (_moduleCache.TryGetValue(mapped, out cached))
+                {
+                    DevToolsLogger.Log("[Module] Cache hit (mapped): " + mapped);
+                    result = cached;
+                    return true;
+                }
             }
 
-            result = _moduleCache[cacheKey];
-            return true;
+            string initiatorPath = null;
+            if (request.Initiator != null)
+                initiatorPath = request.Initiator.FilePath;
+
+            Uri resolvedUrl = null;
+            if (!string.IsNullOrEmpty(initiatorPath))
+            {
+                Uri baseUri;
+                lock (_moduleBaseUris) _moduleBaseUris.TryGetValue(initiatorPath, out baseUri);
+                if (baseUri == null && Uri.TryCreate(initiatorPath, UriKind.Absolute, out baseUri)) { }
+                if (baseUri != null)
+                    resolvedUrl = ResolveUrl(baseUri, spec);
+            }
+
+            if (resolvedUrl == null)
+            {
+                DevToolsLogger.Log("[Module] ResolveModule could not resolve: spec=" + spec + " initiator=" + initiatorPath);
+                return false;
+            }
+
+            var cacheKey = resolvedUrl.AbsoluteUri;
+            if (_moduleCache.TryGetValue(cacheKey, out cached))
+            {
+                DevToolsLogger.Log("[Module] Cache hit (resolved): " + cacheKey);
+                result = cached;
+                return true;
+            }
+
+            DevToolsLogger.Log("[Module] ResolveModule failed: spec=" + spec + " resolved=" + cacheKey);
+            return false;
         }
 
         private bool TryResolveUrl(string url, out Uri absUri)

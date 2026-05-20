@@ -48,8 +48,11 @@ internal enum OperationType
 
     LogicalOr = OperationTypeGroups.LogicalOr,
     LogicalAnd = OperationTypeGroups.LogicalAnd,
+    LogicalOrAssignment = OperationTypeGroups.LogicalOr + 1,
+    LogicalAndAssignment = OperationTypeGroups.LogicalAnd + 1,
 
     NullishCoalescing = OperationTypeGroups.NullishCoalescing,
+    NullishCoalescingAssignment = OperationTypeGroups.NullishCoalescing + 1,
 
     Or = OperationTypeGroups.BitwiseOr,
     Xor = OperationTypeGroups.BitwiseXor,
@@ -193,6 +196,15 @@ public sealed class ExpressionTree : Expression
             case OperationType.LogicalAnd:
             {
                 return new LogicalConjunction(_left, _right);
+            }
+            case OperationType.LogicalOrAssignment:
+            case OperationType.LogicalAndAssignment:
+            case OperationType.NullishCoalescingAssignment:
+            {
+                var logicalOp = _operationKind == OperationType.LogicalOrAssignment ? OperationType.LogicalOr
+                    : _operationKind == OperationType.LogicalAndAssignment ? OperationType.LogicalAnd
+                    : OperationType.NullishCoalescing;
+                return new LogicalAssignment(_left, _right, logicalOp);
             }
             case OperationType.NotEqual:
             {
@@ -462,6 +474,12 @@ public sealed class ExpressionTree : Expression
                         i++;
                         binary = true;
                         kind = OperationType.NullishCoalescing;
+                        if (state.Code[i + 1] == '=')
+                        {
+                            assign = true;
+                            i++;
+                            kind = OperationType.NullishCoalescingAssignment;
+                        }
                         break;
                     }
 
@@ -633,6 +651,12 @@ public sealed class ExpressionTree : Expression
                         binary = true;
                         assign = false;
                         kind = OperationType.LogicalAnd;
+                        if (state.Code[i + 1] == '=')
+                        {
+                            assign = true;
+                            i++;
+                            kind = OperationType.LogicalAndAssignment;
+                        }
                         break;
                     }
                     else
@@ -663,6 +687,12 @@ public sealed class ExpressionTree : Expression
                         binary = true;
                         assign = false;
                         kind = OperationType.LogicalOr;
+                        if (state.Code[i + 1] == '=')
+                        {
+                            assign = true;
+                            i++;
+                            kind = OperationType.LogicalOrAssignment;
+                        }
                         break;
                     }
                     else
@@ -1005,6 +1035,28 @@ public sealed class ExpressionTree : Expression
         }
         while (repeat);
 
+        // Check for arrow function: e => { ... } or (a, b) => { ... }
+        if (kind == OperationType.None && second == null && !forUnary && !assign)
+        {
+            int arrowCheck = i;
+            while (arrowCheck < state.Code.Length && Tools.IsWhiteSpace(state.Code[arrowCheck]) && !Tools.IsLineTerminator(state.Code[arrowCheck]))
+                arrowCheck++;
+            
+            if (arrowCheck < state.Code.Length && state.Code[arrowCheck] == '=' && arrowCheck + 1 < state.Code.Length && state.Code[arrowCheck + 1] == '>')
+            {
+                // This is an arrow function - first is the parameter(s)
+                var arrowParams = first;
+                i = arrowCheck + 2;
+                
+                // Parse arrow function body
+                var arrowFunc = FunctionDefinition.ParseArrowFunction(state, arrowParams, ref i);
+                if (arrowFunc != null)
+                {
+                    return arrowFunc;
+                }
+            }
+        }
+
         if (state.Strict
             && (first is Variable)
             && ((first as Variable).Name == "arguments" || (first as Variable).Name == "eval"))
@@ -1043,39 +1095,55 @@ public sealed class ExpressionTree : Expression
         Expression res = null;
         if (assign)
         {
-            root = false; // блокируем вызов дейкстры
+            root = false;
             second = deicstra(second as ExpressionTree);
-            var opassigncache = new AssignmentOperatorCache(first);
-            if (second is ExpressionTree && (second as ExpressionTree)._operationKind == OperationType.None)
+
+            if (kind == OperationType.LogicalOrAssignment || kind == OperationType.LogicalAndAssignment || kind == OperationType.NullishCoalescingAssignment)
             {
-                second._left = new Assignment(opassigncache, new ExpressionTree()
-                {
-                    _left = opassigncache,
-                    _right = second._left,
-                    _operationKind = kind,
-                    Position = startIndex,
-                    Length = i - startIndex
-                })
+                var opassigncache = new AssignmentOperatorCache(first);
+                res = new LogicalAssignment(opassigncache, second,
+                    kind == OperationType.LogicalOrAssignment ? OperationType.LogicalOr
+                    : kind == OperationType.LogicalAndAssignment ? OperationType.LogicalAnd
+                    : OperationType.NullishCoalescing)
                 {
                     Position = startIndex,
                     Length = i - startIndex
                 };
-                res = second;
             }
             else
             {
-                res = new Assignment(opassigncache, new ExpressionTree()
+                var opassigncache = new AssignmentOperatorCache(first);
+                if (second is ExpressionTree && (second as ExpressionTree)._operationKind == OperationType.None)
                 {
-                    _left = opassigncache,
-                    _right = second,
-                    _operationKind = kind,
-                    Position = startIndex,
-                    Length = i - startIndex
-                })
+                    second._left = new Assignment(opassigncache, new ExpressionTree()
+                    {
+                        _left = opassigncache,
+                        _right = second._left,
+                        _operationKind = kind,
+                        Position = startIndex,
+                        Length = i - startIndex
+                    })
+                    {
+                        Position = startIndex,
+                        Length = i - startIndex
+                    };
+                    res = second;
+                }
+                else
                 {
-                    Position = startIndex,
-                    Length = i - startIndex
-                };
+                    res = new Assignment(opassigncache, new ExpressionTree()
+                    {
+                        _left = opassigncache,
+                        _right = second,
+                        _operationKind = kind,
+                        Position = startIndex,
+                        Length = i - startIndex
+                    })
+                    {
+                        Position = startIndex,
+                        Length = i - startIndex
+                    };
+                }
             }
         }
         else
@@ -1128,7 +1196,8 @@ public sealed class ExpressionTree : Expression
         Expression operand;
         if (Parser.Validate(state.Code, "this", ref i)
             || Parser.Validate(state.Code, "super", ref i)
-            || Parser.Validate(state.Code, "new.target", ref i))
+            || Parser.Validate(state.Code, "new.target", ref i)
+            || Parser.Validate(state.Code, "import.meta", ref i))
         {
             var name = Tools.Unescape(state.Code.Substring(start, i - start), state.Strict);
             switch (name)
@@ -1150,6 +1219,11 @@ public sealed class ExpressionTree : Expression
                 case "new.target":
                 {
                     operand = new NewTarget(state.LexicalScopeLevel - state.FunctionScopeLevel);
+                    break;
+                }
+                case "import.meta":
+                {
+                    operand = new ImportMeta();
                     break;
                 }
                 case "this":

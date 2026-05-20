@@ -1,4 +1,4 @@
-# MediaExplorer 0.38.0 - dev branch (museum build; pre-alpha)
+# MediaExplorer 0.38.49 - dev branch ("WebView" codename; pre-alpha)
 
 ![](/Images/logo.png)
 
@@ -77,6 +77,115 @@ Project status: This is a homemade browser engine (HTML/CSS/JS) for W10M without
 ## Credits / Благодарности
 - https://github.com/UDAIE-A Developer of original WEBVIEW for Windows Phone 8.1
 - https://github.com/UDAIE-A/WEBVIEW WebView, experimental alternative browser (wp8, not uwp)
+
+
+## DEV Summary (DEV Progress)
+
+- Goal
+
+Patch NiL.JS 2.6 parser to support modern ES features (import.meta, logical assignment, arrow functions) required by Vite bundles (Nokia Design Archive).
+
+
+Constraints & Preferences
+
+Сборка через msbuild.
+
+NiL.JS подключен через ProjectReference (не NuGet).
+
+Nokia Design Archive (568KB Vite bundle) — главный бенчмарк.
+
+Decision: Patch NiL.JS parser directly rather than using a regex pre-processor.
+
+- Progress
+
+Done
+
+T-M-001 (Inline Module) ✅ PASS.
+
+T-M-002 (Import/Export) ✅ PASS: Fixed TryGetModule to use request.Initiator.FilePath for base URI resolution.
+import.meta Support ✅:
+
+Created NiL.JS/Expressions/ImportMeta.cs (follows NewTarget pattern).
+
+Added parser rules in NiL.JS/Core/Parser.cs and ExpressionTree.cs.
+
+Added ImportMeta property to NiL.JS/Module.cs.
+
+Fixed runtime null issue by initializing _oValue = Dictionary<string, JSValue>.
+
+console.warn/error/info Support ✅: Added methods to HostConsole in JavaScriptEngine.cs.
+
+Logical Assignment (??=, ||=, &&=) ✅:
+
+Created NiL.JS/Expressions/LogicalAssignment.cs.
+
+Added 3 new OperationTypes and parser logic in ExpressionTree.cs.
+
+172 occurrences in Vite bundle now work.
+
+Documentation: Created Doc/Summary_3_9.md, updated Doc/Plan_03.md (Phase 20 status, Vite analysis table).
+
+- In Progress
+
+Arrow Function Fix (Position 58): var G0=e=>{throw TypeError(e)} fails with SyntaxError: Invalid function name. Added ParseArrowFunction in 
+FunctionDefinition.cs but encountering build errors (CS0117, CS0200 regarding VariableDescriptor/FunctionInfo).
+
+- Blocked
+
+Async Generator (Position 410): async function*(){} not supported by NiL.JS parser yet.
+Private Fields (#name): 12 occurrences in Vite bundle, not yet started.
+
+- Key Decisions
+
+import.meta runtime implementation: Use direct _oValue = Dictionary<string, JSValue> initialization instead of GlobalContext.ProxyValue to avoid null reference issues during property access.
+
+Logical Assignment: Created dedicated LogicalAssignment expression node rather than expanding existing Assignment logic, to handle short-circuit evaluation correctly.
+
+- Next Steps
+
+Fix Arrow Function build errors in FunctionDefinition.cs (resolve VariableDescriptor constructor and FunctionInfo initialization issues).
+Add async function* (async generator) support for position 410.
+Re-test Nokia Archive to verify Vite bundle execution.
+
+Investigate Private Fields (#name) support if needed.
+
+- Critical Context
+
+Vite Bundle Analysis (main-BE-aXEfW.js, 568KB):
+
+import.meta.url (1) — ✅ Fixed.
+
+??=, ||=, &&= (172) — ✅ Fixed.
+
+async function* (1) — ❌ Blocker at pos 410.
+
+Arrow functions e=>{...} (1) — ❌ Blocker at pos 58 (build in progress).
+
+Private fields #name (12) — ⏳ Lower priority.
+
+NiL.JS Parser Structure: Uses ExpressionTree.cs for operator parsing and FunctionDefinition.cs for function bodies. Arrow functions were previously only supported via ValidateArrow rules in Parser.cs but failed in var declaration context.
+ModuleLoader BaseUri Tracking: _moduleBaseUris dictionary added to resolve relative imports using request.Initiator.
+
+- Relevant Files
+
+NiL.JS/Expressions/LogicalAssignment.cs: New class for logical assignment operators.
+
+NiL.JS/Expressions/ImportMeta.cs: New class for import.meta expression.
+
+NiL.JS/Expressions/FunctionDefinition.cs: Being modified to support arrow functions in variable declarations.
+
+NiL.JS/Expressions/ExpressionTree.cs: Modified to parse ||=, &&=, ??= and detect arrow functions.
+
+NiL.JS/Module.cs: Added ImportMeta property initialization.
+
+Engine/ModuleLoader.cs: Fixed relative module resolution.
+
+Engine/JavaScriptEngine.cs: Added console.warn/error/info.
+
+Doc/Summary_3_9.md: Session summary for NiL.JS parser patches.
+
+Doc/Plan_03.md: Updated Phase 20 status and Vite bundle analysis.
+
 
 ## ..
 As is. No support. RnD only. DIY.

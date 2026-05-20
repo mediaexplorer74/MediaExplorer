@@ -177,6 +177,86 @@ public sealed class FunctionDefinition : EntityDefinition
         return Parse(state, ref index, FunctionKind.Function);
     }
 
+    internal static Expression ParseArrowFunction(ParseInfo state, Expression paramExpr, ref int index)
+    {
+        string code = state.Code;
+        int position = index;
+        int startPos = paramExpr.Position;
+
+        Tools.SkipSpaces(code, ref position);
+
+        if (code[position] != '=' || code[position + 1] != '>')
+            ExceptionHelper.ThrowSyntaxError("Expected \"=>\"", code, position);
+
+        position += 2;
+        Tools.SkipSpaces(code, ref position);
+
+        // Build parameter list
+        var parameters = new List<ParameterDescriptor>();
+        if (paramExpr is VariableReference vr)
+        {
+            var pd = new ParameterDescriptor(vr.Name, false, state.LexicalScopeLevel);
+            parameters.Add(pd);
+        }
+
+        if (code[position] != '{')
+        {
+            // Single expression body
+            var bodyExpr = ExpressionTree.Parse(state, ref position, processComma: false);
+            var body = new CodeBlock(new CodeNode[] { new Return(bodyExpr) });
+            body.Position = body._lines[0].Position;
+            body.Length = body._lines[0].Length;
+
+            var func = new FunctionDefinition("arrow")
+            {
+                _kind = FunctionKind.Arrow,
+                _parameters = parameters.ToArray(),
+                _body = body,
+                Position = startPos,
+                Length = position - startPos
+            };
+            index = position;
+            return func;
+        }
+        else
+        {
+            // Block body
+            using (state.WithNewLabelsScope())
+            using (state.WithCodeContext())
+            {
+                state.CodeContext |= CodeContext.InFunction;
+                state.CodeContext |= CodeContext.AllowDirectives;
+                state.CodeContext &= ~(CodeContext.InExpression | CodeContext.Conditional | CodeContext.InEval);
+
+                state.AllowReturn++;
+                try
+                {
+                    state.AllowBreak.Push(false);
+                    state.AllowContinue.Push(false);
+
+                    var bodyBlock = CodeBlock.Parse(state, ref position) as CodeBlock;
+
+                    var func = new FunctionDefinition("arrow")
+                    {
+                        _kind = FunctionKind.Arrow,
+                        _parameters = parameters.ToArray(),
+                        _body = bodyBlock,
+                        Position = startPos,
+                        Length = position - startPos
+                    };
+                    index = position;
+                    return func;
+                }
+                finally
+                {
+                    state.AllowBreak.Pop();
+                    state.AllowContinue.Pop();
+                    state.AllowReturn--;
+                }
+            }
+        }
+    }
+
     internal static Expression Parse(ParseInfo state, ref int index, FunctionKind kind)
     {
         string code = state.Code;

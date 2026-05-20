@@ -150,6 +150,11 @@ public abstract class Visitor<T>
         return Visit(node as Expression);
     }
 
+    internal protected virtual T Visit(LogicalAssignment node)
+    {
+        return Visit(node as Expression);
+    }
+
     internal protected virtual T Visit(Modulo node)
     {
         return Visit(node as Expression);

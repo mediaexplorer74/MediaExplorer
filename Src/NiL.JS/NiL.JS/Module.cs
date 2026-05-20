@@ -65,6 +65,11 @@ public class Module
     public string FilePath { get; private set; }
 
     /// <summary>
+    /// import.meta object for this module
+    /// </summary>
+    public JSValue ImportMeta { get; internal set; }
+
+    /// <summary>
     /// Initializes a new Module with specified code.
     /// </summary>
     /// <param name="code">JavaScript code.</param>
@@ -158,6 +163,15 @@ public class Module
         Context = new Context(globalContext ?? Context.CurrentGlobalContext, true, null);
         Context._module = this;
         Context._thisBind = new GlobalObject(Context);
+
+        // Initialize import.meta object
+        var meta = new JSObject();
+        meta._valueType = JSValueType.Object;
+        meta._oValue = new Dictionary<string, JSValue>(StringComparer.Ordinal)
+        {
+            ["url"] = virtualPath ?? ""
+        };
+        ImportMeta = meta;
 
         Script = script;
         Context._strict = Script.Root._strict;

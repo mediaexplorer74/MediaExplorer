@@ -829,11 +829,11 @@ Switch from NuGet `NiL.JS 2.5.1294` → project reference `Src/NiL.JS` (with dow
 
 ---
 
-## Phase 20: NiL.JS 2.6 Integration (netstandard2.0 via local NuGet)
+## Phase 20: NiL.JS 2.6 Integration + Parser Patch (netstandard2.0 via ProjectReference)
 
 > **Priority: 🔴 Must have — unblocks ES Modules validation**
-> **Effort: 1–2 days / ~100–200 lines changed in NiL.JS + local NuGet package**
-> **Status: ✅ DONE (integration), ⏳ PENDING (test re-run)**
+> **Effort: 3–5 days / ~300 lines changed in NiL.JS + MediaExplorer**
+> **Status: 🟡 IN PROGRESS (import.meta added, logical assignment next)**
 
 ### Background
 
@@ -847,42 +847,70 @@ Current project uses `NiL.JS 2.5.1294` as a NuGet package. Vite bundles fail wit
 - `Tools.cs:679`: `Enum.TryParse` → `Enum.Parse` under `NETSTANDARD2_0`
 - Build: `msbuild /p:TargetFramework=netstandard2.0` → 0 errors
 
-**Step 2 — Local NuGet package:**
-- `dotnet pack NiL.JS.csproj` → `local-nuget/NiL.JS.2.6.0-local.nupkg`
-- `nuget.config` with `LocalNiLJS` source → `local-nuget/`
-
-**Step 3 — Switch MediaExplorer reference:**
-- Removed `PackageReference Include="NiL.JS" Version="2.5.1294"`
-- Added `PackageReference Include="NiL.JS" Version="2.6.0-local"` (local NuGet)
+**Step 2 — Switch to ProjectReference:**
+- Removed `PackageReference Include="NiL.JS" Version="2.6.0-local"`
+- Added `ProjectReference Include="..\NiL.JS\NiL.JS\NiL.JS.csproj"`
 - Linked source approach abandoned (300+ files incompatible with UWP)
 
-**Step 4 — ModuleLoader rewrite:**
+**Step 3 — ModuleLoader rewrite:**
 - `IModuleResolver` interface implementation (replaces `ResolveModuleEventArgs`)
 - `Module.ModuleResolversChain.Add(this)` (replaces static event)
 - `RunModule(key, code)` → `new JSModule(key, code, _nil).Run()`
 - `_fetchTasks` for async prefetch of imported modules
 - `ms-appx:///` fetch via `StorageFile.GetFileFromApplicationUriAsync`
 
-**Step 5 — GlobalContext fix (InvalidCastException):**
+**Step 4 — GlobalContext fix (InvalidCastException):**
 - `_nil` type changed: `Context` → `GlobalContext` (both `JavaScriptEngine.cs` and `ModuleLoader.cs`)
 - `_nilInit()`: `new Context()` → `new GlobalContext()`
 - Removed `(GlobalContext)` cast — no longer needed
 
-### Build Result
-```
-0 errors, 1 warning (CS0414: _errorOverlayVisible unused)
-```
+**Step 5 — Module Resolution Fix (baseUri tracking):**
+- Added `_moduleBaseUris` dictionary to track parent module base URIs
+- `TryGetModule` now uses `request.Initiator.FilePath` → lookup baseUri → resolve relative specifiers
+- **T-M-002 ✅ PASS** — `import { greet } from './lib.js'` works correctly
+
+**Step 6 — console.warn/error/info support:**
+- Added `warn()`, `error()`, `info()` methods to `HostConsole` class
+- Extended console getter to handle all 4 method names
+
+**Step 7 — `import.meta` Parser Patch:**
+- Created `Expressions/ImportMeta.cs` (following `NewTarget` pattern)
+- Added `ImportMeta` property to `Module.cs` with `_oValue = Dictionary<string, JSValue>` initialization
+- Added parser rules in `Parser.cs` (all 3 rule sets)
+- Added `import.meta` case in `ExpressionTree.cs:parseOperand`
+- `import.meta` now parses without `SyntaxError` and returns `{ url: filePath }` at runtime
+
+### Vite Bundle Analysis (nokiadesignarchive.aalto.fi)
+
+| Syntax Feature | Occurrences | ES Version | NiL.JS Support | Priority |
+|----------------|-------------|------------|----------------|----------|
+| `import.meta.url` | 1 | ES2020 | ✅ ADDED + runtime works | 🔴 |
+| `import()` dynamic | 1 | ES2020 | ✅ Already supported | — |
+| `async function*` | 1 | ES2018 | ❌ Not supported | 🟡 |
+| Private fields `#name` | 12 | ES2022 | ❌ Not supported | 🟢 |
+| Logical assignment `??=`, `\|\|=`, `&&=` | 172 | ES2021 | ✅ ADDED (Session 3.10) | 🔴 |
+| Arrow functions | ~50 | ES2015 | ✅ Supported (position 58 issue TBD) | 🟡 |
+
+**Step 8 — Logical Assignment (`??=`, `||=`, `&&=`):**
+- Created `Expressions/LogicalAssignment.cs` — handles all 3 logical assignment operators
+- Added 3 new OperationTypes: `LogicalOrAssignment`, `LogicalAndAssignment`, `NullishCoalescingAssignment`
+- Modified `ExpressionTree.cs` parser to recognize `||=`, `&&=`, `??=` syntax
+- Added `Visitor.cs` method for LogicalAssignment
+- **172 occurrences** in Vite bundle now work correctly ✅
 
 ### Risks
 
-- `import.meta.url` may not be supported by NiL.JS 2.6 parser
-- `typeof import` syntax may not be supported
-- Vite 568KB bundles may still fail with `SyntaxError` (different from import/export issue)
+- `import.meta` — ✅ ADDED to NiL.JS parser (Session 3.9)
+- `typeof import` syntax — may still not be supported
+- `async function*` (async generators) — ❌ Not supported, 1 occurrence in Vite bundle
+- Logical assignment `??=`, `\|\|=`, `&&=` — ❌ Not supported, 172 occurrences in Vite bundle
+- Private fields `#name` — ❌ Not supported, 12 occurrences in Vite bundle
 
-### Pending
+### Remaining Work
 
-- Re-run ES Module test suite (T-M-001, T-M-002, T-M-003)
-- Nokia Archive validation with real Vite bundles
+1. **Add `async function*` support** — async generators (1 occurrence at position 410)
+2. **Fix arrow function issue at position 58** — `e=>{throw TypeError(e)}` in `var G0=e=>{...}`
+3. **Private fields `#name`** — 12 occurrences, lower priority
 
 ---
 
@@ -897,7 +925,7 @@ Current project uses `NiL.JS 2.5.1294` as a NuGet package. Vite bundles fail wit
 | **10** | DevTools (Console + DOM + Network + Debug) | 🟡 | 3–5 days | T | ✅ DONE |
 | **17** | Robustness & Memory |  | 2–3 days | T |
 | **19** | DevTools Enhancement & ES Modules Validation | 🟡 | 2–3 days | 10, 6 |  IN PROGRESS |
-| **20** | NiL.JS 2.6 Integration (netstandard2.0) | ✅ DONE | ~100 lines | 19 | 🔵 PLANNED |
+| **20** | NiL.JS 2.6 Integration + Parser Patch | 🟡 IN PROGRESS | ~300 lines | 19 | 🔵 PLANNED |
 | **7** | Service Worker + Offline-First | 🟢 | 3–5 days | 8B, 10 |
 
 **Total: ~22–33 working days / ~3300 lines**
@@ -927,8 +955,10 @@ Session 3.5: DevTools Logger + Nokia Archive Focus ✅
 Session 3.6: DevTools Enhancement (Debug tab, Network log, DOM tree) ✅
 Session 3.7: Phase 19 — DevTools logging fixes, SVG diagnostic, ES Module test suite ✅
 Session 3.8: Phase 20 — NiL.JS 2.6 integration, GlobalContext fix (InvalidCastException) ✅
-Session 3.9: ES Module test re-run (T-M-001/002/003) + Nokia Archive validation ← NEXT
-Session 3.10: ES Modules Validation — Nokia Archive with updated NiL.JS
+Session 3.9: Phase 20 — Module resolution fix, console.warn, import.meta parser patch ✅
+Session 3.10: Phase 20 — import.meta runtime fix, logical assignment (??=, ||=, &&=) ✅
+Session 3.11: Phase 20 — Arrow function fix (position 58), async function* support ← NEXT
+Session 3.12: ES Module test re-run + Nokia Archive validation
 ```
 
 ---
@@ -990,5 +1020,5 @@ Since this is a one-person retro project with no CI and no unit test framework:
 
 ---
 
-*Plan v3.0 — 2026-05-18*
+*Plan v3.1 — 2026-05-20*
 *Based on: Plan_01.md (v1.0), Plan_02.md (v2.2), sessions 2.01–2.18, GitHub repos mediaexplorer74/MediaExplorer + UDAIE-A/WEBVIEW*

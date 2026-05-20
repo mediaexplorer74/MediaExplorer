@@ -2289,6 +2289,9 @@ if (mHrefSet.Success)
             private JavaScriptEngine _engine;
             public HostConsole(JavaScriptEngine engine) { _engine = engine; }
             public void log(string msg) { System.Diagnostics.Debug.WriteLine(msg); }
+            public void warn(string msg) { System.Diagnostics.Debug.WriteLine("[WARN] " + msg); }
+            public void error(string msg) { System.Diagnostics.Debug.WriteLine("[ERROR] " + msg); }
+            public void info(string msg) { System.Diagnostics.Debug.WriteLine("[INFO] " + msg); }
         }
 
         private class HostNavigator
@@ -6810,7 +6813,8 @@ public bool Execute(string code)
                 }
                 if (obj.Obj is HostConsole)
                 {
-                    if (name == "log") return new JsVal { Obj = new HostFunc(args => { try { _e._host.SetStatus(args.Count > 0 ? ToStr(args[0]) : ""); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
+                    if (name == "log" || name == "warn" || name == "error" || name == "info")
+                        return new JsVal { Obj = new HostFunc(args => { try { string msg = args.Count > 0 ? ToStr(args[0]) : ""; _e._host.SetStatus(msg); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
                     return JsVal.Null();
                 }
                 if (obj.Obj is HostHistory)
