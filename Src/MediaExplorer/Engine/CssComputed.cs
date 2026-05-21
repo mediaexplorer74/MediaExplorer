@@ -69,6 +69,22 @@ namespace BrowserCore.Engine
         public double? FlexShrink { get; set; }
         public double? FlexBasis { get; set; }
 
+        // CSS Grid properties
+        public string GridTemplateColumns { get; set; }
+        public string GridTemplateRows { get; set; }
+        public string GridTemplateAreas { get; set; }
+        public string GridArea { get; set; }
+        public string GridAutoRows { get; set; }
+        public string GridAutoColumns { get; set; }
+        public int? GridRowStart { get; set; }
+        public int? GridRowEnd { get; set; }
+        public int? GridColumnStart { get; set; }
+        public int? GridColumnEnd { get; set; }
+        public string GridAutoFlow { get; set; } // "row", "column", "dense"
+        public string JustifyItems { get; set; } // grid child alignment
+        public string AlignSelf { get; set; }
+        public string JustifySelf { get; set; }
+
         // Typography & Visuals
         public Brush Background { get; set; }
         public Windows.UI.Color? BackgroundColor { get; set; }

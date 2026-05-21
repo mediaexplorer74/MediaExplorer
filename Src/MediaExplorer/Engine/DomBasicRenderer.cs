@@ -2358,6 +2358,13 @@ namespace BrowserCore.Engine
 
         private async Task<FrameworkElement> RenderGenericContainerAsync(LiteElement n, Uri baseUri, Action<Uri> onNavigate, JavaScriptEngine js, CancellationToken ct)
         {
+            // Check for CSS Grid container
+            var nCss = TryGetCss(n);
+            if (IsGridContainer(nCss))
+            {
+                return await MakeGridFallbackAsync(n, baseUri, onNavigate, js, ct);
+            }
+
             var panel = new StackPanel { Orientation = Orientation.Vertical };
             try { ApplyComputedStyles(panel, n); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
             try { ApplyInlineStyles(panel, n); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }

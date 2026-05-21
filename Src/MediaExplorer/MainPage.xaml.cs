@@ -531,37 +531,57 @@ namespace WEBVIEW
         {
             if (element == null) { System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady SKIP element=null"); return; }
             if (_suppressRepaintHandler) { System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady SKIP suppressed"); return; }
-            int seq = _renderSequence;
-            double w = 0, h = 0;
-            try { w = element.Width; h = element.Height; } catch { }
-            
-            // NaN guard: use ActualWidth/ActualHeight as fallback
-            bool hasNaN = double.IsNaN(w) || double.IsNaN(h) || double.IsInfinity(w) || double.IsInfinity(h);
-            if (hasNaN)
+            try
             {
-                try { w = element.ActualWidth; h = element.ActualHeight; } catch { }
-                if (double.IsNaN(w) || double.IsInfinity(w)) w = 0;
-                if (double.IsNaN(h) || double.IsInfinity(h)) h = 0;
-            }
-            
-            System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady seq=" + seq + " currentSeq=" + _renderSequence + " elementSize=" + w + "x" + h + " type=" + element.GetType().Name);
-            Ui(() =>
-            {
-                try
+                int seq = _renderSequence;
+                double w = 0, h = 0;
+                try { w = element.Width; h = element.Height; } catch { }
+
+                // NaN guard: use ActualWidth/ActualHeight as fallback
+                bool hasNaN = double.IsNaN(w) || double.IsNaN(h) || double.IsInfinity(w) || double.IsInfinity(h);
+                if (hasNaN)
                 {
-                    if (ContentHost == null) { System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady SKIP ContentHost=null"); return; }
-                    if (seq != _renderSequence) { System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady SKIP stale seq=" + seq + " current=" + _renderSequence); return; }
-                    ContentHost.Children.Clear();
-                    ContentHost.Children.Add(element);
-                    _activeVisual = element;
-                    _activeVisualIndex = ContentHost.Children.IndexOf(element);
-                    System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady ADDED idx=" + _activeVisualIndex + " children=" + ContentHost.Children.Count);
-                    ApplyAppBarMode();
-                    if (string.Equals(_browser.RenderMode, "Rich", StringComparison.OrdinalIgnoreCase) && !_suppressRepaintHandler)
-                        StartReadingMode();
+                    try { w = element.ActualWidth; h = element.ActualHeight; } catch { }
+                    if (double.IsNaN(w) || double.IsInfinity(w)) w = 0;
+                    if (double.IsNaN(h) || double.IsInfinity(h)) h = 0;
                 }
-                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady EXC " + ex.Message); }
-            });
+
+                System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady seq=" + seq + " currentSeq=" + _renderSequence + " elementSize=" + w + "x" + h + " type=" + element.GetType().Name);
+                Ui(() =>
+                {
+                    try
+                    {
+                        if (ContentHost == null) { System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady SKIP ContentHost=null"); return; }
+                        if (seq != _renderSequence) { System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady SKIP stale seq=" + seq + " current=" + _renderSequence); return; }
+                        ContentHost.Children.Clear();
+                        ContentHost.Children.Add(element);
+                        _activeVisual = element;
+                        _activeVisualIndex = ContentHost.Children.IndexOf(element);
+                        System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady ADDED idx=" + _activeVisualIndex + " children=" + ContentHost.Children.Count);
+                        try
+                        {
+                            ApplyAppBarMode();
+                        }
+                        catch (Exception appBarEx)
+                        {
+                            System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady ApplyAppBarMode EXC " + appBarEx.Message);
+                        }
+                        if (string.Equals(_browser.RenderMode, "Rich", StringComparison.OrdinalIgnoreCase) && !_suppressRepaintHandler)
+                        {
+                            try
+                            {
+                                StartReadingMode();
+                            }
+                            catch (Exception readingModeEx)
+                            {
+                                System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady StartReadingMode EXC " + readingModeEx.Message);
+                            }
+                        }
+                    }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady EXC " + ex.Message); }
+                });
+            }
+            catch (Exception outerEx) { System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady OUTER EXC " + outerEx.Message); }
         }
 
         private void ResetContentHost()

@@ -17,6 +17,7 @@ namespace BrowserCore.Engine
         public string AlignContent { get; set; } = "stretch";
         public double RowGap { get; set; } = 0;
         public double ColumnGap { get; set; } = 0;
+        public Thickness Padding { get; set; } = new Thickness(0);
 
         private List<FlexLine> _lines = new List<FlexLine>();
 
@@ -29,9 +30,15 @@ namespace BrowserCore.Engine
             bool isRow = FlexDirection == null || FlexDirection.ToLowerInvariant().Contains("row");
             bool isReverse = FlexDirection != null && FlexDirection.ToLowerInvariant().Contains("reverse");
             bool isWrap = FlexWrap != null && FlexWrap.ToLowerInvariant() != "nowrap";
-            
-            double mainAvailable = isRow ? availableSize.Width : availableSize.Height;
-            double crossAvailable = isRow ? availableSize.Height : availableSize.Width;
+
+            // Account for padding
+            double paddingMain = isRow ? Padding.Left + Padding.Right : Padding.Top + Padding.Bottom;
+            double paddingCross = isRow ? Padding.Top + Padding.Bottom : Padding.Left + Padding.Right;
+            double mainAvailable = (isRow ? availableSize.Width : availableSize.Height) - paddingMain;
+            double crossAvailable = (isRow ? availableSize.Height : availableSize.Width) - paddingCross;
+
+            if (mainAvailable < 0) mainAvailable = 0;
+            if (crossAvailable < 0) crossAvailable = 0;
 
             var currentLine = new FlexLine { IsRow = isRow };
             _lines.Add(currentLine);
@@ -69,7 +76,10 @@ namespace BrowserCore.Engine
             // Remove last gap
             if (_lines.Count > 0) totalCrossSize -= (isRow ? RowGap : ColumnGap);
 
-            return isRow ? new Size(maxMainSize, totalCrossSize) : new Size(totalCrossSize, maxMainSize);
+            // Add padding to the final size
+            double finalMain = maxMainSize + paddingMain;
+            double finalCross = totalCrossSize + paddingCross;
+            return isRow ? new Size(finalMain, finalCross) : new Size(finalCross, finalMain);
         }
 
         protected override Size ArrangeOverride(Size finalSize)
@@ -80,8 +90,11 @@ namespace BrowserCore.Engine
             bool isReverse = FlexDirection != null && FlexDirection.ToLowerInvariant().Contains("reverse");
             bool wrapReverse = FlexWrap != null && FlexWrap.ToLowerInvariant().Contains("wrap-reverse");
 
-            double mainSize = isRow ? finalSize.Width : finalSize.Height;
-            double crossSize = isRow ? finalSize.Height : finalSize.Width;
+            double mainSize = isRow ? finalSize.Width - Padding.Left - Padding.Right : finalSize.Height - Padding.Top - Padding.Bottom;
+            double crossSize = isRow ? finalSize.Height - Padding.Top - Padding.Bottom : finalSize.Width - Padding.Left - Padding.Right;
+
+            if (mainSize < 0) mainSize = 0;
+            if (crossSize < 0) crossSize = 0;
 
             // AlignContent (distribute lines along cross axis)
             DistributeLines(crossSize, AlignContent, isRow ? RowGap : ColumnGap);
@@ -117,6 +130,10 @@ namespace BrowserCore.Engine
                         var tmpX = rect.X; rect.X = rect.Y; rect.Y = tmpX;
                         var tmpW = rect.Width; rect.Width = rect.Height; rect.Height = tmpW;
                     }
+
+                    // Add padding offset
+                    rect.X += Padding.Left;
+                    rect.Y += Padding.Top;
 
                     item.Element.Arrange(rect);
                 }

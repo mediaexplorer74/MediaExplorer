@@ -83,7 +83,18 @@ namespace BrowserCore.Engine
 
         public ResourceManager(HttpClient http)
         {
-            _http = http ?? new HttpClient();
+            if (http != null)
+            {
+                _http = http;
+            }
+            else
+            {
+                // Configure HttpClient to NOT auto-redirect so we can handle HTTPS->HTTP manually
+                var filter = new Windows.Web.Http.Filters.HttpBaseProtocolFilter();
+                filter.AllowAutoRedirect = false; // We handle redirects manually
+                filter.AllowUI = false; // Prevent UI prompts
+                _http = new HttpClient(filter);
+            }
             LoadHsts();
         }
 
@@ -337,6 +348,18 @@ namespace BrowserCore.Engine
                     try { resp = await _http.SendRequestAsync(req).AsTask(cts.Token); }
                     catch (Exception sendEx)
                     {
+                        var msg = sendEx.Message;
+                        // UWP blocks HTTPS->HTTP redirects at protocol level
+                        // Also handle generic connection errors that may be caused by HTTPS->HTTP redirect blocking
+                        if (current.Scheme == "https" && hops == 0)
+                        {
+                            // First attempt on HTTPS failed - try HTTP fallback
+                            // This handles both explicit redirect errors and connection failures caused by redirect blocking
+                            var httpUri = new UriBuilder(current) { Scheme = "http", Port = -1 }.Uri;
+                            System.Diagnostics.Debug.WriteLine($"[FetchText] HTTPS failed ({sendEx.Message.Substring(0, Math.Min(50, sendEx.Message.Length))}), retrying HTTP: {httpUri}");
+                            current = httpUri;
+                            continue;
+                        }
                         try { System.Diagnostics.Debug.WriteLine("[FetchTextError] send failed " + current + " ex=" + sendEx.Message); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
                         resp = null;
                     }
@@ -344,7 +367,12 @@ namespace BrowserCore.Engine
                     var code = (int)resp.StatusCode;
                     if (code >= 300 && code < 400 && resp.Headers.Location != null)
                     {
-                        var loc = resp.Headers.Location; if (!loc.IsAbsoluteUri) loc = new Uri(current, loc);
+                        var loc = resp.Headers.Location; 
+                        if (!loc.IsAbsoluteUri) loc = new Uri(current, loc);
+                        
+                        // Log redirect
+                        System.Diagnostics.Debug.WriteLine($"[FetchText] Redirect {code}: {current} -> {loc}");
+                        
                         previousRequest = current;
                         current = UpgradeIfHsts(loc);
                         hops++;

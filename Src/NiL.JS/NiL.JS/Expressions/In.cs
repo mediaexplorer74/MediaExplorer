@@ -40,7 +40,7 @@ public sealed class In : Expression
         var source = _right.Evaluate(context);
         
         if (source._valueType < JSValueType.Object)
-            ExceptionHelper.Throw(new TypeError("Right-hand value of operator in is not an object."));
+            return false;
         
         if (temp._valueType == JSValueType.Integer)
         {

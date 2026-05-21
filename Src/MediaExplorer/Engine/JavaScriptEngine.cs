@@ -2229,6 +2229,12 @@ if (mHrefSet.Success)
             public void stop() { }
             public void focus() { }
             public void blur() { }
+            public void addEventListener(string type, JSValue callback) { }
+            public void removeEventListener(string type, JSValue callback) { }
+            public bool dispatchEvent(JSValue e) { return false; }
+            public JSValue getComputedStyle(JSValue el) { return JSValue.Marshal(new { }); }
+            public void postMessage(string msg) { }
+            public void setImmediate(JSValue cb) { }
             
             public JSValue onpopstate
             {
@@ -2241,6 +2247,12 @@ if (mHrefSet.Success)
                 get { return _engine.OnHashChange ?? JSValue.Null; }
                 set { _engine.OnHashChange = value; }
             }
+
+            public JSValue onload { get; set; } = JSValue.Null;
+            public JSValue onunload { get; set; } = JSValue.Null;
+            public JSValue onresize { get; set; } = JSValue.Null;
+            public JSValue onscroll { get; set; } = JSValue.Null;
+            public JSValue onerror { get; set; } = JSValue.Null;
         }
 
         private class HostDocument
@@ -2342,6 +2354,97 @@ if (mHrefSet.Success)
             {
                 get { return _engine._domRoot != null ? new JsDomElement(_engine, _engine._domRoot) : null; }
             }
+            public object head
+            {
+                get
+                {
+                    if (_engine._domRoot == null) return null;
+                    var el = _engine._domRoot.QueryByTag("head").FirstOrDefault();
+                    return el != null ? new JsDomElement(_engine, el) : null;
+                }
+            }
+            public object[] styleSheets => new object[0];
+            public object[] adoptedStyleSheets => new object[0];
+            public string cookie => "";
+            public string referrer => _engine._ctx?.BaseUri?.ToString() ?? "";
+            public string readyState => "complete";
+            public string characterSet => "UTF-8";
+            public string charset => "UTF-8";
+            public string inputEncoding => "UTF-8";
+            public string contentType => "text/html";
+            public string domain => _engine._ctx?.BaseUri?.Host ?? "";
+            public string URL => _engine._ctx?.BaseUri?.ToString() ?? "";
+            public string documentURI => _engine._ctx?.BaseUri?.ToString() ?? "";
+            public string compatMode => "CSS1Compat";
+            public object activeElement => null;
+            public object fullscreenElement => null;
+            public object pointerLockElement => null;
+            public object scrollingElement => null;
+            public object implementation => JSValue.Marshal(new { hasFeature = new Func<Arguments, JSValue>(a => JSValue.Marshal(true)) });
+            public object scripts => new object[0];
+            public object links => new object[0];
+            public object images => new object[0];
+            public object forms => new object[0];
+            public object anchors => new object[0];
+            public object embeds => new object[0];
+            public object plugins => new object[0];
+            public object applets => new object[0];
+            public object fontFaceSet => JSValue.Marshal(new { ready = JSValue.Marshal(new { then = new Func<Arguments, JSValue>(a => JSValue.Undefined) }), status = JSValue.Marshal("loaded") });
+            public object stylesheets => new object[0];
+            public JSValue onreadystatechange { get; set; } = JSValue.Null;
+            public JSValue onclick { get; set; } = JSValue.Null;
+            public JSValue onkeydown { get; set; } = JSValue.Null;
+            public JSValue onkeyup { get; set; } = JSValue.Null;
+            public JSValue onmousedown { get; set; } = JSValue.Null;
+            public JSValue onmouseup { get; set; } = JSValue.Null;
+            public JSValue onmousemove { get; set; } = JSValue.Null;
+            public JSValue onscroll { get; set; } = JSValue.Null;
+            public JSValue onresize { get; set; } = JSValue.Null;
+            public JSValue onload { get; set; } = JSValue.Null;
+            public JSValue onfocus { get; set; } = JSValue.Null;
+            public JSValue onblur { get; set; } = JSValue.Null;
+            public JSValue oninput { get; set; } = JSValue.Null;
+            public JSValue onsubmit { get; set; } = JSValue.Null;
+            public JSValue onwheel { get; set; } = JSValue.Null;
+            public JSValue ontouchstart { get; set; } = JSValue.Null;
+            public JSValue ontouchend { get; set; } = JSValue.Null;
+            public JSValue ontouchmove { get; set; } = JSValue.Null;
+            public JSValue onpointerdown { get; set; } = JSValue.Null;
+            public JSValue onpointerup { get; set; } = JSValue.Null;
+            public JSValue onpointermove { get; set; } = JSValue.Null;
+            public JSValue onvisibilitychange { get; set; } = JSValue.Null;
+            public bool hidden => false;
+            public bool fullscreenEnabled => false;
+            public bool pictureInPictureEnabled => false;
+            public string visibilityState => "visible";
+            public string designMode => "off";
+            public string dir => "ltr";
+            public object elementFromPoint(double x, double y) { return null; }
+            public object getSelection() { return null; }
+            public void execCommand(string cmd) { }
+            public bool queryCommandSupported(string cmd) { return false; }
+            public bool queryCommandEnabled(string cmd) { return false; }
+            public bool queryCommandState(string cmd) { return false; }
+            public bool hasFocus() { return true; }
+            public void open() { }
+            public void close() { }
+            public void write(string html) { }
+            public void writeln(string html) { }
+            public object importNode(object node, bool deep) { return null; }
+            public object adoptNode(object node) { return null; }
+            public object createDocumentFragment() { return null; }
+            public object createTextNode(string data) { return null; }
+            public object createComment(string data) { return null; }
+            public object createAttribute(string name) { return null; }
+            public object createEvent(string type) { return null; }
+            public object createRange() { return null; }
+            public object caretPositionFromPoint(double x, double y) { return null; }
+            public object elementsFromPoint(double x, double y) { return new object[0]; }
+            public object querySelector(string selector) { return null; }
+            public object getElementsByName(string name) { return new object[0]; }
+            public object[] getElementsByClassName(string className) { return new object[0]; }
+            public object[] getElementsByTagNameNS(string ns, string tag) { return new object[0]; }
+            public object getElementByIdNS(string ns, string id) { return null; }
         }
 
         private class HostConsole
@@ -2359,6 +2462,41 @@ if (mHrefSet.Success)
             private JavaScriptEngine _engine;
             public HostNavigator(JavaScriptEngine engine) { _engine = engine; }
             public string userAgent => "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+            public string appVersion => "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+            public string appName => "Netscape";
+            public string appCodeName => "Mozilla";
+            public string platform => "Win32";
+            public string vendor => "Google Inc.";
+            public string product => "Gecko";
+            public string productSub => "20030107";
+            public string vendorSub => "";
+            public string language => "en-US";
+            public string[] languages => new[] { "en-US", "en" };
+            public bool onLine => true;
+            public bool cookieEnabled => true;
+            public string doNotTrack => "unspecified";
+            public int hardwareConcurrency => 4;
+            public int maxTouchPoints => 5;
+            public bool javaEnabled() => false;
+            public void sendBeacon(string url) { }
+            public JSValue serviceWorker => JSValue.Undefined;
+            public JSValue credentials => JSValue.Undefined;
+            public JSValue permissions => JSValue.Undefined;
+            public JSValue geolocation => JSValue.Undefined;
+            public JSValue mediaDevices => JSValue.Undefined;
+            public JSValue usb => JSValue.Undefined;
+            public JSValue bluetooth => JSValue.Undefined;
+            public JSValue hid => JSValue.Undefined;
+            public JSValue serial => JSValue.Undefined;
+            public JSValue xr => JSValue.Undefined;
+            public JSValue clipboard => JSValue.Undefined;
+            public JSValue connection => JSValue.Undefined;
+            public JSValue wakeLock => JSValue.Undefined;
+            public JSValue keyboard => JSValue.Undefined;
+            public JSValue locks => JSValue.Undefined;
+            public JSValue storage => JSValue.Undefined;
+            public JSValue userActivation => JSValue.Undefined;
+            public JSValue pdfViewerEnabled => JSValue.Undefined;
         }
 
         private class HostHistory
@@ -2498,26 +2636,18 @@ if (mHrefSet.Success)
         {
             _nil = new GlobalContext();
 
-            // ***
-            // create host window once and reuse for aliases
+            // Create host window once and reuse for all aliases
             var hostWindow = new HostWindow(this);
+
+            // Core globals — window, self, globalThis, global all point to same HostWindow
             _nil.DefineVariable("window").Assign(JSValue.Marshal(hostWindow));
-            try { _nil.DefineVariable("self").Assign(JSValue.Marshal(hostWindow)); } catch { }
-            try { _nil.DefineVariable("globalThis").Assign(JSValue.Marshal(hostWindow)); } catch { }
+            _nil.DefineVariable("self").Assign(JSValue.Marshal(hostWindow));
+            _nil.DefineVariable("globalThis").Assign(JSValue.Marshal(hostWindow));
+            _nil.DefineVariable("global").Assign(JSValue.Marshal(hostWindow));
+            _nil.DefineVariable("top").Assign(JSValue.Marshal(hostWindow));
+            _nil.DefineVariable("parent").Assign(JSValue.Marshal(hostWindow));
 
-            // minimal common shims
-            try
-            {
-                _nil.DefineVariable("addEventListener").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Undefined)));
-                _nil.DefineVariable("removeEventListener").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Undefined)));
-                _nil.DefineVariable("postMessage").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Undefined)));
-                _nil.DefineVariable("setImmediate").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Undefined)));
-            }
-            catch { }
-            // ***
-
-            // Expose standard globals
-            _nil.DefineVariable("window").Assign(JSValue.Marshal(new HostWindow(this)));
+            // DOM globals
             _nil.DefineVariable("document").Assign(JSValue.Marshal(new HostDocument(this)));
             _nil.DefineVariable("console").Assign(JSValue.Marshal(new HostConsole(this)));
             _nil.DefineVariable("navigator").Assign(JSValue.Marshal(new HostNavigator(this)));
@@ -2525,6 +2655,146 @@ if (mHrefSet.Success)
             _nil.DefineVariable("history").Assign(JSValue.Marshal(new HostHistory(this)));
             _nil.DefineVariable("localStorage").Assign(JSValue.Marshal(new HostLocalStorage(this, false)));
             _nil.DefineVariable("sessionStorage").Assign(JSValue.Marshal(new HostLocalStorage(this, true)));
+
+            // Window properties commonly checked via `in` operator
+            _nil.DefineVariable("devicePixelRatio").Assign(JSValue.Marshal(1.0));
+            _nil.DefineVariable("innerWidth").Assign(JSValue.Marshal(1024));
+            _nil.DefineVariable("innerHeight").Assign(JSValue.Marshal(768));
+            _nil.DefineVariable("outerWidth").Assign(JSValue.Marshal(1024));
+            _nil.DefineVariable("outerHeight").Assign(JSValue.Marshal(768));
+            _nil.DefineVariable("pageXOffset").Assign(JSValue.Marshal(0));
+            _nil.DefineVariable("pageYOffset").Assign(JSValue.Marshal(0));
+            _nil.DefineVariable("scrollX").Assign(JSValue.Marshal(0));
+            _nil.DefineVariable("scrollY").Assign(JSValue.Marshal(0));
+            _nil.DefineVariable("screenX").Assign(JSValue.Marshal(0));
+            _nil.DefineVariable("screenY").Assign(JSValue.Marshal(0));
+            _nil.DefineVariable("closed").Assign(JSValue.Marshal(false));
+            _nil.DefineVariable("name").Assign(JSValue.Marshal(""));
+            _nil.DefineVariable("origin").Assign(JSValue.Marshal(_ctx?.BaseUri?.GetLeftPart(UriPartial.Authority) ?? "null"));
+
+            // Event listener shims
+            _nil.DefineVariable("addEventListener").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Undefined)));
+            _nil.DefineVariable("removeEventListener").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Undefined)));
+            _nil.DefineVariable("postMessage").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Undefined)));
+            _nil.DefineVariable("dispatchEvent").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(false))));
+            _nil.DefineVariable("getComputedStyle").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { }))));
+
+            // Performance API
+            _nil.DefineVariable("performance").Assign(JSValue.Marshal(new
+            {
+                now = new Func<double>(() => (DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalMilliseconds),
+                timeOrigin = (double)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalMilliseconds
+            }));
+
+            // URL / URLSearchParams stubs
+            _nil.DefineVariable("URL").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
+            {
+                var obj = JSValue.Marshal(new { });
+                if (args.Length > 0) obj["href"] = JSValue.Marshal(args[0].ToString());
+                obj["toString"] = JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(obj["href"])));
+                return obj;
+            })));
+            _nil.DefineVariable("URLSearchParams").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
+            {
+                var query = args.Length > 0 ? args[0].ToString() : "";
+                var params_dict = new Dictionary<string, string>();
+                if (!string.IsNullOrEmpty(query) && query.StartsWith("?")) query = query.Substring(1);
+                foreach (var pair in query.Split('&'))
+                {
+                    var eq = pair.IndexOf('=');
+                    if (eq >= 0)
+                        params_dict[System.Uri.UnescapeDataString(pair.Substring(0, eq))] = System.Uri.UnescapeDataString(pair.Substring(eq + 1));
+                    else if (!string.IsNullOrEmpty(pair))
+                        params_dict[System.Uri.UnescapeDataString(pair)] = "";
+                }
+                var captured = params_dict;
+                var sp = JSValue.Marshal(new { });
+                sp["get"] = JSValue.Marshal(new Func<Arguments, JSValue>(a =>
+                {
+                    var key = a.Length > 0 ? a[0].ToString() : "";
+                    return captured.TryGetValue(key, out var val) ? JSValue.Marshal(val) : JSValue.Null;
+                }));
+                sp["has"] = JSValue.Marshal(new Func<Arguments, JSValue>(a =>
+                {
+                    var key = a.Length > 0 ? a[0].ToString() : "";
+                    return JSValue.Marshal(captured.ContainsKey(key));
+                }));
+                sp["set"] = JSValue.Marshal(new Func<Arguments, JSValue>(a =>
+                {
+                    if (a.Length >= 2) captured[a[0].ToString()] = a[1].ToString();
+                    return JSValue.Undefined;
+                }));
+                sp["append"] = JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Undefined));
+                sp["delete"] = JSValue.Marshal(new Func<Arguments, JSValue>(a =>
+                {
+                    if (a.Length > 0) captured.Remove(a[0].ToString());
+                    return JSValue.Undefined;
+                }));
+                sp["toString"] = JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(string.Join("&", captured.Select(kv => $"{kv.Key}={kv.Value}")))));
+                sp["entries"] = JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { })));
+                sp["keys"] = JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { })));
+                sp["values"] = JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { })));
+                sp["forEach"] = JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Undefined));
+                sp["size"] = JSValue.Marshal(captured.Count);
+                return sp;
+            })));
+
+            // atob / btoa
+            _nil.DefineVariable("atob").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a =>
+            {
+                try { return JSValue.Marshal(System.Convert.FromBase64String(a[0].ToString())); }
+                catch { return JSValue.Undefined; }
+            })));
+            _nil.DefineVariable("btoa").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a =>
+            {
+                try { return JSValue.Marshal(System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(a[0].ToString()))); }
+                catch { return JSValue.Undefined; }
+            })));
+
+            // requestAnimationFrame / cancelAnimationFrame
+            _nil.DefineVariable("requestAnimationFrame").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
+            {
+                if (args.Length > 0 && args[0].ValueType == JSValueType.Function)
+                {
+                    var func = args[0] as Function;
+                    var id = Interlocked.Increment(ref _nextTimerId);
+                    EnqueueMacroTask(() => { try { func.Call(JSValue.Undefined, new Arguments { JSValue.Marshal((double)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalMilliseconds) }); } catch { } });
+                    return JSValue.Marshal(id);
+                }
+                return JSValue.Marshal(0);
+            })));
+            _nil.DefineVariable("cancelAnimationFrame").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Undefined)));
+
+            // crypto stub
+            _nil.DefineVariable("crypto").Assign(JSValue.Marshal(new
+            {
+                getRandomValues = new Func<Arguments, JSValue>(a => a.Length > 0 ? a[0] : JSValue.Undefined),
+                subtle = JSValue.Undefined
+            }));
+
+            // TextEncoder / TextDecoder stubs
+            _nil.DefineVariable("TextEncoder").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { encode = new Func<Arguments, JSValue>(e => JSValue.Marshal(new byte[0])) }))));
+            _nil.DefineVariable("TextDecoder").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { decode = new Func<Arguments, JSValue>(e => JSValue.Marshal("")) }))));
+
+            // WebSocket stub (Vite HMR checks this)
+            _nil.DefineVariable("WebSocket").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Undefined)));
+
+            // Blob / File / FormData stubs
+            _nil.DefineVariable("Blob").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { size = JSValue.Marshal(0), type = JSValue.Marshal("") }))));
+            _nil.DefineVariable("File").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { name = JSValue.Marshal(""), size = JSValue.Marshal(0), type = JSValue.Marshal("") }))));
+            _nil.DefineVariable("FormData").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { append = new Func<Arguments, JSValue>(e => JSValue.Undefined) }))));
+
+            // AbortController / AbortSignal stubs
+            _nil.DefineVariable("AbortController").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { signal = JSValue.Marshal(new { aborted = JSValue.Marshal(false) }), abort = new Func<Arguments, JSValue>(e => JSValue.Undefined) }))));
+
+            // CustomEvent / Event stubs
+            _nil.DefineVariable("Event").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { type = JSValue.Marshal(""), target = JSValue.Null, currentTarget = JSValue.Null, preventDefault = new Func<Arguments, JSValue>(e => JSValue.Undefined), stopPropagation = new Func<Arguments, JSValue>(e => JSValue.Undefined) }))));
+            _nil.DefineVariable("CustomEvent").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { type = JSValue.Marshal(""), detail = JSValue.Null, target = JSValue.Null, currentTarget = JSValue.Null, preventDefault = new Func<Arguments, JSValue>(e => JSValue.Undefined), stopPropagation = new Func<Arguments, JSValue>(e => JSValue.Undefined) }))));
+            _nil.DefineVariable("MessageEvent").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { data = JSValue.Null, origin = JSValue.Marshal(""), source = JSValue.Null }))));
+
+            // Image / HTMLImageElement stub
+            _nil.DefineVariable("Image").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { width = JSValue.Marshal(0), height = JSValue.Marshal(0), src = JSValue.Marshal(""), onload = JSValue.Null, onerror = JSValue.Null }))));
+            _nil.DefineVariable("HTMLImageElement").Assign(JSValue.Marshal(typeof(HostImage)));
 
             // Expose fetch API (async via Promise-like thenable)
             _nil.DefineVariable("fetch").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
@@ -2560,6 +2830,7 @@ if (mHrefSet.Success)
                                             try { return _nil.Eval("JSON.parse(" + JsEscape(result ?? "{}", '\'') + ")"); }
                                             catch { return JSValue.Null; }
                                         }));
+                                        resp["headers"] = JSValue.Marshal(new { get = new Func<Arguments, JSValue>(h => JSValue.Marshal("text/plain")) });
                                         onResolve.Call(JSValue.Undefined, new Arguments { resp });
                                     }
                                     catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
@@ -2687,6 +2958,25 @@ if (mHrefSet.Success)
                 if (type == "2d") return new HostContext2D();
                 return null;
             }
+        }
+
+        private class HostImage
+        {
+            public int width { get; set; }
+            public int height { get; set; }
+            public int naturalWidth { get; set; }
+            public int naturalHeight { get; set; }
+            public string src { get; set; } = "";
+            public string alt { get; set; } = "";
+            public JSValue onload { get; set; } = JSValue.Null;
+            public JSValue onerror { get; set; } = JSValue.Null;
+            public bool complete { get; set; } = false;
+            public bool crossOrigin { get; set; } = false;
+            public string referrerPolicy { get; set; } = "";
+            public string decoding { get; set; } = "auto";
+            public string fetchPriority { get; set; } = "auto";
+            public string loading { get; set; } = "eager";
+            public JSValue decode() { return JSValue.Undefined; }
         }
 
         private class HostContext2D

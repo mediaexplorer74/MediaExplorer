@@ -31,6 +31,7 @@
 | T | Testing Infrastructure | ✅ DONE |
 | **19** | **DevTools Enhancement & ES Modules Validation** | **🟡 IN PROGRESS** |
 | **20** | **NiL.JS 2.6 Integration (netstandard2.0)** | **✅ DONE** (full Vite bundle parses) |
+| **16.5** | **CSS Stabilization (margin/padding, font-weight, text-decoration)** | **✅ DONE** (Session 3.19) |
 
 **Known active issues:**
 - **ES Modules Vite Compatibility**: ✅ **PARSER FIXED (Session 3.14)** — full 568KB bundle parses without syntax errors. Next: runtime DOM globals.
@@ -952,7 +953,7 @@ Current project uses `NiL.JS 2.5.1294` as a NuGet package. Vite bundles fail wit
 
 ### Remaining Work
 
-1. **Runtime DOM globals** — `location` now has `pathname`, `origin`, `protocol`, etc. (Session 3.16)
+1. **`in` operator fix** — NiL.JS `In.cs:42` throws TypeError when RHS is not Object; need to return `false` for non-objects (browser-compatible behavior)
 2. **Private fields `#name`** — 12 occurrences, lower priority
 3. **Continue fixing runtime errors** in the bundle (many `InvalidOperationException` in NiL.JS)
 4. **Log noise reduction** — 315 `empty catch` blocks spamming Visual Studio Output
@@ -1008,7 +1009,11 @@ Session 3.13: Phase 20 — Critical regression fix (normal methods in objects) �
 Session 3.14: Phase 20 — **Full Vite bundle parses!** (import space, IIFE, const space, async arrow await) ✅
 Session 3.15: Phase 20 — **Nokia Archive validation + UI polish** (Toast, MessageOverlay, Status Bar toggle, Nav fix) ✅
 Session 3.16: Phase 20 — **NiL.JS `new keyword` fix** (MethodProxy + ExternalFunction), **HostLocation** (pathname, origin, etc.) ✅
-Session 3.17: Runtime DOM globals + remaining NiL.JS errors ← NEXT
+Session 3.17: Phase 20 — **Massive globals expansion** — `_nilInit()` rewritten: 50+ JS globals (performance, crypto, URL, WebSocket, Blob, Event, Image, atob/btoa, requestAnimationFrame, full HostNavigator with 30+ properties, HostImage, window aliases) ✅
+Session 3.18: Phase 20 — **`in` operator fix** (In.cs returns `false` instead of throw) + **JS ENGINE FROZEN**  — 9 sessions in rabbit hole, shift to CSS/Rendering for 5+ sessions ✅
+Session 3.19: Phase 16.5 — **CSS Stabilization** — VirtualizingRenderer margin/padding fix, HTTPS→HTTP redirect handling, `text.npr.org` + `example.com` → `iana.org` working ✅
+Session 3.20: Phase 16.6 — **CSS Grid Properties** — Added grid properties to CssComputed, grid property parsing in CssLoader, grid container routing in DomBasicRenderer ✅
+Session 3.21: Phase 16.6 — CSS Grid/Flexbox for complex layouts (`iana.org`), CSS variables, `@media` queries ← NEXT
 ```
 
 ---
@@ -1070,5 +1075,5 @@ Since this is a one-person retro project with no CI and no unit test framework:
 
 ---
 
-*Plan v3.4 — 2026-05-21*
+*Plan v3.6 — 2026-05-21*
 *Based on: Plan_01.md (v1.0), Plan_02.md (v2.2), sessions 2.01–2.18, GitHub repos mediaexplorer74/MediaExplorer + UDAIE-A/WEBVIEW*
