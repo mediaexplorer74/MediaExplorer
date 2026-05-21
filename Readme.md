@@ -1,10 +1,10 @@
-# MediaExplorer 0.38.61 - dev branch (museum build; pre-alpha)
+# MediaExplorer 0.38.62 - dev branch (museum build; pre-alpha)
 
 ![](/Images/logo.png)
 
 
 ## About / Об этой "музейной" штучке
-MediaExplorer (Plasic codname.. and WebView is another strange old codename) is planned as alternative Browser for old sweet Windows 10 Mobile (W10M, >15063). 
+MediaExplorer (another strange "WebView" codename) is planned as alternative Browser for old sweet Windows 10 Mobile (W10M, >15063). 
 
 Based on my old fork of https://github.com/UDAIE-A/WEBVIEW . 
 
@@ -20,6 +20,7 @@ For more tech. info see /Doc folder (Plans, Summeries on partially completed "de
 
 ## Screenshots
 
+![](/Images/sshot.png)
 ![](/Images/sshot01.png)
 ![](/Images/sshot02.png)
 ![](/Images/sshot03.png)
@@ -29,17 +30,13 @@ For more tech. info see /Doc folder (Plans, Summeries on partially completed "de
 
 ## Status / Статус
 
-INIT STATE: The project is in a very early stage and not yet available for distribution. 
+INIT STATE: The project is in a very early stage and not yet available for distribution.
 
 НАЧАЛО: Очень сыро, на уровне ранней пре-альфы. По сути "музейный варик", чисто вдохновить кого-то нестандартно подойти к разработке браузеров и не делать из Chromuim недостижимый фетиш. 
 
 Project status: This is a homemade browser engine (HTML/CSS/JS) for W10M without using the system WebView. Its own HTML parser, CSS engine with selectors/cascade/flexbox, JavaScript runtime in NiL.JS, XAML renderer. About 35 files, ~20k+ lines of code.
 
-Min. Win. SDK = 16299 (not 15063 yet... and, W10M compatibility not ready!)
-
 Состояние проекта: Это самодельный браузерный движок (HTML/CSS/JS) для W10M без использования системного WebView. Свой HTML-парсер, CSS-движок с селекторами/каскадом/flexbox, JavaScript-рантайм на NiL.JS, XAML-рендерер. Около 35 файлов, ~20k+ строк кода.
-
-Min. Win. SDK = 16299 (еще не 15063... и, стало быть, пока нет совместимости с W10M!)
 
 
 ## What's new?
@@ -71,51 +68,6 @@ Min. Win. SDK = 16299 (еще не 15063... и, стало быть, пока н
 - Ctrl+L → expand + фокус URL	MainPage.xaml.cs	Классический шорткат браузеров
 - Ctrl+B → toggle bar	MainPage.xaml.cs	Быстрое скрытие/показ панели
 - Теперь панель работает и на мышке: клик по полоске, Ctrl+L для URL, Ctrl+B для сворачивания/разворачивания.
-
-## Dev details
-
-### Goal
-- Finalize NiL.JS 2.6 parser for Vite bundles + Polish UI (Toast, Navigation, Settings) and address runtime errors.
-
-### Constraints & Preferences
-- Сборка через msbuild.
-- NiL.JS подключен через ProjectReference.
-- Nokia Design Archive (568KB Vite bundle) — главный бенчмарк.
-- Decision: Patch NiL.JS parser directly; fix UI/Nav issues in MediaExplorer.
-
-### Progress
-- NiL.JS - important parsing improvements
-
-### Done
-- Full Vite Bundle Parse ✅: 568KB bundle parses without syntax errors (fixed import( spacing, IIFE after function, const{x} without space, async arrow await).
-- Toast Notifications ✅: Added ShowToast() (5s duration, 60px above App Bar), triggered on Snapshot/Copy.
-- MessageOverlay ✅: Renamed ErrorOverlay → MessageOverlay (generic, supports icons/titles).
-- Status Bar Toggle ✅: Added toggle in Settings, persists via StatusBarVisible key.
-- Navigation Fix ✅: Fixed GoBack()/GoForward() loop; AddHistory now called before UpdateState. Full cycle (Nokia → Ya.ru → Back → Forward) works.
-- Module Logs ✅: import("_") now logs as "Vite feature detection" instead of "failed".
-- querySelectorAll ✅: Implemented in HostDocument with MatchesSelector (supports tag/attribute selectors).
-
-### In Progress
-- Runtime Error: Investigating TypeError: Type "<_nilInit>b__236_5" can not be created with new keyword.
-- Log Noise: Reducing System.InvalidOperationException spam in JavaScriptEngine.cs.
-
-### Blocked
-(none)
-
-### Key Decisions
-- Navigation History: NavigateAsync accepts addToHistory flag; Back/Forward pass false to prevent re-adding URLs.
-- Toast Positioning: Margin="12,12,12,60" ensures visibility even when DevTools is open.
-- Log Cleanup: Special case for spec == "_" in ModuleLoader to distinguish expected Vite probes from real failures.
-
-### Next Steps
-- Fix new keyword error: Resolve Type "<_nilInit>b__236_5" can not be created with new keyword in NiL.JS runtime.
-- Reduce Log Noise: Suppress or filter InvalidOperationException spam in JavaScriptEngine.cs.
--  Private Fields: Investigate support for #name syntax (12 occurrences in bundle).
-
-### Critical Context
-- Vite Bundle: Now parses fully; runtime errors are the primary blocker.
-- Error Pattern: Type "<_nilInit>b__236_5" can not be created with new keyword suggests anonymous lambda types are being instantiated via new in JS, which NiL.JS rejects.
-- Log Spam: ~315 empty catch blocks in JavaScriptEngine.cs log InvalidOperationException, cluttering output during Vite execution.
 
 
 ## Problems / Knows Bugs / Limitaions

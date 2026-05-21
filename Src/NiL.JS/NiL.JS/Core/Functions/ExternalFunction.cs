@@ -56,7 +56,7 @@ public sealed class ExternalFunction : Function
             throw new ArgumentNullException();
 
         _delegate = @delegate;
-        RequireNewKeywordLevel = BaseLibrary.RequireNewKeywordLevel.WithoutNewOnly;
+        RequireNewKeywordLevel = BaseLibrary.RequireNewKeywordLevel.Both;
     }
 
     protected internal override JSValue Invoke(bool construct, JSValue targetObject, Arguments arguments)

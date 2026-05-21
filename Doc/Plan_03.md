@@ -952,9 +952,9 @@ Current project uses `NiL.JS 2.5.1294` as a NuGet package. Vite bundles fail wit
 
 ### Remaining Work
 
-1. **Runtime DOM globals** — `document`, `window`, `navigator` etc. (MediaExplorer provides these as host objects)
+1. **NiL.JS runtime error**: `Type "<_nilInit>b__236_5" can not be created with new keyword` — anonymous lambda type in Vite bundle
 2. **Private fields `#name`** — 12 occurrences, lower priority
-3. **Continue fixing runtime errors** in the bundle after DOM globals are provided
+3. **Continue fixing runtime errors** in the bundle (many `InvalidOperationException` in NiL.JS)
 
 ---
 
@@ -969,7 +969,7 @@ Current project uses `NiL.JS 2.5.1294` as a NuGet package. Vite bundles fail wit
 | **10** | DevTools (Console + DOM + Network + Debug) | 🟡 | 3–5 days | T | ✅ DONE |
 | **17** | Robustness & Memory |  | 2–3 days | T |
 | **19** | DevTools Enhancement & ES Modules Validation | 🟡 | 2–3 days | 10, 6 |  IN PROGRESS |
-| **20** | NiL.JS 2.6 Integration + Parser Patch | ✅ DONE | ~300 lines | 19 | Full 568KB Vite bundle parses (Session 3.14) |
+| **20** | NiL.JS 2.6 Integration + Parser Patch | ✅ DONE | ~300 lines | 19 | Full 568KB Vite bundle parses + Nokia Archive validates (Sessions 3.14–3.15) |
 | **7** | Service Worker + Offline-First | 🟢 | 3–5 days | 8B, 10 |
 
 **Total: ~22–33 working days / ~3300 lines**
@@ -1005,7 +1005,8 @@ Session 3.11: Phase 20 — Arrow function fix (position 58), async function* sup
 Session 3.12: Phase 20 — get/set as field names with colons ✅
 Session 3.13: Phase 20 — Critical regression fix (normal methods in objects) ✅
 Session 3.14: Phase 20 — **Full Vite bundle parses!** (import space, IIFE, const space, async arrow await) ✅
-Session 3.15: ES Module test re-run + Nokia Archive validation ← NEXT
+Session 3.15: Phase 20 — **Nokia Archive validation + UI polish** (Toast, MessageOverlay, Status Bar toggle, Nav fix) ✅
+Session 3.16: Runtime DOM globals + NiL.JS `new keyword` error ← NEXT
 ```
 
 ---
@@ -1067,5 +1068,5 @@ Since this is a one-person retro project with no CI and no unit test framework:
 
 ---
 
-*Plan v3.2 — 2026-05-21*
+*Plan v3.3 — 2026-05-21*
 *Based on: Plan_01.md (v1.0), Plan_02.md (v2.2), sessions 2.01–2.18, GitHub repos mediaexplorer74/MediaExplorer + UDAIE-A/WEBVIEW*
