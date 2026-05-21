@@ -4,7 +4,7 @@
 
 
 ## About / Об этой "музейной" штучке
-MediaExplorer (another strange "WebView" codename) is planned as alternative Browser for old sweet Windows 10 Mobile (W10M, >15063). 
+MediaExplorer (Plasic codname.. and WebView is another strange old codename) is planned as alternative Browser for old sweet Windows 10 Mobile (W10M, >15063). 
 
 Based on my old fork of https://github.com/UDAIE-A/WEBVIEW . 
 
@@ -29,13 +29,17 @@ For more tech. info see /Doc folder (Plans, Summeries on partially completed "de
 
 ## Status / Статус
 
-INIT STATE: The project is in a very early stage and not yet available for distribution.
+INIT STATE: The project is in a very early stage and not yet available for distribution. 
 
 НАЧАЛО: Очень сыро, на уровне ранней пре-альфы. По сути "музейный варик", чисто вдохновить кого-то нестандартно подойти к разработке браузеров и не делать из Chromuim недостижимый фетиш. 
 
 Project status: This is a homemade browser engine (HTML/CSS/JS) for W10M without using the system WebView. Its own HTML parser, CSS engine with selectors/cascade/flexbox, JavaScript runtime in NiL.JS, XAML renderer. About 35 files, ~20k+ lines of code.
 
+Min. Win. SDK = 16299 (not 15063 yet... and, W10M compatibility not ready!)
+
 Состояние проекта: Это самодельный браузерный движок (HTML/CSS/JS) для W10M без использования системного WebView. Свой HTML-парсер, CSS-движок с селекторами/каскадом/flexbox, JavaScript-рантайм на NiL.JS, XAML-рендерер. Около 35 файлов, ~20k+ строк кода.
+
+Min. Win. SDK = 16299 (еще не 15063... и, стало быть, пока нет совместимости с W10M!)
 
 
 ## What's new?
