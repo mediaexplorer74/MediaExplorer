@@ -1,0 +1,6 @@
+MainPackage=C:\Users\Admin\source\repos\!OpenCode\WEBVIEW\Src\WEBVIEW\bin\ARM\Debug\WEBVIEW_0.8.0.0_ARM_Debug.appx
+SymbolPackage=C:\Users\Admin\source\repos\!OpenCode\WEBVIEW\Src\WEBVIEW\obj\ARM\Debug\Symbols\WEBVIEW_0.8.0.0_ARM_Debug.appxsym
+ResourcePack=C:\Users\Admin\source\repos\!OpenCode\WEBVIEW\Src\WEBVIEW\bin\ARM\Debug\WEBVIEW_0.8.0.0_scale-100.appx
+ResourcePack=C:\Users\Admin\source\repos\!OpenCode\WEBVIEW\Src\WEBVIEW\bin\ARM\Debug\WEBVIEW_0.8.0.0_scale-125.appx
+ResourcePack=C:\Users\Admin\source\repos\!OpenCode\WEBVIEW\Src\WEBVIEW\bin\ARM\Debug\WEBVIEW_0.8.0.0_scale-150.appx
+ResourcePack=C:\Users\Admin\source\repos\!OpenCode\WEBVIEW\Src\WEBVIEW\bin\ARM\Debug\WEBVIEW_0.8.0.0_scale-400.appx

@@ -1,0 +1,6 @@
+MainPackage=C:\Users\Admin\source\repos\!OpenCode\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\MediaExplorer_0.8.0.0_x64_Debug.appx
+SymbolPackage=C:\Users\Admin\source\repos\!OpenCode\MediaExplorer\Src\MediaExplorer\obj\x64\Debug\Symbols\MediaExplorer_0.8.0.0_x64_Debug.appxsym
+ResourcePack=C:\Users\Admin\source\repos\!OpenCode\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\MediaExplorer_0.8.0.0_scale-100.appx
+ResourcePack=C:\Users\Admin\source\repos\!OpenCode\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\MediaExplorer_0.8.0.0_scale-125.appx
+ResourcePack=C:\Users\Admin\source\repos\!OpenCode\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\MediaExplorer_0.8.0.0_scale-150.appx
+ResourcePack=C:\Users\Admin\source\repos\!OpenCode\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\MediaExplorer_0.8.0.0_scale-400.appx
