@@ -119,7 +119,7 @@ internal sealed class MethodProxy : Function
                 if (!_wrapperCache.TryGetValue(methodBase, out _fastWrapper))
                     _wrapperCache[methodBase] = _fastWrapper = makeFastWrapper(methodInfo);
 
-            RequireNewKeywordLevel = RequireNewKeywordLevel.WithoutNewOnly;
+            RequireNewKeywordLevel = RequireNewKeywordLevel.Both;
         }
         else if (methodBase is ConstructorInfo)
         {
@@ -144,7 +144,7 @@ internal sealed class MethodProxy : Function
         _parameters = parameters;
         _fastWrapper = fastWrapper;
         _forceInstance = forceInstance;
-        RequireNewKeywordLevel = RequireNewKeywordLevel.WithoutNewOnly;
+        RequireNewKeywordLevel = RequireNewKeywordLevel.Both;
     }
 
     private RestPrmsConverter makeRestPrmsArrayCreator()

@@ -1,6 +1,6 @@
 # MediaExplorer / WEBVIEW — Plan 03: Testing-First Stabilization & Completion
 
-> **Project:** MediaExplorer 0.14.x (codename "WebView") — retro UWP browser for Windows 10 Mobile
+> **Project:** MediaExplorer 0.38.63 (codename "WebView") — retro UWP browser for Windows 10 Mobile
 > **Hardware target:** Lumia 950/1020 (Snapdragon 810, 3 GB RAM, 5" 1440p)
 > **Test environment:** x86 emulator (primary) → ARM device (validation)
 > **Engine:** Custom HTML parser + CSS cascade + NiL.JS + XAML renderer (~35 files, ~20 000 lines)
@@ -952,9 +952,10 @@ Current project uses `NiL.JS 2.5.1294` as a NuGet package. Vite bundles fail wit
 
 ### Remaining Work
 
-1. **NiL.JS runtime error**: `Type "<_nilInit>b__236_5" can not be created with new keyword` — anonymous lambda type in Vite bundle
+1. **Runtime DOM globals** — `location` now has `pathname`, `origin`, `protocol`, etc. (Session 3.16)
 2. **Private fields `#name`** — 12 occurrences, lower priority
 3. **Continue fixing runtime errors** in the bundle (many `InvalidOperationException` in NiL.JS)
+4. **Log noise reduction** — 315 `empty catch` blocks spamming Visual Studio Output
 
 ---
 
@@ -1006,7 +1007,8 @@ Session 3.12: Phase 20 — get/set as field names with colons ✅
 Session 3.13: Phase 20 — Critical regression fix (normal methods in objects) ✅
 Session 3.14: Phase 20 — **Full Vite bundle parses!** (import space, IIFE, const space, async arrow await) ✅
 Session 3.15: Phase 20 — **Nokia Archive validation + UI polish** (Toast, MessageOverlay, Status Bar toggle, Nav fix) ✅
-Session 3.16: Runtime DOM globals + NiL.JS `new keyword` error ← NEXT
+Session 3.16: Phase 20 — **NiL.JS `new keyword` fix** (MethodProxy + ExternalFunction), **HostLocation** (pathname, origin, etc.) ✅
+Session 3.17: Runtime DOM globals + remaining NiL.JS errors ← NEXT
 ```
 
 ---
@@ -1068,5 +1070,5 @@ Since this is a one-person retro project with no CI and no unit test framework:
 
 ---
 
-*Plan v3.3 — 2026-05-21*
+*Plan v3.4 — 2026-05-21*
 *Based on: Plan_01.md (v1.0), Plan_02.md (v2.2), sessions 2.01–2.18, GitHub repos mediaexplorer74/MediaExplorer + UDAIE-A/WEBVIEW*

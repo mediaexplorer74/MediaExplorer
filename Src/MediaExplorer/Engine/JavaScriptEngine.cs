@@ -2220,6 +2220,15 @@ if (mHrefSet.Success)
             private JavaScriptEngine _engine;
             public HostWindow(JavaScriptEngine engine) { _engine = engine; }
             public void alert(string msg) { _engine._host.SetStatus("[Alert] " + msg); }
+            public HostLocation location => new HostLocation(_engine);
+            public HostDocument document => new HostDocument(_engine);
+            public HostNavigator navigator => new HostNavigator(_engine);
+            public HostHistory history => new HostHistory(_engine);
+            public string name => "";
+            public void close() { }
+            public void stop() { }
+            public void focus() { }
+            public void blur() { }
             
             public JSValue onpopstate
             {
@@ -2403,7 +2412,16 @@ if (mHrefSet.Success)
         {
             private JavaScriptEngine _engine;
             public HostLocation(JavaScriptEngine engine) { _engine = engine; }
-            public string href => _engine._ctx?.BaseUri?.ToString() ?? "";
+            private Uri Uri => _engine._ctx?.BaseUri;
+            public string href => Uri?.ToString() ?? "";
+            public string origin => Uri?.GetLeftPart(UriPartial.Authority) ?? "";
+            public string protocol => Uri?.Scheme ?? "";
+            public string host => Uri?.Authority ?? "";
+            public string hostname => Uri?.Host ?? "";
+            public string port => Uri?.Port != -1 ? Uri.Port.ToString() : "";
+            public string pathname => Uri?.AbsolutePath ?? "/";
+            public string search => Uri?.Query ?? "";
+            public string hash => "";
         }
 
         private class HostLocalStorage
