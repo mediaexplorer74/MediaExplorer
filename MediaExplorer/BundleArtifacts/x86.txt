@@ -1,6 +1,0 @@
-MainPackage=C:\Users\Admin\source\repos\!Trae\MediaExplorer\Src\MediaExplorer\bin\x86\Debug\MediaExplorer_0.8.0.0_x86_Debug.appx
-SymbolPackage=C:\Users\Admin\source\repos\!Trae\MediaExplorer\Src\MediaExplorer\obj\x86\Debug\Symbols\MediaExplorer_0.8.0.0_x86_Debug.appxsym
-ResourcePack=C:\Users\Admin\source\repos\!Trae\MediaExplorer\Src\MediaExplorer\bin\x86\Debug\MediaExplorer_0.8.0.0_scale-100.appx
-ResourcePack=C:\Users\Admin\source\repos\!Trae\MediaExplorer\Src\MediaExplorer\bin\x86\Debug\MediaExplorer_0.8.0.0_scale-125.appx
-ResourcePack=C:\Users\Admin\source\repos\!Trae\MediaExplorer\Src\MediaExplorer\bin\x86\Debug\MediaExplorer_0.8.0.0_scale-150.appx
-ResourcePack=C:\Users\Admin\source\repos\!Trae\MediaExplorer\Src\MediaExplorer\bin\x86\Debug\MediaExplorer_0.8.0.0_scale-400.appx
