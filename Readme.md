@@ -10,11 +10,9 @@ MediaExplorer is a hobby browser for Windows 10 Mobile (W10M, build 15063+) buil
 
 ## Screenshots
 
-![](/Images/sshot.png)
 ![](/Images/sshot01.png)
 ![](/Images/sshot02.png)
 ![](/Images/sshot03.png)
-![](/Images/sshot04.png)
 
 
 ## Features
@@ -31,7 +29,7 @@ MediaExplorer is a hobby browser for Windows 10 Mobile (W10M, build 15063+) buil
 
 ## Status
 
-- **Pre-alpha.** Not tested on actual W10M devices. No appx package yet. All features are highly unfinished.
+- **Pre-alpha.**  All features are highly unfinished.
 - **NiL.JS 2.6 Integration (netstandard2.0 → 1.4)** | **✅ DONE** (fully builds for W10M 15063)
 
 This is a homemade browser engine — not production-ready, not intended to replace Edge or Chrome. It exists to prove that you don't need Chromium to render a webpage.
@@ -73,6 +71,6 @@ Include: URL, what you expected, what you got. Screenshots help.
 
 As is. No support. RnD only. DIY.
 
-[m][e] May 21, 2026
+[m][e] Огту 3, 2026
 
 ![](/Images/footer.png)
