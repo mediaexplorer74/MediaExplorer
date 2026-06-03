@@ -71,7 +71,7 @@ internal class ConstructorProxy : Function
         if (_staticProxy._hostedType.GetTypeInfo().ContainsGenericParameters)
             ExceptionHelper.Throw(new TypeError(_staticProxy._hostedType.Name + " can't be created because it's generic type."));
 #else
-        if (_staticProxy._hostedType.ContainsGenericParameters)
+        if (_staticProxy._hostedType.GetTypeInfo().ContainsGenericParameters)
             ExceptionHelper.ThrowTypeError(_staticProxy._hostedType.Name + " can't be created because it's generic type.");
 #endif
         var withNewOnly = staticProxy._hostedType.GetTypeInfo().IsDefined(typeof(RequireNewKeywordAttribute), true);
@@ -93,7 +93,7 @@ internal class ConstructorProxy : Function
         var ctorsL = new List<MethodProxy>(ctors.Length + (staticProxy._hostedType.GetTypeInfo().IsValueType ? 1 : 0));
 #else
         var ctors = staticProxy._hostedType.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
-        var ctorsL = new List<MethodProxy>(ctors.Length + (staticProxy._hostedType.IsValueType ? 1 : 0));
+        var ctorsL = new List<MethodProxy>(ctors.Length + (staticProxy._hostedType.GetTypeInfo().IsValueType ? 1 : 0));
 #endif
         for (int i = 0; i < ctors.Length; i++)
         {
@@ -233,7 +233,7 @@ internal class ConstructorProxy : Function
 #if (PORTABLE || NETCORE)
 && _staticProxy._hostedType.GetTypeInfo().IsValueType)
 #else
-&& _staticProxy._hostedType.IsValueType)
+&& _staticProxy._hostedType.GetTypeInfo().IsValueType)
 #endif
             {
                 obj = Activator.CreateInstance(_staticProxy._hostedType);
@@ -366,7 +366,7 @@ internal class ConstructorProxy : Function
 #if (PORTABLE || NETCORE)
                                 constructors[i]._parameters[j].ParameterType.GetTypeInfo().IsValueType)
 #else
-                                _constructors[i]._parameters[j].ParameterType.IsValueType)
+                                _constructors[i]._parameters[j].ParameterType.GetTypeInfo().IsValueType)
 #endif
                             {
                                 j = 0;

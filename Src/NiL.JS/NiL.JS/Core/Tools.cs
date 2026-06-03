@@ -506,7 +506,7 @@ public static class Tools
 
             if (targetType.GetTypeInfo().IsGenericType && targetType.GetGenericTypeDefinition() == typeof(IDictionary<,>))
             {
-                var genericPrms = targetType.GetGenericArguments();
+                var genericPrms = targetType.GetTypeInfo().GenericTypeArguments;
                 targetType = typeof(Dictionary<,>).MakeGenericType(genericPrms);
             }
 
@@ -516,7 +516,7 @@ public static class Tools
 
         if (typeInfo.IsGenericType
             && targetType.GetGenericTypeDefinition() == typeof(Nullable<>))
-            targetType = targetType.GetGenericArguments()[0];
+            targetType = targetType.GetTypeInfo().GenericTypeArguments[0];
 
         if (targetType.IsAssignableFrom(jsobj.GetType()))
             return jsobj;
@@ -676,7 +676,7 @@ public static class Tools
 
                     if (targetType.GetTypeInfo().IsEnum)
                     {
-#if NET461 || NET48 || NETSTANDARD2_0
+#if NET461 || NET48 || NETSTANDARD1_4
                         try
                         {
                             return Enum.Parse(targetType, jsobj.Value.ToString());
@@ -758,7 +758,7 @@ public static class Tools
         if (IntrospectionExtensions.GetTypeInfo(targetType).IsEnum && Enum.IsDefined(targetType, value))
             return value;
 #else
-        if (targetType.IsEnum && Enum.IsDefined(targetType, value))
+            if (targetType.GetTypeInfo().IsEnum && Enum.IsDefined(targetType, value))
             return value;
 #endif
 
@@ -789,14 +789,10 @@ public static class Tools
             else
             {
                 Type iEnumerableInterface = null;
-#if PORTABLE || NETCORE
                 iEnumerableInterface = targetType.GetInterface(typeof(IEnumerable<>).Name);
-#else
-                iEnumerableInterface = targetType.GetTypeInfo().GetInterface(typeof(IEnumerable<>).Name);
-#endif
                 if (iEnumerableInterface != null)
                 {
-                    elementType = iEnumerableInterface.GetGenericArguments()[0];
+                    elementType = iEnumerableInterface.GetTypeInfo().GenericTypeArguments[0];
                 }
             }
 
@@ -869,7 +865,7 @@ public static class Tools
                 }
                 else if (targetInstance is not null)
                 {
-                    foreach (var field in targetType.GetFields(BindingFlags.Instance | BindingFlags.Public))
+                    foreach (var field in targetType.GetTypeInfo().DeclaredFields.Where(f => f.IsPublic && !f.IsStatic))
                     {
                         var name = field.GetCustomAttribute<JavaScriptNameAttribute>()?.Name ?? field.Name;
                         var propValue = jsobj[name];
@@ -877,7 +873,7 @@ public static class Tools
                             field.SetValue(targetInstance, ConvertJStoObj(propValue, field.FieldType, true));
                     }
 
-                    foreach (var property in targetType.GetProperties(BindingFlags.Instance | BindingFlags.Public))
+                    foreach (var property in targetType.GetTypeInfo().DeclaredProperties.Where(p => (p.GetMethod?.IsPublic == true && p.GetMethod?.IsStatic == false) || (p.SetMethod?.IsPublic == true && p.SetMethod?.IsStatic == false)))
                     {
                         var name = property.GetCustomAttribute<JavaScriptNameAttribute>()?.Name ?? property.Name;
                         var propValue = jsobj[name];
@@ -2012,7 +2008,7 @@ public static class Tools
 #if (PORTABLE || NETCORE)
                 if (argument.Type.GetTypeInfo().IsValueType)
 #else
-                if (argument.Type.IsValueType)
+                if (argument.Type.GetTypeInfo().IsValueType)
 #endif
                 {
                     argument = Expression.Convert(argument, typeof(object));

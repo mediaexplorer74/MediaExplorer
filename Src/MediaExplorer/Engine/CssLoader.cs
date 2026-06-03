@@ -1717,52 +1717,6 @@ namespace WEBVIEW.Engine
                 css.AlignContent = Safe(DictGet(css.Map, "align-content"));
                 css.ListStyleType = Safe(DictGet(css.Map, "list-style-type"));
                 css.ListStylePosition = Safe(DictGet(css.Map, "list-style-position"));
-
-                // CSS Grid properties
-                css.GridTemplateColumns = Safe(DictGet(css.Map, "grid-template-columns"));
-                css.GridTemplateRows = Safe(DictGet(css.Map, "grid-template-rows"));
-                css.GridTemplateAreas = Safe(DictGet(css.Map, "grid-template-areas"));
-                css.GridArea = Safe(DictGet(css.Map, "grid-area"));
-                css.GridAutoRows = Safe(DictGet(css.Map, "grid-auto-rows"));
-                css.GridAutoColumns = Safe(DictGet(css.Map, "grid-auto-columns"));
-                css.GridAutoFlow = Safe(DictGet(css.Map, "grid-auto-flow"));
-                css.JustifyItems = Safe(DictGet(css.Map, "justify-items"));
-                css.AlignSelf = Safe(DictGet(css.Map, "align-self"));
-                css.JustifySelf = Safe(DictGet(css.Map, "justify-self"));
-
-                // Parse grid line positions (grid-row-start, grid-column-start, etc.)
-                var gridRowStartRaw = Safe(DictGet(css.Map, "grid-row-start"));
-                if (!string.IsNullOrEmpty(gridRowStartRaw))
-                {
-                    int grStart;
-                    if (int.TryParse(gridRowStartRaw.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out grStart))
-                        css.GridRowStart = grStart;
-                }
-
-                var gridRowEndRaw = Safe(DictGet(css.Map, "grid-row-end"));
-                if (!string.IsNullOrEmpty(gridRowEndRaw))
-                {
-                    int grEnd;
-                    if (int.TryParse(gridRowEndRaw.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out grEnd))
-                        css.GridRowEnd = grEnd;
-                }
-
-                var gridColStartRaw = Safe(DictGet(css.Map, "grid-column-start"));
-                if (!string.IsNullOrEmpty(gridColStartRaw))
-                {
-                    int gcStart;
-                    if (int.TryParse(gridColStartRaw.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out gcStart))
-                        css.GridColumnStart = gcStart;
-                }
-
-                var gridColEndRaw = Safe(DictGet(css.Map, "grid-column-end"));
-                if (!string.IsNullOrEmpty(gridColEndRaw))
-                {
-                    int gcEnd;
-                    if (int.TryParse(gridColEndRaw.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out gcEnd))
-                        css.GridColumnEnd = gcEnd;
-                }
-
                 
                 // list-style-image with URL resolution
                 var listStyleImageRaw = Safe(DictGet(css.Map, "list-style-image"));

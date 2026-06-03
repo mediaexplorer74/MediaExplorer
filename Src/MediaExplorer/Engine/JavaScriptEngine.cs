@@ -2552,7 +2552,7 @@ if (mHrefSet.Success)
             public HostLocation(JavaScriptEngine engine) { _engine = engine; }
             private Uri Uri => _engine._ctx?.BaseUri;
             public string href => Uri?.ToString() ?? "";
-            public string origin => Uri?.GetLeftPart(UriPartial.Authority) ?? "";
+            public string origin => Uri != null ? (Uri.Scheme + "://" + Uri.Authority) : "";
             public string protocol => Uri?.Scheme ?? "";
             public string host => Uri?.Authority ?? "";
             public string hostname => Uri?.Host ?? "";
@@ -2670,7 +2670,7 @@ if (mHrefSet.Success)
             _nil.DefineVariable("screenY").Assign(JSValue.Marshal(0));
             _nil.DefineVariable("closed").Assign(JSValue.Marshal(false));
             _nil.DefineVariable("name").Assign(JSValue.Marshal(""));
-            _nil.DefineVariable("origin").Assign(JSValue.Marshal(_ctx?.BaseUri?.GetLeftPart(UriPartial.Authority) ?? "null"));
+            _nil.DefineVariable("origin").Assign(JSValue.Marshal(_ctx?.BaseUri != null ? (_ctx.BaseUri.Scheme + "://" + _ctx.BaseUri.Authority) : "null"));
 
             // Event listener shims
             _nil.DefineVariable("addEventListener").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Undefined)));

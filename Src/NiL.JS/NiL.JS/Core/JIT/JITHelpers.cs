@@ -15,10 +15,10 @@ internal static class JITHelpers
     public static readonly Expression NotExistsConstant = Expression.Field(null, typeof(JSValue).GetField("notExists", BindingFlags.Static | BindingFlags.NonPublic));
 
     public static readonly MethodInfo JSObjectToBooleanMethod = null;
-    public static readonly MethodInfo JSObjectToInt32Method = typeof(Tools).GetMethod("JSObjectToInt32", [typeof(JSValue)]);
+    public static readonly MethodInfo JSObjectToInt32Method = typeof(Tools).GetTypeInfo().GetDeclaredMethod("JSObjectToInt32");
 
-    internal static readonly MethodInfo EvaluateForWriteMethod = typeof(CodeNode).GetMethod("EvaluateForWrite", [typeof(Context)]);
-    internal static readonly MethodInfo EvaluateMethod = typeof(CodeNode).GetMethod("Evaluate", [typeof(Context)]);
+    internal static readonly MethodInfo EvaluateForWriteMethod = typeof(CodeNode).GetTypeInfo().GetDeclaredMethod("EvaluateForWrite");
+    internal static readonly MethodInfo EvaluateMethod = typeof(CodeNode).GetTypeInfo().GetDeclaredMethod("Evaluate");
 
     static JITHelpers()
     {
@@ -40,11 +40,7 @@ internal static class JITHelpers
 
     internal static JSValue wrap<T>(T source, JSValue dest)
     {
-#if NETCORE || PORTABLE
         switch (typeof(T).GetTypeCode())
-#else
-        switch (Type.GetTypeCode(typeof(T)))
-#endif
         {
             case TypeCode.Boolean:
                 {

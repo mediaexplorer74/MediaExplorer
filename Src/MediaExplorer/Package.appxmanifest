@@ -8,14 +8,14 @@
   IgnorableNamespaces="uap mp uap3">
 
   <Identity
-    Name="MediaExplorerV0p38p63"
+    Name="MediaExplorerV0p40"
     Publisher="CN=Admin"
-    Version="0.38.63.0" />
+    Version="0.40.0.0" />
 
   <mp:PhoneIdentity PhoneProductId="a406c6ad-a04e-48f7-86b5-0e9c37594836" PhonePublisherId="00000000-8375-8396-0050-000000007529"/>
 
   <Properties>
-    <DisplayName>MediaExplorer v0.38.63-pre-alpha</DisplayName>
+    <DisplayName>MediaExplorer v0..40</DisplayName>
     <PublisherDisplayName>Admin</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
@@ -33,7 +33,7 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="WEBVIEW.App">
       <uap:VisualElements
-        DisplayName="MediaExplorer v0.38.63-pre-alpha"
+        DisplayName="MediaExplorer v0.40"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png"
         Description="WEBVIEW"

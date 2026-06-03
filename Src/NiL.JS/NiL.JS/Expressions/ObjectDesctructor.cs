@@ -2,7 +2,9 @@
 
 using System;
 using System.Collections.Generic;
+#if !NETSTANDARD1_4
 using System.Data;
+#endif
 using System.Linq;
 using NiL.JS.Core;
 

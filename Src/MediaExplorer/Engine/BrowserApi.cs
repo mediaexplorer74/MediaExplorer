@@ -172,35 +172,18 @@ namespace BrowserCore.Api
                 var disp = UiThreadHelper.TryGetDispatcher();
                 if (disp != null && !UiThreadHelper.HasThreadAccess(disp))
                 {
-                    try
+                    await UiThreadHelper.RunAsyncAwaitable(disp, Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
                     {
-                        await UiThreadHelper.RunAsyncAwaitable(disp, Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
-                        {
-                            try { handler(this, element); }
-                            catch (Exception hEx) { System.Diagnostics.Debug.WriteLine("[Engine/BrowserApi.cs] RaiseRepaintAsync handler exception: " + hEx.Message); }
-                        });
-                    }
-                    catch (Exception dEx)
-                    {
-                        System.Diagnostics.Debug.WriteLine("[Engine/BrowserApi.cs] RaiseRepaintAsync dispatcher exception: " + dEx.Message);
-                    }
+                        try { handler(this, element); }
+                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+                    });
                 }
                 else
                 {
-                    try
-                    {
-                        handler(this, element);
-                    }
-                    catch (Exception hEx)
-                    {
-                        System.Diagnostics.Debug.WriteLine("[Engine/BrowserApi.cs] RaiseRepaintAsync handler (sync) exception: " + hEx.Message);
-                    }
+                    handler(this, element);
                 }
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine("[Engine/BrowserApi.cs] RaiseRepaintAsync outer exception: " + ex.Message);
-            }
+            catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
         }
 
         private void RaiseNavigated(Uri uri)
@@ -424,30 +407,21 @@ namespace BrowserCore.Api
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("[DIAG] BrowserHost.NavigateAsync EXCEPTION: " + ex.Message);
-                try
-                {
-                    RaiseNavigationFailed(ex.Message);
-                    string errorHtml = $"<html><body style='font-family:sans-serif;color:#b00;padding:2em;'><h2>Network Error</h2><p>{System.Net.WebUtility.HtmlEncode(ex.Message)}</p></body></html>";
-                    // Render the error page
-                    double vwCatch = 0;
-                    try { vwCatch = Windows.UI.Xaml.Window.Current.Bounds.Width; } catch { vwCatch = 480; }
-                    if (vwCatch <= 0) vwCatch = 480;
-                    var element = await _engine.RenderAsync(
-                        errorHtml,
-                        uri,
-                        u => Task.FromResult<string>(null),
-                        u => Task.FromResult<Windows.Storage.Streams.IRandomAccessStream>(null),
-                        delegate (Uri u) { },
-                        vwCatch);
-                    await RaiseRepaintAsync(element);
-                    RaiseStatus("Error: " + ex.Message);
-                }
-                catch (Exception innerEx)
-                {
-                    System.Diagnostics.Debug.WriteLine("[DIAG] BrowserHost.NavigateAsync EXCEPTION in error handler: " + innerEx.Message);
-                    RaiseStatus("Error: " + ex.Message);
-                }
+                RaiseNavigationFailed(ex.Message);
+                string errorHtml = $"<html><body style='font-family:sans-serif;color:#b00;padding:2em;'><h2>Network Error</h2><p>{System.Net.WebUtility.HtmlEncode(ex.Message)}</p></body></html>";
+                // Render the error page
+                double vwCatch = 0;
+                try { vwCatch = Windows.UI.Xaml.Window.Current.Bounds.Width; } catch { vwCatch = 480; }
+                if (vwCatch <= 0) vwCatch = 480;
+                var element = await _engine.RenderAsync(
+                    errorHtml,
+                    uri,
+                    u => Task.FromResult<string>(null),
+                    u => Task.FromResult<Windows.Storage.Streams.IRandomAccessStream>(null),
+                    delegate (Uri u) { },
+                    vwCatch);
+                await RaiseRepaintAsync(element);
+                RaiseStatus("Error: " + ex.Message);
                 return false;
             }
         }

@@ -35,7 +35,7 @@ public sealed class ForIn : CodeNode
         {
 #if PORTABLE
             return _labels.AsReadOnly<string>();
-#elif NETCORE
+#elif NETCORE || NETSTANDARD1_4
             return new ReadOnlyCollection<string>(_labels);
 #else
             return System.Array.AsReadOnly(_labels);

@@ -1,6 +1,6 @@
 # MediaExplorer / WEBVIEW — Plan 03: Testing-First Stabilization & Completion
 
-> **Project:** MediaExplorer 0.38.63 (codename "WebView") — retro UWP browser for Windows 10 Mobile
+> **Project:** MediaExplorer 0.40 (codename "WebView") — retro UWP browser for Windows 10 Mobile
 > **Hardware target:** Lumia 950/1020 (Snapdragon 810, 3 GB RAM, 5" 1440p)
 > **Test environment:** x86 emulator (primary) → ARM device (validation)
 > **Engine:** Custom HTML parser + CSS cascade + NiL.JS + XAML renderer (~35 files, ~20 000 lines)
@@ -30,12 +30,13 @@
 | 16/17/18 | Image Loading Fix + Diagnostics | ✅ DONE |
 | T | Testing Infrastructure | ✅ DONE |
 | **19** | **DevTools Enhancement & ES Modules Validation** | **🟡 IN PROGRESS** |
-| **20** | **NiL.JS 2.6 Integration (netstandard2.0)** | **✅ DONE** (full Vite bundle parses) |
+| **20** | **NiL.JS 2.6 Integration (netstandard2.0 → 1.4)** | **✅ DONE** (fully builds for W10M 15063) |
 | **16.5** | **CSS Stabilization (margin/padding, font-weight, text-decoration)** | **✅ DONE** (Session 3.19) |
+| **20.1** | **NiL.JS netstandard1.4 Migration** | **✅ DONE** (Session 3.20 — ~120 compile errors fixed) |
 
 **Known active issues:**
-- **ES Modules Vite Compatibility**: ✅ **PARSER FIXED (Session 3.14)** — full 568KB bundle parses without syntax errors. Next: runtime DOM globals.
-- **NiL.JS 2.6 Source**: Already in `Src/NiL.JS`, targets `netstandard2.0` via ProjectReference
+- **ES Modules Vite Compatibility**: ✅ **PARSER FIXED (Session 3.14)** — full 568KB bundle parses without syntax errors.
+- **NiL.JS migrated to `netstandard1.4`**: Now compatible with UWP 15063 (W10M). Source in `Src/NiL.JS`, `ProjectReference` in `MediaExplorer.csproj`.
 - **White screen on dzen.ru / ya.ru**: May still manifest.
 
 **New Primary Target:**
@@ -1012,8 +1013,9 @@ Session 3.16: Phase 20 — **NiL.JS `new keyword` fix** (MethodProxy + ExternalF
 Session 3.17: Phase 20 — **Massive globals expansion** — `_nilInit()` rewritten: 50+ JS globals (performance, crypto, URL, WebSocket, Blob, Event, Image, atob/btoa, requestAnimationFrame, full HostNavigator with 30+ properties, HostImage, window aliases) ✅
 Session 3.18: Phase 20 — **`in` operator fix** (In.cs returns `false` instead of throw) + **JS ENGINE FROZEN**  — 9 sessions in rabbit hole, shift to CSS/Rendering for 5+ sessions ✅
 Session 3.19: Phase 16.5 — **CSS Stabilization** — VirtualizingRenderer margin/padding fix, HTTPS→HTTP redirect handling, `text.npr.org` + `example.com` → `iana.org` working ✅
-Session 3.20: Phase 16.6 — **CSS Grid Properties** — Added grid properties to CssComputed, grid property parsing in CssLoader, grid container routing in DomBasicRenderer ✅
-Session 3.21: Phase 16.6 — CSS Grid/Flexbox for complex layouts (`iana.org`), CSS variables, `@media` queries ← NEXT
+
+Session 3.20: Phase 20.1 — **NiL.JS netstandard1.4 Migration** — target framework changed from `netstandard2.0` to `netstandard1.4` (UWP 15063 compat). ~120 compile errors fixed via `Backward.cs` polyfills, property→`GetTypeInfo()` call-site changes, type stubs, and `#if` guards across 20+ files. Full solution builds with **0 errors**. ✅
+Session 3.20: Phase 16.6 — CSS Grid/Flexbox for complex layouts (`iana.org`), CSS variables, `@media` queries ← NEXT
 ```
 
 ---
@@ -1075,5 +1077,5 @@ Since this is a one-person retro project with no CI and no unit test framework:
 
 ---
 
-*Plan v3.6 — 2026-05-21*
-*Based on: Plan_01.md (v1.0), Plan_02.md (v2.2), sessions 2.01–2.18, GitHub repos mediaexplorer74/MediaExplorer + UDAIE-A/WEBVIEW*
+*Plan v3.7 — 2026-06-03*
+*Based on: Plan_01.md (v1.0), Plan_02.md (v2.2), sessions 2.01–3.20, GitHub repos mediaexplorer74/MediaExplorer + UDAIE-A/WEBVIEW*

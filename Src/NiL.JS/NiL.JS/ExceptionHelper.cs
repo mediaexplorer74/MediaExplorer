@@ -40,7 +40,7 @@ internal static class ExceptionHelper
         {
             var stack = JsStack;
 
-            var exceptionStackTrace = new StackTrace(jSException, true);
+            var exceptionStackTrace = new StackTrace(jSException);
 
             var originalStackTraceLines = exceptionStackTrace.ToString().Split('\n');
             var wordAt = originalStackTraceLines.FirstOrDefault()?.Trim().Split(' ')[0] ?? "at";

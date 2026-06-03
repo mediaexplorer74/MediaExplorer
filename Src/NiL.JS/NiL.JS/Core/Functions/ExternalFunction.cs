@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Linq;
+using System.Reflection;
 using NiL.JS.BaseLibrary;
 using NiL.JS.Core.Interop;
 
@@ -17,7 +19,7 @@ public sealed class ExternalFunction : Function
     {
         get
         {
-#if (PORTABLE || NETCORE)
+#if (PORTABLE || NETCORE || NETSTANDARD1_4)
             return System.Reflection.RuntimeReflectionExtensions.GetMethodInfo(_delegate).Name;
 #else
             return _delegate.Method.Name;
@@ -45,8 +47,8 @@ public sealed class ExternalFunction : Function
         if (_length == null)
             _length = new Number(0) { _attributes = JSValueAttributesInternal.ReadOnly | JSValueAttributesInternal.DoNotDelete | JSValueAttributesInternal.DoNotEnumerate };
 
-#if (PORTABLE || NETCORE)
-        var paramCountAttrbt = @delegate.GetMethodInfo().GetCustomAttributes(typeof(ArgumentsCountAttribute), false).ToArray();
+#if (PORTABLE || NETCORE || NETSTANDARD1_4)
+        var paramCountAttrbt = ((Delegate)@delegate).GetMethodInfo().GetCustomAttributes(typeof(ArgumentsCountAttribute), false).ToArray();
 #else
         var paramCountAttrbt = @delegate.Method.GetCustomAttributes(typeof(ArgumentsCountAttribute), false);
 #endif

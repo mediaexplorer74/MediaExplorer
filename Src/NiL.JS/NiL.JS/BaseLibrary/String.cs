@@ -350,7 +350,7 @@ public sealed class String : JSObject, IIterable
     }
 
     // Not implemented in .Net Standard 1.3. Will be in .Net Standard 2.0
-#if !NETCORE && !PORTABLE
+#if !NETCORE && !PORTABLE && !NETSTANDARD1_4
     [DoNotEnumerate]
     [InstanceMember]
     [ArgumentsCount(1)]
@@ -1024,7 +1024,7 @@ public sealed class String : JSObject, IIterable
 
     public IIterator iterator()
     {
-        return _oValue.ToString().GetEnumerator().AsIterator();
+        return ((System.Collections.Generic.IEnumerable<char>)_oValue.ToString()).GetEnumerator().AsIterator();
     }
 
     public static JSValue raw(Arguments args)

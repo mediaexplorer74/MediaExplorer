@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -231,7 +232,7 @@ public sealed class SparseArray<TValue> : IList<TValue>, IDictionary<int, TValue
 
         var bias = _segmentsNavigationData[realSegmentIndex].SegmentIndex * SegmentSize;
 
-        if (typeof(TValue).IsClass)
+        if (typeof(TValue).GetTypeInfo().IsClass)
         {
             for (var valueIndex = 0; valueIndex < oldLen; valueIndex++)
             {

@@ -26,7 +26,7 @@ internal sealed class MethodProxy : Function
     private delegate object RestPrmsConverter(Context initiator, Expressions.Expression[] arguments, Arguments argumentsObject);
 
     private static readonly Dictionary<MethodBase, WrapperDelegate> _wrapperCache = new Dictionary<MethodBase, WrapperDelegate>();
-    private static readonly MethodInfo _argumentsGetItemMethod = typeof(Arguments).GetMethod("get_Item", [typeof(int)]);
+    private static readonly MethodInfo _argumentsGetItemMethod = typeof(Arguments).GetMethod("get_Item", new[] { typeof(int) });
 
     private readonly bool _forceInstance;
     private readonly bool _strictConversion;
@@ -163,7 +163,7 @@ internal sealed class MethodProxy : Function
         var resultArrayIndex = Expression.Variable(typeof(int), "resultArrayIndex");
         var tempValue = Expression.Variable(typeof(object), "temp");
 
-        var resultArrayCtor = resultArray.Type.GetConstructor([typeof(int)]);
+        var resultArrayCtor = resultArray.Type.GetConstructor(new[] { typeof(int) });
 
         var convertedValueArgObj = Expression.Call(Expression.Constant(this), convertArg, argumentIndex, Expression.Call(argumentsObjectPrm, _argumentsGetItemMethod, Expression.PostIncrementAssign(argumentIndex)));
         var conditionArgObj = Expression.GreaterThanOrEqual(argumentIndex, Expression.PropertyOrField(argumentsObjectPrm, nameof(Arguments.Length)));
@@ -627,11 +627,11 @@ internal sealed class MethodProxy : Function
             && _restPrmsArrayCreator == null
             && (options & ConvertArgsOptions.AllowDefaultValues) != 0
             && ((parameterInfo.Attributes & ParameterAttributes.HasDefault) != 0
-                || parameterInfo.ParameterType.IsValueType))
+                || parameterInfo.ParameterType.GetTypeInfo().IsValueType))
         {
             result = parameterInfo.DefaultValue;
 
-#if (PORTABLE || NETCORE)
+#if !NET40
             if (result != null && result.GetType().FullName == "System.DBNull")
             {
 #else

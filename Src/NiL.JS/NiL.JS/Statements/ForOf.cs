@@ -33,7 +33,7 @@ public sealed class ForOf : CodeNode
     {
         get
         {
-#if (PORTABLE || NETCORE)
+#if (PORTABLE || NETCORE || NETSTANDARD1_4)
             return new ReadOnlyCollection<string>(_labels);
 #else
             return System.Array.AsReadOnly(_labels);

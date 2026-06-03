@@ -7,7 +7,9 @@ using NiL.JS.BaseLibrary;
 using NiL.JS.Core.Functions;
 using NiL.JS.Core.Interop;
 using NiL.JS.Extensions;
+#if !NETSTANDARD1_4
 using System.Dynamic;
+#endif
 using System.Threading.Tasks;
 using System.Runtime.ExceptionServices;
 
@@ -342,7 +344,7 @@ public sealed class GlobalContext : Context
             if (jsvalue != null)
                 return jsvalue;
         }
-#if PORTABLE || NETCORE
+#if PORTABLE || NETCORE || NETSTANDARD1_4
         switch (value.GetType().GetTypeCode())
 #else
         switch (Type.GetTypeCode(value.GetType()))
@@ -507,6 +509,7 @@ public sealed class GlobalContext : Context
                 {
                     return new NativeList(value as IList) { _objectPrototype = GetPrototype(typeof(NativeList)) };
                 }
+#if !NETSTANDARD1_4
                 else if (value is ExpandoObject)
                 {
                     return new DictionaryWrapper<string, object>(value as ExpandoObject)
@@ -514,6 +517,7 @@ public sealed class GlobalContext : Context
                         _objectPrototype = GetPrototype(typeof(DictionaryWrapper<string, object>))
                     };
                 }
+#endif
                 else if ((MarshalingOptions & MarshalinOptions.DictionaryAsObject) != 0
                     && value is IEnumerable
                     && (value is IDictionary || value.GetType().GetInterfaces().Any(x => x.IsConstructedGenericType && x.GetGenericTypeDefinition() == typeof(IDictionary<,>))))
@@ -538,7 +542,7 @@ public sealed class GlobalContext : Context
                         {
                             try
                             {
-                                return ProxyValue(value.GetType().GetMethod("get_Result", Type.EmptyTypes).Invoke(value, null));
+                                return ProxyValue(value.GetType().GetTypeInfo().GetDeclaredMethod("get_Result").Invoke(value, null));
                             }
                             catch (TargetInvocationException e)
                             {

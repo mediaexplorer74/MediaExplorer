@@ -40,9 +40,13 @@ public abstract class CodeNode
 #if !NET35 && !(PORTABLE || NETCORE)
     internal System.Linq.Expressions.Expression JitOverCall(bool forAssign)
     {
+        var methodName = forAssign ? "EvaluateForWrite" : "Evaluate";
+        MethodInfo method = null;
+        foreach (var m in GetType().GetTypeInfo().GetDeclaredMethods(methodName))
+            if (m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(Context)) { method = m; break; }
         return System.Linq.Expressions.Expression.Call(
             System.Linq.Expressions.Expression.Constant(this),
-            GetType().GetMethod(forAssign ? "EvaluateForWrite" : "Evaluate", BindingFlags.Instance | BindingFlags.NonPublic, null, [typeof(Context)], null),
+            method,
             JITHelpers.ContextParameter
             );
     }

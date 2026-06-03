@@ -4,7 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
 
-#if NET461
+#if NET461 || NETSTANDARD1_4
 namespace System.Runtime.CompilerServices
 {
     [CLSCompliant(false)]
@@ -139,6 +139,7 @@ namespace NiL.JS.Backward
                 typeof(string)
             };
 
+#if !NETSTANDARD1_4
         internal static TypeCode GetTypeCode(this Type type)
         {
             if (type == null)
@@ -163,8 +164,9 @@ namespace NiL.JS.Backward
 
             return TypeCode.Object;
         }
+#endif
 
-#if !NET40
+#if !NET40 && !NETSTANDARD1_4
         internal static Type GetInterface(this Type type, string name)
         {
             foreach (var i in type.GetTypeInfo().ImplementedInterfaces)
@@ -179,12 +181,12 @@ namespace NiL.JS.Backward
     }
 }
 
-#if NETSTANDARD2_0
+#if NETSTANDARD1_4
 namespace System.Reflection.Emit
 {
     public static class TypeBuilderPolyfill
     {
-        public static Type CreateType(this TypeBuilder builder) => builder.CreateTypeInfo();
+        public static Type CreateType(this TypeBuilder builder) => builder.CreateTypeInfo().AsType();
     }
 }
 #endif
@@ -212,7 +214,7 @@ namespace System
 }
 #endif
 
-#if NET40_OR_GREATER || NETSTANDARD2_0
+#if NET40_OR_GREATER || NETSTANDARD1_4
 namespace System.Diagnostics.CodeAnalysis
 {
     [AttributeUsage(AttributeTargets.Parameter, Inherited = false)]
@@ -235,6 +237,436 @@ namespace NiL.JS.Backward
     }
 }
 
+
+#if NETSTANDARD1_4
+namespace System
+{
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Enum | AttributeTargets.Delegate, Inherited = false)]
+    public sealed class SerializableAttribute : Attribute { }
+
+    [AttributeUsage(AttributeTargets.Field, Inherited = false)]
+    public sealed class NonSerializedAttribute : Attribute { }
+
+    public interface ICloneable
+    {
+        object Clone();
+    }
+
+    public class AssemblyLoadEventArgs : EventArgs
+    {
+        public AssemblyLoadEventArgs(Assembly loadedAssembly) { LoadedAssembly = loadedAssembly; }
+        public Assembly LoadedAssembly { get; }
+    }
+
+    public class ApplicationException : Exception
+    {
+        public ApplicationException() { }
+        public ApplicationException(string message) : base(message) { }
+        public ApplicationException(string message, Exception inner) : base(message, inner) { }
+    }
+
+    public sealed class DBNull
+    {
+        private DBNull() { }
+        public static readonly DBNull Value = new DBNull();
+    }
+
+    public class RuntimeWrappedException : Exception
+    {
+        public RuntimeWrappedException(object wrapped) { WrappedException = wrapped; }
+        public object WrappedException { get; }
+    }
+}
+
+namespace System.Text
+{
+    public enum NormalizationForm
+    {
+        FormC = 1,
+        FormD = 2,
+        FormKC = 5,
+        FormKD = 6
+    }
+}
+
+namespace System.Threading
+{
+    public sealed class Thread
+    {
+        public static void Sleep(int millisecondsTimeout) { }
+        public static void Sleep(TimeSpan timeout) { }
+    }
+}
+
+namespace System.Dynamic
+{
+    public sealed class ExpandoObject
+    {
+    }
+}
+
+namespace System.Diagnostics
+{
+    public class StackTrace
+    {
+        public StackTrace() { }
+        public StackTrace(Exception exception) { }
+        public StackTrace(int skipFrames, bool fNeedFileInfo) { }
+        public StackTrace(Exception exception, int skipFrames, bool fNeedFileInfo) { }
+        public StackFrame GetFrame(int index) => null;
+        public int FrameCount => 0;
+        public StackFrame[] GetFrames() => new StackFrame[0];
+    }
+
+    public class StackFrame
+    {
+        public int GetFileLineNumber() => 0;
+        public string GetFileName() => null;
+        public int GetILOffset() => 0;
+        public int GetNativeOffset() => 0;
+        public MethodBase GetMethod() => null;
+    }
+
+    public static class DebuggerPolyfill
+    {
+        public static void Log(int level, string category, string message) { }
+    }
+}
+
+namespace System.Reflection
+{
+    [Flags]
+    public enum MemberTypes
+    {
+        Constructor = 1,
+        Event = 2,
+        Field = 4,
+        Method = 8,
+        Property = 16,
+        TypeInfo = 32,
+        Custom = 64,
+        NestedType = 128,
+        All = 191
+    }
+
+    [Flags]
+    public enum BindingFlags
+    {
+        Default = 0,
+        IgnoreCase = 1,
+        DeclaredOnly = 2,
+        Instance = 4,
+        Static = 8,
+        Public = 16,
+        NonPublic = 32,
+        FlattenHierarchy = 64,
+        InvokeMethod = 256,
+        CreateInstance = 512,
+        GetField = 1024,
+        SetField = 2048,
+        GetProperty = 4096,
+        SetProperty = 8192,
+        PutDispProperty = 16384,
+        PutRefDispProperty = 32768,
+        ExactBinding = 65536,
+        SuppressChangeType = 131072,
+        OptionalParamBinding = 262144,
+        IgnoreReturn = 16777216
+    }
+
+    public static class TypePolyfill
+    {
+        public static bool IsAssignableFrom(this Type type, Type other)
+        {
+            if (other == null) return false;
+            return type.GetTypeInfo().IsAssignableFrom(other.GetTypeInfo());
+        }
+
+        public static bool IsClass(this Type t) => t.GetTypeInfo().IsClass;
+        public static bool IsInterface(this Type t) => t.GetTypeInfo().IsInterface;
+        public static bool IsEnum(this Type t) => t.GetTypeInfo().IsEnum;
+        public static bool IsValueType(this Type t) => t.GetTypeInfo().IsValueType;
+        public static bool IsAbstract(this Type t) => t.GetTypeInfo().IsAbstract;
+        public static bool ContainsGenericParameters(this Type t) => t.GetTypeInfo().ContainsGenericParameters;
+        public static Type BaseType(this Type t) => t.GetTypeInfo().BaseType;
+        public static Type[] GetGenericArguments(this Type t) => t.GetTypeInfo().GenericTypeArguments;
+        public static Type[] GetInterfaces(this Type t) => t.GetTypeInfo().ImplementedInterfaces.ToArray();
+
+        public static Type GetInterface(this Type type, string name)
+        {
+            foreach (var i in type.GetTypeInfo().ImplementedInterfaces)
+                if (i.FullName.Contains(name))
+                    return i;
+            return null;
+        }
+
+        public static TypeCode GetTypeCode(this Type type)
+        {
+            if (type == null) return TypeCode.Empty;
+            var ti = type.GetTypeInfo();
+            if (ti.IsClass)
+            {
+                if (type == typeof(string)) return TypeCode.String;
+                return TypeCode.Object;
+            }
+            if (type == typeof(bool)) return TypeCode.Boolean;
+            if (type == typeof(char)) return TypeCode.Char;
+            if (type == typeof(sbyte)) return TypeCode.SByte;
+            if (type == typeof(byte)) return TypeCode.Byte;
+            if (type == typeof(short)) return TypeCode.Int16;
+            if (type == typeof(ushort)) return TypeCode.UInt16;
+            if (type == typeof(int)) return TypeCode.Int32;
+            if (type == typeof(uint)) return TypeCode.UInt32;
+            if (type == typeof(long)) return TypeCode.Int64;
+            if (type == typeof(ulong)) return TypeCode.UInt64;
+            if (type == typeof(float)) return TypeCode.Single;
+            if (type == typeof(double)) return TypeCode.Double;
+            if (type == typeof(decimal)) return TypeCode.Decimal;
+            if (type == typeof(DateTime)) return TypeCode.DateTime;
+            return TypeCode.Object;
+        }
+
+        public static MethodInfo[] GetMethods(this Type t) => t.GetTypeInfo().DeclaredMethods.ToArray();
+        public static FieldInfo[] GetFields(this Type t) => t.GetTypeInfo().DeclaredFields.ToArray();
+        public static PropertyInfo[] GetProperties(this Type t) => t.GetTypeInfo().DeclaredProperties.ToArray();
+        public static ConstructorInfo[] GetConstructors(this Type t) => t.GetTypeInfo().DeclaredConstructors.ToArray();
+        public static MemberInfo[] GetMembers(this Type t)
+        {
+            var ti = t.GetTypeInfo();
+            var list = new List<MemberInfo>();
+            list.AddRange(ti.DeclaredConstructors);
+            list.AddRange(ti.DeclaredEvents);
+            list.AddRange(ti.DeclaredFields);
+            list.AddRange(ti.DeclaredMethods);
+            list.AddRange(ti.DeclaredProperties);
+            return list.ToArray();
+        }
+
+        public static ConstructorInfo GetConstructor(this Type t, Type[] types)
+        {
+            foreach (var c in t.GetTypeInfo().DeclaredConstructors)
+            {
+                var pars = c.GetParameters();
+                if (pars.Length != types.Length) continue;
+                bool match = true;
+                for (int i = 0; i < pars.Length; i++)
+                    if (pars[i].ParameterType != types[i]) { match = false; break; }
+                if (match) return c;
+            }
+            return null;
+        }
+
+        public static PropertyInfo GetProperty(this Type t, string name, BindingFlags bindingAttr)
+        {
+            foreach (var p in t.GetTypeInfo().DeclaredProperties)
+            {
+                if (p.Name != name) continue;
+                bool match = true;
+                if ((bindingAttr & BindingFlags.Static) != 0 && p.GetMethod?.IsStatic == false) match = false;
+                if ((bindingAttr & BindingFlags.Instance) != 0 && p.GetMethod?.IsStatic == true) match = false;
+                if ((bindingAttr & BindingFlags.Public) != 0 && p.GetMethod?.IsPublic == false) match = false;
+                if ((bindingAttr & BindingFlags.NonPublic) != 0 && p.GetMethod?.IsPublic == true) match = false;
+                if (match) return p;
+            }
+            return null;
+        }
+
+        public static MethodInfo GetMethod(this Type t, string name)
+        {
+            foreach (var m in t.GetTypeInfo().DeclaredMethods)
+                if (m.Name == name) return m;
+            return null;
+        }
+
+        public static MethodInfo GetMethod(this Type type, string name, BindingFlags bindingAttr)
+        {
+            var methods = type.GetTypeInfo().GetDeclaredMethods(name);
+            foreach (var m in methods)
+            {
+                bool match = true;
+                if ((bindingAttr & BindingFlags.Static) != 0 && !m.IsStatic) match = false;
+                if ((bindingAttr & BindingFlags.Instance) != 0 && m.IsStatic) match = false;
+                if ((bindingAttr & BindingFlags.Public) != 0 && !m.IsPublic) match = false;
+                if ((bindingAttr & BindingFlags.NonPublic) != 0 && m.IsPublic) match = false;
+                if (match) return m;
+            }
+            return null;
+        }
+
+        public static MethodInfo GetMethod(this Type type, string name, Type[] types)
+        {
+            foreach (var m in type.GetTypeInfo().GetDeclaredMethods(name))
+            {
+                var pars = m.GetParameters();
+                if (pars.Length != types.Length) continue;
+                bool match = true;
+                for (int i = 0; i < pars.Length; i++)
+                    if (pars[i].ParameterType != types[i]) { match = false; break; }
+                if (match) return m;
+            }
+            return null;
+        }
+
+        public static MethodInfo GetMethod(this Type type, string name, BindingFlags bindingAttr, Type[] types)
+        {
+            foreach (var m in type.GetTypeInfo().GetDeclaredMethods(name))
+            {
+                bool match = true;
+                if ((bindingAttr & BindingFlags.Static) != 0 && !m.IsStatic) match = false;
+                if ((bindingAttr & BindingFlags.Instance) != 0 && m.IsStatic) match = false;
+                if ((bindingAttr & BindingFlags.Public) != 0 && !m.IsPublic) match = false;
+                if ((bindingAttr & BindingFlags.NonPublic) != 0 && m.IsPublic) match = false;
+                if (!match) continue;
+                var pars = m.GetParameters();
+                if (types != null)
+                {
+                    if (pars.Length != types.Length) continue;
+                    for (int i = 0; i < pars.Length; i++)
+                        if (pars[i].ParameterType != types[i]) { match = false; break; }
+                    if (!match) continue;
+                }
+                return m;
+            }
+            return null;
+        }
+
+        public static MethodInfo GetMethod(this Type type, string name, BindingFlags bindingAttr, object binder, Type[] types, object[] modifiers)
+        {
+            return type.GetMethod(name, bindingAttr, types);
+        }
+
+        public static MethodInfo[] GetMethods(this Type t, BindingFlags flags)
+        {
+            var list = new List<MethodInfo>();
+            foreach (var m in t.GetTypeInfo().DeclaredMethods)
+            {
+                if ((flags & BindingFlags.Static) != 0 && !m.IsStatic) continue;
+                if ((flags & BindingFlags.Instance) != 0 && m.IsStatic) continue;
+                if ((flags & BindingFlags.Public) != 0 && !m.IsPublic) continue;
+                if ((flags & BindingFlags.NonPublic) != 0 && m.IsPublic) continue;
+                list.Add(m);
+            }
+            return list.ToArray();
+        }
+
+        public static FieldInfo[] GetFields(this Type t, BindingFlags flags)
+        {
+            var list = new List<FieldInfo>();
+            foreach (var f in t.GetTypeInfo().DeclaredFields)
+            {
+                if ((flags & BindingFlags.Static) != 0 && !f.IsStatic) continue;
+                if ((flags & BindingFlags.Instance) != 0 && f.IsStatic) continue;
+                if ((flags & BindingFlags.Public) != 0 && !f.IsPublic) continue;
+                if ((flags & BindingFlags.NonPublic) != 0 && f.IsPublic) continue;
+                list.Add(f);
+            }
+            return list.ToArray();
+        }
+
+        public static PropertyInfo[] GetProperties(this Type t, BindingFlags flags)
+        {
+            var list = new List<PropertyInfo>();
+            foreach (var p in t.GetTypeInfo().DeclaredProperties)
+            {
+                bool match = true;
+                if ((flags & BindingFlags.Static) != 0 && p.GetMethod?.IsStatic == false) match = false;
+                if ((flags & BindingFlags.Instance) != 0 && p.GetMethod?.IsStatic == true) match = false;
+                if ((flags & BindingFlags.Public) != 0 && p.GetMethod?.IsPublic == false) match = false;
+                if ((flags & BindingFlags.NonPublic) != 0 && p.GetMethod?.IsPublic == true) match = false;
+                if (match) list.Add(p);
+            }
+            return list.ToArray();
+        }
+
+        public static ConstructorInfo[] GetConstructors(this Type t, BindingFlags flags)
+        {
+            var list = new List<ConstructorInfo>();
+            foreach (var c in t.GetTypeInfo().DeclaredConstructors)
+            {
+                if ((flags & BindingFlags.Static) != 0 && !c.IsStatic) continue;
+                if ((flags & BindingFlags.Instance) != 0 && c.IsStatic) continue;
+                if ((flags & BindingFlags.Public) != 0 && !c.IsPublic) continue;
+                if ((flags & BindingFlags.NonPublic) != 0 && c.IsPublic) continue;
+                list.Add(c);
+            }
+            return list.ToArray();
+        }
+
+        public static ConstructorInfo GetConstructor(this Type t, BindingFlags flags, Type[] types)
+        {
+            foreach (var c in t.GetTypeInfo().DeclaredConstructors)
+            {
+                bool match = true;
+                if ((flags & BindingFlags.Static) != 0 && !c.IsStatic) match = false;
+                if ((flags & BindingFlags.Instance) != 0 && c.IsStatic) match = false;
+                if ((flags & BindingFlags.Public) != 0 && !c.IsPublic) match = false;
+                if ((flags & BindingFlags.NonPublic) != 0 && c.IsPublic) match = false;
+                if (!match) continue;
+                var pars = c.GetParameters();
+                if (pars.Length != types.Length) continue;
+                for (int i = 0; i < pars.Length; i++)
+                    if (pars[i].ParameterType != types[i]) { match = false; break; }
+                if (match) return c;
+            }
+            return null;
+        }
+
+        public static ConstructorInfo GetConstructor(this Type t, BindingFlags bindingAttr, Type[] types, object[] modifiers) => t.GetConstructor(bindingAttr, types);
+
+        public static FieldInfo GetField(this Type t, string name)
+        {
+            foreach (var f in t.GetTypeInfo().DeclaredFields)
+                if (f.Name == name) return f;
+            return null;
+        }
+
+        public static FieldInfo GetField(this Type type, string name, BindingFlags bindingAttr)
+        {
+            var fields = type.GetTypeInfo().DeclaredFields;
+            foreach (var f in fields)
+            {
+                if (f.Name != name) continue;
+                bool match = true;
+                if ((bindingAttr & BindingFlags.Static) != 0 && !f.IsStatic) match = false;
+                if ((bindingAttr & BindingFlags.Instance) != 0 && f.IsStatic) match = false;
+                if ((bindingAttr & BindingFlags.Public) != 0 && !f.IsPublic) match = false;
+                if ((bindingAttr & BindingFlags.NonPublic) != 0 && f.IsPublic) match = false;
+                if (match) return f;
+            }
+            return null;
+        }
+    }
+
+    public static class PropertyInfoPolyfill
+    {
+        public static MethodInfo GetGetMethod(this PropertyInfo p) => p.DeclaringType?.GetTypeInfo().GetDeclaredMethod("get_" + p.Name);
+        public static MethodInfo GetSetMethod(this PropertyInfo p) => p.DeclaringType?.GetTypeInfo().GetDeclaredMethod("set_" + p.Name);
+        public static MethodInfo GetGetMethod(this PropertyInfo p, bool nonPublic) => p.GetGetMethod();
+        public static MethodInfo GetSetMethod(this PropertyInfo p, bool nonPublic) => p.GetSetMethod();
+    }
+
+    public static class EventInfoPolyfill
+    {
+        public static MethodInfo GetAddMethod(this EventInfo e) => e.DeclaringType?.GetTypeInfo().GetDeclaredMethod("add_" + e.Name);
+        public static MethodInfo GetAddMethod(this EventInfo e, bool nonPublic) => e.GetAddMethod();
+    }
+
+    public static class MemberInfoPolyfill
+    {
+        public static MemberTypes GetMemberType(this MemberInfo m)
+        {
+            if (m is ConstructorInfo) return MemberTypes.Constructor;
+            if (m is EventInfo) return MemberTypes.Event;
+            if (m is FieldInfo) return MemberTypes.Field;
+            if (m is MethodInfo) return MemberTypes.Method;
+            if (m is TypeInfo) return MemberTypes.TypeInfo;
+            if (m is PropertyInfo) return MemberTypes.Property;
+            return MemberTypes.Custom;
+        }
+    }
+
+}
+#endif
 
 namespace Microsoft.CSharp.RuntimeBinder
 {

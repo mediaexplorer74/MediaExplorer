@@ -29,7 +29,7 @@ public sealed class NativeList : CustomType, IIterable
                     base.Assign(value as JSValue);
                 else
                 {
-#if PORTABLE || NETCORE
+#if PORTABLE || NETCORE || NETSTANDARD1_4
                     switch (value.GetType().GetTypeCode())
 #else
                     switch (Type.GetTypeCode(value.GetType()))
@@ -148,7 +148,7 @@ public sealed class NativeList : CustomType, IIterable
                             if (value is Delegate @delegate)
                             {
                                 var context = Context.CurrentGlobalContext;
-#if (PORTABLE || NETCORE)
+#if (PORTABLE || NETCORE || NETSTANDARD1_4)
                                 _oValue = new MethodProxy(context, ((Delegate)value).GetMethodInfo(), ((Delegate)value).Target);
 #else
                                 _oValue = new MethodProxy(context, @delegate.Method, @delegate.Target);
@@ -203,7 +203,7 @@ public sealed class NativeList : CustomType, IIterable
         _elementType = data.GetType().GetElementType();
         if (_elementType == null)
         {
-#if PORTABLE || NETCORE
+#if PORTABLE || NETCORE || NETSTANDARD1_4
             var @interface = data.GetType().GetInterface(typeof(IList<>).Name);
 #else
             var @interface = data.GetType().GetTypeInfo().GetInterface(typeof(IList<>).Name);

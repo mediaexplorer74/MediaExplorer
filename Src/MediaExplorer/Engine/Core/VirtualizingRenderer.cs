@@ -6,6 +6,7 @@ using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Media;
 using Windows.Storage.Streams;
 using System.Runtime.InteropServices.WindowsRuntime;
+using Windows.UI.Xaml.Input;
 using BrowserCore.Engine;
 
 namespace BrowserCore.Engine.Core
@@ -27,13 +28,46 @@ namespace BrowserCore.Engine.Core
         // Lazy image loading: RenderObject → Image element (Source deferred until in-viewport)
         private readonly Dictionary<RenderObject, Image> _lazyImages = new Dictionary<RenderObject, Image>();
 
-        // Protect against layout cycles: prevent re-entrance into UpdateView
-        private bool _isUpdatingView = false;
-        private bool _updateViewPending = false;
+        // Track elements that already have a Tapped link handler (to avoid duplicates from pool reuse)
+        private readonly HashSet<UIElement> _linkHandledElements = new HashSet<UIElement>();
+
+        // Store handler references for cleanup on pool return
+        private readonly Dictionary<UIElement, object> _linkHandlerRefs = new Dictionary<UIElement, object>();
 
         private static bool IsZero(Thickness t)
         {
             return t.Left == 0 && t.Top == 0 && t.Right == 0 && t.Bottom == 0;
+        }
+
+        private static Thickness GetSafeThickness(Thickness? t)
+        {
+            if (t == null) return new Thickness(0);
+            return new Thickness(
+                EnsureValid(t.Value.Left),
+                EnsureValid(t.Value.Top),
+                EnsureValid(t.Value.Right),
+                EnsureValid(t.Value.Bottom));
+        }
+
+        private static Thickness SafeThickness(Thickness? source, Thickness defaultVal)
+        {
+            if (source == null) return defaultVal;
+            return GetSafeThickness(source.Value);
+        }
+
+        private static double EnsureDimension(double v)
+        {
+            if (double.IsNaN(v) || double.IsInfinity(v) || v < 0) return 0;
+            return v;
+        }
+
+        private static Thickness EnsureThickness(Thickness t)
+        {
+            return new Thickness(
+                EnsureDimension(t.Left),
+                EnsureDimension(t.Top),
+                EnsureDimension(t.Right),
+                EnsureDimension(t.Bottom));
         }
 
         public VirtualizingRenderer(RenderObject root, Uri baseUri, Action<Uri> onNavigate)
@@ -59,9 +93,8 @@ namespace BrowserCore.Engine.Core
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             };
 
-            // DISABLED: Virtual rendering events were causing layout cycles
-            // _scrollViewer.ViewChanged += OnViewChanged;
-            // _scrollViewer.SizeChanged += OnSizeChanged;
+            _scrollViewer.ViewChanged += OnViewChanged;
+            _scrollViewer.SizeChanged += OnSizeChanged;
 
             System.Diagnostics.Debug.WriteLine("[DIAG] VirtualizingRenderer canvas=" + cw + "x" + ch + " rootChildren=" + (_root != null && _root.Children != null ? _root.Children.Count.ToString() : "0"));
 
@@ -75,145 +108,83 @@ namespace BrowserCore.Engine.Core
 
         private void OnViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
         {
-            try 
-            { 
-                // Don't trigger layout updates during scrolling animations
-                if (!e.IsIntermediate)
-                    UpdateView(); 
-            }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[VirtualizingRenderer.OnViewChanged] Exception: " + ex.Message); }
+            UpdateView();
         }
 
         private void OnSizeChanged(object sender, SizeChangedEventArgs e)
         {
-            try 
-            { 
-                // Debounce size changes to avoid excessive layout updates
-                if (_isUpdatingView) return;
-                UpdateView(); 
-            }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[VirtualizingRenderer.OnSizeChanged] Exception: " + ex.Message); }
+            UpdateView();
         }
 
         public void UpdateView()
         {
-            // Prevent layout cycles: if we're already updating, queue another update instead
-            if (_isUpdatingView)
+            if (_root == null) return;
+
+            double horizontalOffset = _scrollViewer.HorizontalOffset;
+            double verticalOffset = _scrollViewer.VerticalOffset;
+            double viewportWidth = _scrollViewer.ViewportWidth;
+            double viewportHeight = _scrollViewer.ViewportHeight;
+
+            if (viewportWidth == 0) viewportWidth = _scrollViewer.ActualWidth;
+            if (viewportHeight == 0) viewportHeight = _scrollViewer.ActualHeight;
+            if (viewportWidth == 0) viewportWidth = 800;
+            if (viewportHeight == 0) viewportHeight = 600;
+
+            double buffer = 200;
+            horizontalOffset = EnsureValid(horizontalOffset);
+            verticalOffset = EnsureValid(verticalOffset);
+            viewportWidth = EnsureValid(viewportWidth);
+            viewportHeight = EnsureValid(viewportHeight);
+
+            var visibleRect = new Rect(
+                horizontalOffset - buffer,
+                verticalOffset - buffer,
+                viewportWidth + 2 * buffer,
+                viewportHeight + 2 * buffer);
+
+            // Walk tree to find newly visible nodes
+            var newVisible = new HashSet<RenderObject>();
+            CollectVisible(_root, visibleRect, 0, 0, newVisible);
+
+            // Diff: remove elements no longer visible, return to pool
+            var toRemove = new List<RenderObject>();
+            foreach (var kv in _activeElements)
             {
-                _updateViewPending = true;
-                return;
+                if (!newVisible.Contains(kv.Key))
+                    toRemove.Add(kv.Key);
+            }
+            for (int i = 0; i < toRemove.Count; i++)
+            {
+                var node = toRemove[i];
+                // Cancel any pending lazy image load before recycling
+                if (_lazyImages.TryGetValue(node, out var lazyImg))
+                {
+                    lazyImg.Source = null;
+                    _lazyImages.Remove(node);
+                }
+                if (_activeElements.TryGetValue(node, out var el))
+                {
+                    _canvas.Children.Remove(el);
+                    _activeElements.Remove(node);
+                    ReturnToPool(el);
+                }
             }
 
-            try
+            // Place all visible nodes on canvas
+            foreach (var node in newVisible)
             {
-                _isUpdatingView = true;
-                _updateViewPending = false;
-
-                if (_root == null) return;
-
-                double horizontalOffset = _scrollViewer.HorizontalOffset;
-                double verticalOffset = _scrollViewer.VerticalOffset;
-                double viewportWidth = _scrollViewer.ViewportWidth;
-                double viewportHeight = _scrollViewer.ViewportHeight;
-
-                if (viewportWidth == 0) viewportWidth = _scrollViewer.ActualWidth;
-                if (viewportHeight == 0) viewportHeight = _scrollViewer.ActualHeight;
-                if (viewportWidth == 0) viewportWidth = 800;
-                if (viewportHeight == 0) viewportHeight = 600;
-
-                double buffer = 200;
-                horizontalOffset = EnsureValid(horizontalOffset);
-                verticalOffset = EnsureValid(verticalOffset);
-                viewportWidth = EnsureValid(viewportWidth);
-                viewportHeight = EnsureValid(viewportHeight);
-
-                var visibleRect = new Rect(
-                    horizontalOffset - buffer,
-                    verticalOffset - buffer,
-                    viewportWidth + 2 * buffer,
-                    viewportHeight + 2 * buffer);
-
-                // Walk tree to find newly visible nodes
-                var newVisible = new HashSet<RenderObject>();
-                CollectVisible(_root, visibleRect, 0, 0, newVisible);
-
-                // Diff: remove elements no longer visible, return to pool
-                var toRemove = new List<RenderObject>();
-                foreach (var kv in _activeElements)
-                {
-                    if (!newVisible.Contains(kv.Key))
-                        toRemove.Add(kv.Key);
-                }
-                for (int i = 0; i < toRemove.Count; i++)
-                {
-                    var node = toRemove[i];
-                    // Cancel any pending lazy image load before recycling
-                    if (_lazyImages.TryGetValue(node, out var lazyImg))
-                    {
-                        try { lazyImg.Source = null; } catch { }
-                        _lazyImages.Remove(node);
-                    }
-                    if (_activeElements.TryGetValue(node, out var el))
-                    {
-                        try { _canvas.Children.Remove(el); } catch { }
-                        _activeElements.Remove(node);
-                        ReturnToPool(el);
-                    }
-                }
-
-                // Ensure visible nodes are on canvas with correct positions
-                // Process flex/grid containers first, then other nodes
-                var flexGridContainers = new List<RenderObject>();
-                var otherNodes = new List<RenderObject>();
-
-                foreach (var node in newVisible)
-                {
-                    if (_activeElements.ContainsKey(node))
-                        continue;
-
-                    var display = node.Style?.Display?.ToLowerInvariant();
-                    if (display == "flex" || display == "inline-flex" || display == "grid" || display == "inline-grid")
-                        flexGridContainers.Add(node);
-                    else
-                        otherNodes.Add(node);
-                }
-
-                // Process flex/grid containers first
-                foreach (var node in flexGridContainers)
-                {
+                if (!_activeElements.ContainsKey(node))
                     PlaceVisualOnCanvas(node);
-                }
-
-                // Then process other nodes
-                foreach (var node in otherNodes)
-                {
-                    PlaceVisualOnCanvas(node);
-                }
-
-                // Load / cancel images based on final visible set
-                ProcessLazyImages(newVisible);
-
-                // Update canvas size
-                if (_root != null)
-                {
-                    _canvas.Width = EnsureValid(_root.Bounds.Width);
-                    _canvas.Height = EnsureValid(_root.Bounds.Height);
-                }
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine("[VirtualizingRenderer.UpdateView] Exception: " + ex.Message);
-            }
-            finally
-            {
-                _isUpdatingView = false;
 
-                // If an update was requested while we were updating, process it now
-                if (_updateViewPending)
-                {
-                    _updateViewPending = false;
-                    UpdateView();
-                }
+            // Load / cancel images based on final visible set
+            ProcessLazyImages(newVisible);
+
+            // Update canvas size
+            if (_root != null)
+            {
+                _canvas.Width = EnsureValid(_root.Bounds.Width);
+                _canvas.Height = EnsureValid(_root.Bounds.Height);
             }
         }
 
@@ -242,8 +213,6 @@ namespace BrowserCore.Engine.Core
             var tag = node.Node?.Tag?.ToUpperInvariant();
             bool isLeafControl = tag == "BUTTON" || tag == "INPUT" || tag == "IMG" || tag == "SELECT" || tag == "TEXTAREA";
 
-            // For flex/grid containers, children are added to the container, not placed on canvas directly
-            // So we still need to collect them for visibility, but they won't be placed on canvas
             if (!isLeafControl && node.Children != null)
             {
                 for (int i = 0; i < node.Children.Count; i++)
@@ -289,11 +258,6 @@ namespace BrowserCore.Engine.Core
                     return typeof(TextBox);
                 }
                 if (tag == "BUTTON") return typeof(Button);
-
-                // Check for flex/grid containers
-                var display = box.Style?.Display?.ToLowerInvariant();
-                if (display == "flex" || display == "inline-flex") return typeof(FlexPanel);
-                if (display == "grid" || display == "inline-grid") return typeof(Grid);
 
                 if (HasBorderOrBackground(box)) return typeof(Border);
                 return null; // no visual needed
@@ -377,70 +341,29 @@ namespace BrowserCore.Engine.Core
 
         private void PlaceVisualOnCanvas(RenderObject node)
         {
-            try
+            var visual = GetOrCreateVisual(node);
+            if (visual == null) return;
+
+            double ax = 0, ay = 0;
+            var cur = node;
+            while (cur != null)
             {
-                // Skip if parent is a flex/grid container (children are added to container, not canvas)
-                if (node.Parent != null)
-                {
-                    var parentDisplay = node.Parent.Style?.Display?.ToLowerInvariant();
-                    if (parentDisplay == "flex" || parentDisplay == "inline-flex" ||
-                        parentDisplay == "grid" || parentDisplay == "inline-grid")
-                    {
-                        // Child will be added by the parent container's visual creation
-                        return;
-                    }
-                }
-
-                var visual = GetOrCreateVisual(node);
-                if (visual == null) return;
-
-                double ax = 0, ay = 0;
-                var cur = node;
-                while (cur != null)
-                {
-                    ax += cur.Bounds.X;
-                    ay += cur.Bounds.Y;
-                    cur = cur.Parent;
-                }
-
-                // Only update size if it actually changed (avoid triggering layout updates)
-                if (visual is FrameworkElement fe)
-                {
-                    double w = EnsureValid(node.Bounds.Width);
-                    double h = EnsureValid(node.Bounds.Height);
-                    if (Math.Abs(fe.Width - w) > 0.01 || double.IsNaN(fe.Width))
-                        fe.Width = w;
-                    if (Math.Abs(fe.Height - h) > 0.01 || double.IsNaN(fe.Height))
-                        fe.Height = h;
-                }
-
-                // Only update position if it actually changed
-                double leftPos = EnsureValid(ax);
-                double topPos = EnsureValid(ay);
-                if (Math.Abs(Canvas.GetLeft(visual) - leftPos) > 0.01 || double.IsNaN(Canvas.GetLeft(visual)))
-                    Canvas.SetLeft(visual, leftPos);
-                if (Math.Abs(Canvas.GetTop(visual) - topPos) > 0.01 || double.IsNaN(Canvas.GetTop(visual)))
-                    Canvas.SetTop(visual, topPos);
-
-                try
-                {
-                    // Only add if not already in children
-                    if (!_canvas.Children.Contains(visual))
-                        _canvas.Children.Add(visual);
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine("[VirtualizingRenderer] Canvas.Children.Add failed: " + ex.Message);
-                    // Element might already be in canvas or have other issues, skip
-                    return;
-                }
-
-                _activeElements[node] = visual;
+                ax += cur.Bounds.X;
+                ay += cur.Bounds.Y;
+                cur = cur.Parent;
             }
-            catch (Exception ex)
+
+            if (visual is FrameworkElement fe)
             {
-                System.Diagnostics.Debug.WriteLine("[VirtualizingRenderer.PlaceVisualOnCanvas] Exception: " + ex.Message);
+                fe.Width = EnsureValid(node.Bounds.Width);
+                // Don't set explicit Height on TextBlock — use natural text height
+                if (!(visual is TextBlock))
+                    fe.Height = EnsureValid(node.Bounds.Height);
             }
+            Canvas.SetLeft(visual, EnsureValid(ax));
+            Canvas.SetTop(visual, EnsureValid(ay));
+            _canvas.Children.Add(visual);
+            _activeElements[node] = visual;
         }
 
         private void ApplyStyleToVisual(UIElement el, RenderObject node)
@@ -527,6 +450,14 @@ namespace BrowserCore.Engine.Core
 
         private void ReturnToPool(UIElement element)
         {
+            // Remove any Tapped link handler that was attached
+            if (_linkHandlerRefs.TryGetValue(element, out var linkHandler))
+            {
+                element.Tapped -= (TappedEventHandler)linkHandler;
+                _linkHandlerRefs.Remove(element);
+                _linkHandledElements.Remove(element);
+            }
+
             var t = element.GetType();
             if (!_pools.TryGetValue(t, out var stack))
             {
@@ -546,6 +477,8 @@ namespace BrowserCore.Engine.Core
             else if (element is Grid g)
             {
                 g.Children.Clear();
+                g.RowDefinitions.Clear();
+                g.ColumnDefinitions.Clear();
                 g.Background = null;
             }
             else if (element is Border b)
@@ -620,6 +553,18 @@ namespace BrowserCore.Engine.Core
             var style = textNode.Style ?? textNode.Parent?.Style;
             var margin = style?.Margin ?? new Thickness(0);
             var padding = style?.Padding ?? new Thickness(0);
+
+            // Ensure margin/padding are safe (no NaN/Infinity)
+            margin = new Thickness(
+                EnsureValid(margin.Left),
+                EnsureValid(margin.Top),
+                EnsureValid(margin.Right),
+                EnsureValid(margin.Bottom));
+            padding = new Thickness(
+                EnsureValid(padding.Left),
+                EnsureValid(padding.Top),
+                EnsureValid(padding.Right),
+                EnsureValid(padding.Bottom));
             
             var tb = new TextBlock
             {
@@ -675,25 +620,12 @@ namespace BrowserCore.Engine.Core
             if (tag == "INPUT") return CreateInputVisual(box);
             if (tag == "BUTTON") return CreateButtonVisual(box);
 
-            // Check if this is a flex container
-            var display = box.Style?.Display?.ToLowerInvariant();
-            if (display == "flex" || display == "inline-flex")
-            {
-                return CreateFlexVisual(box);
-            }
-
-            // Check if this is a grid container
-            if (display == "grid" || display == "inline-grid")
-            {
-                return CreateGridVisual(box);
-            }
-
             // Create visual for ALL elements, not just those with border/background
             var bg = box.Style?.Background;
             var borderBrush = box.Style?.BorderBrush;
-            var borderThick = box.Style?.BorderThickness ?? new Thickness(0);
-            var margin = box.Style?.Margin ?? new Thickness(0);
-            var padding = box.Style?.Padding ?? new Thickness(0);
+            var borderThick = GetSafeThickness(box.Style?.BorderThickness);
+            var margin = GetSafeThickness(box.Style?.Margin);
+            var padding = GetSafeThickness(box.Style?.Padding);
 
             // Only create Border if there's something to style
             if (HasBorderOrBackground(box) || tag == "A" || !IsZero(margin) || !IsZero(padding))
@@ -713,208 +645,8 @@ namespace BrowserCore.Engine.Core
                 AttachLinkHandler(border, box);
                 return border;
             }
+
             return null;
-        }
-
-        private UIElement CreateFlexVisual(RenderBox box)
-        {
-            var flexPanel = new FlexPanel
-            {
-                Width = EnsureValid(box.Bounds.Width),
-                Height = EnsureValid(box.Bounds.Height),
-                FlexDirection = box.Style?.FlexDirection ?? "row",
-                FlexWrap = box.Style?.FlexWrap ?? "nowrap",
-                JustifyContent = box.Style?.JustifyContent ?? "flex-start",
-                AlignItems = box.Style?.AlignItems ?? "stretch",
-                Margin = box.Style?.Margin ?? new Thickness(0),
-                Padding = box.Style?.Padding ?? new Thickness(0),
-                Background = box.Style?.Background
-            };
-
-            // Add child visuals to flex panel
-            if (box.Children != null)
-            {
-                foreach (var child in box.Children)
-                {
-                    if (child.Style != null && (child.Style.Position == "absolute" || child.Style.Position == "fixed"))
-                        continue;
-
-                    var childVisual = GetOrCreateVisual(child);
-                    if (childVisual != null)
-                    {
-                        // Remove from canvas if already placed there
-                        if (_activeElements.ContainsKey(child))
-                        {
-                            _canvas.Children.Remove(childVisual);
-                            _activeElements.Remove(child);
-                        }
-
-                        // Set flex properties on child
-                        if (childVisual is FrameworkElement fe)
-                        {
-                            if (child.Style?.FlexGrow.HasValue == true)
-                            {
-                                // For UWP, we can't set flex-grow directly, but we can set HorizontalAlignment/VerticalAlignment
-                                if (flexPanel.FlexDirection?.Contains("row") == true)
-                                    fe.HorizontalAlignment = HorizontalAlignment.Stretch;
-                                else
-                                    fe.VerticalAlignment = VerticalAlignment.Stretch;
-                            }
-                            fe.Margin = child.Style?.Margin ?? new Thickness(0);
-                        }
-                        flexPanel.Children.Add(childVisual);
-                    }
-                }
-            }
-
-            AttachLinkHandler(flexPanel, box);
-            return flexPanel;
-        }
-
-        private UIElement CreateGridVisual(RenderBox box)
-        {
-            var grid = new Grid
-            {
-                Width = EnsureValid(box.Bounds.Width),
-                Height = EnsureValid(box.Bounds.Height),
-                Margin = box.Style?.Margin ?? new Thickness(0),
-                Padding = box.Style?.Padding ?? new Thickness(0),
-                Background = box.Style?.Background
-            };
-
-            // Parse grid-template-columns
-            var columns = box.Style?.Map != null && box.Style.Map.TryGetValue("grid-template-columns", out var colVal) ? colVal : null;
-            if (!string.IsNullOrEmpty(columns))
-            {
-                var colDefs = columns.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                foreach (var def in colDefs)
-                {
-                    var cd = new ColumnDefinition();
-                    if (def == "1fr" || def.Contains("fr"))
-                    {
-                        // For fr units, we use Star sizing
-                        cd.Width = new GridLength(1, GridUnitType.Star);
-                    }
-                    else if (def.EndsWith("px"))
-                    {
-                        double px;
-                        if (double.TryParse(def.Replace("px", ""), out px))
-                            cd.Width = new GridLength(px);
-                    }
-                    else if (def == "auto")
-                    {
-                        cd.Width = GridLength.Auto;
-                    }
-                    grid.ColumnDefinitions.Add(cd);
-                }
-            }
-
-            // Parse grid-template-rows
-            var rows = box.Style?.Map != null && box.Style.Map.TryGetValue("grid-template-rows", out var rowVal) ? rowVal : null;
-            if (!string.IsNullOrEmpty(rows))
-            {
-                var rowDefs = rows.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                foreach (var def in rowDefs)
-                {
-                    var rd = new RowDefinition();
-                    if (def == "1fr" || def.Contains("fr"))
-                    {
-                        rd.Height = new GridLength(1, GridUnitType.Star);
-                    }
-                    else if (def.EndsWith("px"))
-                    {
-                        double px;
-                        if (double.TryParse(def.Replace("px", ""), out px))
-                            rd.Height = new GridLength(px);
-                    }
-                    else if (def == "auto")
-                    {
-                        rd.Height = GridLength.Auto;
-                    }
-                    grid.RowDefinitions.Add(rd);
-                }
-            }
-
-            // Add child visuals to grid
-            if (box.Children != null)
-            {
-                int col = 0, row = 0;
-                foreach (var child in box.Children)
-                {
-                    if (child.Style != null && (child.Style.Position == "absolute" || child.Style.Position == "fixed"))
-                        continue;
-
-                    var childVisual = GetOrCreateVisual(child);
-                    if (childVisual != null)
-                    {
-                        // Remove from canvas if already placed there
-                        if (_activeElements.ContainsKey(child))
-                        {
-                            _canvas.Children.Remove(childVisual);
-                            _activeElements.Remove(child);
-                        }
-
-                        if (childVisual is FrameworkElement fe)
-                        {
-                            fe.Margin = child.Style?.Margin ?? new Thickness(0);
-
-                            // Set grid position
-                            var gridCol = child.Style?.Map != null && child.Style.Map.TryGetValue("grid-column", out var gcVal) ? gcVal : null;
-                            var gridRow = child.Style?.Map != null && child.Style.Map.TryGetValue("grid-row", out var grVal) ? grVal : null;
-
-                            if (!string.IsNullOrEmpty(gridCol))
-                            {
-                                int c;
-                                if (int.TryParse(gridCol, out c))
-                                    Grid.SetColumn(fe, c - 1);
-                                else if (gridCol.Contains("/"))
-                                {
-                                    var parts = gridCol.Split('/');
-                                    int start, end;
-                                    if (int.TryParse(parts[0], out start) && int.TryParse(parts[1], out end))
-                                    {
-                                        Grid.SetColumn(fe, start - 1);
-                                        Grid.SetColumnSpan(fe, end - start);
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                Grid.SetColumn(fe, col);
-                            }
-
-                            if (!string.IsNullOrEmpty(gridRow))
-                            {
-                                int r;
-                                if (int.TryParse(gridRow, out r))
-                                    Grid.SetRow(fe, r - 1);
-                                else if (gridRow.Contains("/"))
-                                {
-                                    var parts = gridRow.Split('/');
-                                    int start, end;
-                                    if (int.TryParse(parts[0], out start) && int.TryParse(parts[1], out end))
-                                    {
-                                        Grid.SetRow(fe, start - 1);
-                                        Grid.SetRowSpan(fe, end - start);
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                Grid.SetRow(fe, row);
-                            }
-
-                            // Auto-advance position if not explicitly set
-                            if (string.IsNullOrEmpty(gridCol)) col++;
-                            if (string.IsNullOrEmpty(gridRow)) row++;
-                        }
-                        grid.Children.Add(childVisual);
-                    }
-                }
-            }
-
-            AttachLinkHandler(grid, box);
-            return grid;
         }
 
         private UIElement CreateImageVisual(RenderBox box)
@@ -963,8 +695,8 @@ namespace BrowserCore.Engine.Core
                 Background = box.Style?.Background ?? new SolidColorBrush(Windows.UI.Colors.White),
                 Foreground = box.Style?.Foreground ?? new SolidColorBrush(Windows.UI.Colors.Black),
                 BorderBrush = box.Style?.BorderBrush ?? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 200, 200, 200)),
-                BorderThickness = box.Style?.BorderThickness ?? new Thickness(1),
-                Padding = box.Style?.Padding ?? new Thickness(8, 6, 8, 6)
+                BorderThickness = SafeThickness(box.Style?.BorderThickness, new Thickness(1)),
+                Padding = SafeThickness(box.Style?.Padding, new Thickness(8, 6, 8, 6))
             };
 
             if (box.Children != null)
@@ -1001,8 +733,8 @@ namespace BrowserCore.Engine.Core
                     Background = box.Style?.Background ?? new SolidColorBrush(Windows.UI.Colors.LightGray),
                     Foreground = box.Style?.Foreground ?? new SolidColorBrush(Windows.UI.Colors.Black),
                     BorderBrush = box.Style?.BorderBrush ?? new SolidColorBrush(Windows.UI.Colors.Gray),
-                    BorderThickness = box.Style?.BorderThickness ?? new Thickness(1),
-                    Padding = box.Style?.Padding ?? new Thickness(4),
+                    BorderThickness = SafeThickness(box.Style?.BorderThickness, new Thickness(1)),
+                    Padding = SafeThickness(box.Style?.Padding, new Thickness(4)),
                     FontSize = box.Style?.FontSize ?? 14,
                 };
                 return btn;
@@ -1028,8 +760,8 @@ namespace BrowserCore.Engine.Core
                     Background = box.Style?.Background ?? new SolidColorBrush(Windows.UI.Colors.White),
                     Foreground = box.Style?.Foreground ?? new SolidColorBrush(Windows.UI.Colors.Black),
                     BorderBrush = box.Style?.BorderBrush ?? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 200, 200, 200)),
-                    BorderThickness = box.Style?.BorderThickness ?? new Thickness(1),
-                    Padding = box.Style?.Padding ?? new Thickness(8, 6, 8, 6)
+                    BorderThickness = SafeThickness(box.Style?.BorderThickness, new Thickness(1)),
+                    Padding = SafeThickness(box.Style?.Padding, new Thickness(8, 6, 8, 6))
                 };
             }
         }
@@ -1044,8 +776,8 @@ namespace BrowserCore.Engine.Core
                 Background = box.Style?.Background ?? new SolidColorBrush(Windows.UI.Colors.LightGray),
                 Foreground = box.Style?.Foreground ?? new SolidColorBrush(Windows.UI.Colors.Black),
                 BorderBrush = box.Style?.BorderBrush ?? new SolidColorBrush(Windows.UI.Colors.Gray),
-                BorderThickness = box.Style?.BorderThickness ?? new Thickness(1),
-                Padding = box.Style?.Padding ?? new Thickness(4),
+                BorderThickness = SafeThickness(box.Style?.BorderThickness, new Thickness(1)),
+                Padding = SafeThickness(box.Style?.Padding, new Thickness(4)),
                 FontSize = box.Style?.FontSize ?? 14,
             };
         }
@@ -1078,22 +810,29 @@ namespace BrowserCore.Engine.Core
 
             if (href != null)
             {
+                // Prevent duplicate handlers on pooled elements
+                if (_linkHandledElements.Contains(element))
+                    return;
+                _linkHandledElements.Add(element);
+
                 var uri = ResolveUri(_baseUri, href);
                 if (uri != null)
                 {
                     if (element is Border b && b.Background == null)
                         b.Background = new SolidColorBrush(Windows.UI.Colors.Transparent);
 
-                    element.Tapped += (s, e) =>
+                    TappedEventHandler handler = (s, e) =>
                     {
                         e.Handled = true;
                         _onNavigate?.Invoke(uri);
                     };
+                    _linkHandlerRefs[element] = handler;
+                    element.Tapped += handler;
                 }
             }
         }
 
-        private double EnsureValid(double v)
+        private static double EnsureValid(double v)
         {
             if (double.IsNaN(v) || double.IsInfinity(v)) return 0;
             return Math.Max(0, v);

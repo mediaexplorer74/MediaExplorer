@@ -24,7 +24,9 @@ public sealed class CompiledNode : Expressions.Expression
     private CodeNode[] _dynamicValues;
     private CodeNode _original;
     private Func<Context, CodeNode[], JSValue, JSValue> _compiledTree;
+#if !NETSTANDARD1_4
     [NonSerialized]
+#endif
     private Expression _tree;
 
     public CodeNode Original { get { return _original; } }

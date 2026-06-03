@@ -740,7 +740,7 @@ public sealed class Array : JSObject, IIterable
         bool nativeMode = arraySrc != null;
         if (!self.Defined || (self._valueType >= JSValueType.Object && self._oValue == null))
         {
-#if (PORTABLE || NETCORE)
+#if (PORTABLE || NETCORE || NETSTANDARD1_4)
             ExceptionHelper.Throw(new TypeError("Trying to call method for null or undefined"));
 #else
             var stackTrace = new System.Diagnostics.StackTrace();
@@ -927,7 +927,7 @@ public sealed class Array : JSObject, IIterable
         bool nativeMode = arraySrc != null;
         if (!self.Defined || (self._valueType >= JSValueType.Object && self._oValue == null))
         {
-#if (PORTABLE || NETCORE)
+#if (PORTABLE || NETCORE || NETSTANDARD1_4)
             ExceptionHelper.Throw(new TypeError("Trying to call method for for null or undefined"));
 #else
             var stackTrace = new System.Diagnostics.StackTrace();

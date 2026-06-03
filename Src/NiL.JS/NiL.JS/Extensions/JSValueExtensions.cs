@@ -20,11 +20,7 @@ public static class JSValueExtensions
     {
         if (self == null)
             return false;
-#if PORTABLE || NETCORE
         switch (typeof(T).GetTypeCode())
-#else
-        switch (Type.GetTypeCode(typeof(T)))
-#endif
         {
             case TypeCode.Boolean:
             {
@@ -97,11 +93,7 @@ public static class JSValueExtensions
 
     public static T As<T>(this JSValue self)
     {
-#if PORTABLE || NETCORE
         switch (typeof(T).GetTypeCode())
-#else
-        switch (Type.GetTypeCode(typeof(T)))
-#endif
         {
             case TypeCode.Double:
                 return GetDefinedOr<T>(self, (T)(object)double.NaN);
@@ -115,11 +107,7 @@ public static class JSValueExtensions
         if (!self.Defined)
             return defaultValue;
 
-#if PORTABLE || NETCORE
         switch (typeof(T).GetTypeCode())
-#else
-        switch (Type.GetTypeCode(typeof(T)))
-#endif
         {
             case TypeCode.Boolean:
             {
@@ -287,15 +275,14 @@ public static class JSValueExtensions
 
         dynamicModule.TryGetTarget(out var module);
         var typename = "<jswrapper>" + typeof(T).FullName;
-        type = (TypeBuilder)module.GetType(typename);
+        type = (TypeBuilder)(object)module.GetType(typename, false, false);
         if (type == null)
         {
-            var baseType = typeof(T).IsClass ? typeof(T) : typeof(object);
-            var interfaces = typeof(T).IsInterface ? [typeof(T)] : Type.EmptyTypes;
+            var baseType = typeof(T).GetTypeInfo().IsClass ? typeof(T) : typeof(object);
+            var interfaces = typeof(T).GetTypeInfo().IsInterface ? [typeof(T)] : Type.EmptyTypes;
             type = module.DefineType(typename, TypeAttributes.Class | TypeAttributes.Public | TypeAttributes.Sealed, baseType, interfaces);
-            var methods = typeof(T)
-                .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                .Where(x => x.IsVirtual && !x.IsFinal && x.Name is not "Finalize")
+            var methods = typeof(T).GetTypeInfo().DeclaredMethods
+                .Where(x => !x.IsStatic && x.IsVirtual && !x.IsFinal && x.Name is not "Finalize")
                 .ToArray();
 
             var jsobjectField = type.DefineField("_jsvalue", typeof(JSValue), FieldAttributes.Private);
@@ -313,7 +300,15 @@ public static class JSValueExtensions
 
             var jsValParameter = Expression.Parameter(typeof(JSValue), "jsval");
 
-            var getPropertyMethod = typeof(JSValue).GetMethod(nameof(JSValue.GetProperty), BindingFlags.NonPublic | BindingFlags.Instance, null, [typeof(JSValue), typeof(bool), typeof(PropertyScope)], null);
+            var getPropertyMethod = typeof(JSValue).GetTypeInfo().GetDeclaredMethods(nameof(JSValue.GetProperty))
+                .First(m =>
+                {
+                    var p = m.GetParameters();
+                    return p.Length == 3
+                        && p[0].ParameterType == typeof(JSValue)
+                        && p[1].ParameterType == typeof(bool)
+                        && p[2].ParameterType == typeof(PropertyScope);
+                });
 
             for (var i = 0; i < methods.Length; i++)
             {

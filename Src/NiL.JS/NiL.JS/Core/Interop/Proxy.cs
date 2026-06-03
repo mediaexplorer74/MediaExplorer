@@ -8,13 +8,13 @@ using System.Runtime.InteropServices;
 
 namespace NiL.JS.Core.Interop;
 
-#if !NETCORE
+#if !(NETCORE || NETSTANDARD1_4)
 [Serializable]
 #endif
 internal abstract class Proxy : JSObject
 {
     internal Type _hostedType;
-#if !NETCORE
+#if !(NETCORE || NETSTANDARD1_4)
     [NonSerialized]
 #endif
     internal StringMap<IList<MemberInfo>> _members;
@@ -33,7 +33,7 @@ internal abstract class Proxy : JSObject
             if (_prototypeInstance == null && IsInstancePrototype && !_hostedType.GetTypeInfo().IsAbstract)
             {
 #else
-            if (_prototypeInstance == null && IsInstancePrototype && !_hostedType.IsAbstract)
+            if (_prototypeInstance == null && IsInstancePrototype && !_hostedType.GetTypeInfo().IsAbstract)
             {
                 try
                 {
@@ -93,7 +93,7 @@ internal abstract class Proxy : JSObject
         _context = context;
         _hostedType = type;
 
-#if (PORTABLE || NETCORE)
+#if (PORTABLE || NETCORE || NETSTANDARD1_4)
         _instanceCtor = _hostedType.GetTypeInfo().DeclaredConstructors.Where(x => x.IsPublic).FirstOrDefault(x => x.GetParameters().Length == 0 && !x.IsStatic);
 #else
         _instanceCtor = _hostedType.GetConstructor(BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy, null, Type.EmptyTypes, null);
@@ -175,7 +175,7 @@ internal abstract class Proxy : JSObject
                 if ((members[i] is TypeInfo) && !(members[i] as TypeInfo).IsPublic)
                     continue;
 #else
-                if (member is Type && !(member as Type).IsPublic && !(member as Type).IsNestedPublic)
+                if (member is TypeInfo memberTypeInfo && !memberTypeInfo.IsPublic && !memberTypeInfo.IsNestedPublic)
                     continue;
 #endif
                 var method = member as MethodBase;
@@ -209,7 +209,7 @@ internal abstract class Proxy : JSObject
 #if NETCORE
                             parentMethod = method.DeclaringType.GetTypeInfo().BaseType?.GetMethod(method.Name, parameterTypes);
 #else
-                            parentMethod = method.DeclaringType.BaseType?.GetMethod(method.Name, BindingFlags.Public | BindingFlags.Instance, null, parameterTypes, null);
+                            parentMethod = method.DeclaringType.GetTypeInfo().BaseType?.GetMethod(method.Name, BindingFlags.Public | BindingFlags.Instance, null, parameterTypes, null);
 #endif
                         }
                     }
@@ -230,7 +230,7 @@ internal abstract class Proxy : JSObject
 #if (PORTABLE || NETCORE)
                     if (members[i] is TypeInfo && membername.Contains("`"))
 #else
-                    if (member is Type && membername.Contains('`'))
+                    if (member is TypeInfo && membername.Contains('`'))
 #endif
                     {
                         membername = membername.Substring(0, membername.IndexOf('`'));
@@ -432,7 +432,7 @@ internal abstract class Proxy : JSObject
         }
         else
         {
-#if PORTABLE || NETCORE
+#if PORTABLE || NETCORE || NETSTANDARD1_4
             switch (m[0].GetMemberType())
 #else
             switch (m[0].MemberType)
@@ -523,20 +523,21 @@ new MethodProxy(_context, pinfo.GetAddMethod())
                     };
                     break;
                 }
-                case MemberTypes.TypeInfo:
 #if (PORTABLE || NETCORE)
+                case MemberTypes.TypeInfo:
                 {
                     r = GetConstructor((m[0] as TypeInfo).AsType());
                     break;
                 }
 #else
                 case MemberTypes.NestedType:
+                case MemberTypes.TypeInfo:
                 {
-                    r = _context.GetConstructor((Type)m[0]);
+                    r = _context.GetConstructor(((TypeInfo)m[0]).AsType());
                     break;
                 }
                 default:
-                    throw new NotImplementedException("Convertion from " + m[0].MemberType + " not implemented");
+                    throw new NotImplementedException("Convertion from " + m[0].GetMemberType() + " not implemented");
 #endif
             }
         }

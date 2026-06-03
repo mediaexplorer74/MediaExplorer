@@ -138,22 +138,13 @@ namespace WEBVIEW
                 var msg = (e.Exception != null ? e.Exception.Message : e.Message) ?? "Unknown error";
                 System.Diagnostics.Debug.WriteLine("[App.UnhandledException] " + msg);
 
-                // Also print the full exception for diagnostics
-                if (e.Exception != null)
-                {
-                    System.Diagnostics.Debug.WriteLine("[App.UnhandledException.FullException] " + e.Exception.ToString());
-                }
-
                 var mp = WEBVIEW.MainPage.Current;
                 if (mp != null)
                 {
-                    try { mp.ShowGlobalError(msg); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[App.UnhandledException.ShowGlobalError] " + ex.Message); }
+                    try { mp.ShowGlobalError(msg); } catch { }
                 }
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine("[App.UnhandledException.Outer] " + ex.Message);
-            }
+            catch { }
         }
     }
 }

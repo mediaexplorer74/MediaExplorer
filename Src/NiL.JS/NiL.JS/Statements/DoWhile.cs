@@ -173,7 +173,7 @@ public sealed class DoWhile : CodeNode
 #else
         catch (Exception e)
         {
-            System.Diagnostics.Debugger.Log(10, "Error", e.Message);
+            System.Diagnostics.DebuggerPolyfill.Log(10, "Error", e.Message);
 #endif
         }
         if (_this == this && _body == null)

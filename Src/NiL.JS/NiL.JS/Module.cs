@@ -292,7 +292,7 @@ public class Module
         return string.Join("/", pathTokens);
     }
 
-#if !NETCORE
+#if !(NETCORE || NETSTANDARD1_4)
     /// <summary>
     /// Returns module, which provides access to clr-namespace
     /// </summary>

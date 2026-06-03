@@ -100,7 +100,7 @@ public static class GlobalFunctions
     {
         return Uri.EscapeDataString(x[0].ToString());
     }
-#if !(PORTABLE || NETCORE)
+#if !(PORTABLE || NETCORE || NETSTANDARD1_4)
     internal static uint __pinvokeCallCount;
     internal static JSValue __pinvoke(JSValue thisBind, Arguments args)
     {
