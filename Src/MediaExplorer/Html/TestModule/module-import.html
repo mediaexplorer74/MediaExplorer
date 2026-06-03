@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head><title>ES Module Test</title></head>
+<body>
+  <h1>ES Module Test</h1>
+  <div id="output"></div>
+  <script type="module">
+    import { greet } from './lib.js';
+    import { version } from './lib.js';
+    document.getElementById('output').textContent = greet('NiL.JS') + ' v' + version;
+  </script>
+</body>
+</html>

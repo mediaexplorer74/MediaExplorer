@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Reflection;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using NiL.JS;
@@ -10,37 +10,22 @@ using JSModule = NiL.JS.Module;
 
 namespace BrowserCore.Engine
 {
-    internal sealed class ModuleLoader
+    internal sealed class ModuleLoader : IModuleResolver
     {
         private readonly JavaScriptEngine _engine;
-        private readonly Context _nil;
+        private readonly GlobalContext _nil;
         private readonly ConcurrentDictionary<string, JSModule> _moduleCache = new ConcurrentDictionary<string, JSModule>(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, Task<string>> _fetchTasks = new ConcurrentDictionary<string, Task<string>>(StringComparer.Ordinal);
         private readonly Regex _importRegex = new Regex("import\\s+(?:[^\\'\";]+?\\s+from\\s+)?['\"](?<spec>[^'\"]+)['\"]", RegexOptions.CultureInvariant);
         private readonly Regex _sideEffectImportRegex = new Regex("import\\s+['\"](?<spec>[^'\"]+)['\"]", RegexOptions.CultureInvariant);
-        private readonly object _initLock = new object();
         private readonly Dictionary<string, string> _importMap = new Dictionary<string, string>(StringComparer.Ordinal);
-        private readonly MethodInfo _moduleContextSetter;
-        private bool _subscribed;
+        private readonly Dictionary<string, Uri> _moduleBaseUris = new Dictionary<string, Uri>(StringComparer.Ordinal);
         private int _inlineCounter;
 
-        public ModuleLoader(JavaScriptEngine engine, Context nil)
+        public ModuleLoader(JavaScriptEngine engine, GlobalContext nil)
         {
             _engine = engine ?? throw new ArgumentNullException(nameof(engine));
             _nil = nil ?? throw new ArgumentNullException(nameof(nil));
-            var ctxProp = typeof(JSModule).GetProperty("Context", BindingFlags.Public | BindingFlags.Instance);
-            _moduleContextSetter = ctxProp?.GetSetMethod(true);
-        }
-
-        private void EnsureSubscribed()
-        {
-            if (_subscribed) return;
-            lock (_initLock)
-            {
-                if (_subscribed) return;
-                JSModule.ResolveModule += OnResolveModule;
-                _subscribed = true;
-            }
         }
 
         public void SetImportMap(Dictionary<string, string> map)
@@ -51,9 +36,8 @@ namespace BrowserCore.Engine
                     _importMap[kv.Key] = kv.Value;
         }
 
-        public Task ExecuteModuleTagAsync(LiteElement node, Uri sourceUri, Uri baseUri)
+        public Task ExecuteModuleTagAsync(LiteElement node, Uri sourceUri, Uri baseUri, string inlineContent = null)
         {
-            EnsureSubscribed();
             if (node == null) return Task.Delay(0);
 
             if (sourceUri != null)
@@ -61,7 +45,7 @@ namespace BrowserCore.Engine
 
             _inlineCounter++;
             var inlineKey = "inline:" + _inlineCounter.ToString("x") + ":" + Guid.NewGuid().ToString("n");
-            return ExecuteInlineModuleAsync(inlineKey, baseUri, node.Text ?? string.Empty);
+            return ExecuteInlineModuleAsync(inlineKey, baseUri, inlineContent ?? string.Empty);
         }
 
         private async Task ExecuteModuleAsync(string key, Uri moduleUri, Uri baseUri)
@@ -69,49 +53,77 @@ namespace BrowserCore.Engine
             if (_moduleCache.ContainsKey(key)) return;
             if (string.IsNullOrWhiteSpace(key)) return;
 
+            lock (_moduleBaseUris) _moduleBaseUris[key] = moduleUri;
+
+            DevToolsLogger.Log("[Module] Fetching: " + moduleUri);
             string source;
             try { source = await FetchModuleTextAsync(moduleUri, baseUri).ConfigureAwait(false); }
-            catch { return; }
-            if (source == null) return;
+            catch (Exception ex) { DevToolsLogger.Log("[Module] Fetch failed: " + moduleUri + " " + ex.Message); return; }
+            if (source == null) { DevToolsLogger.Log("[Module] Fetch returned null: " + moduleUri); return; }
 
+            if (source.TrimStart().StartsWith("<"))
+            {
+                var preview = source.Length > 100 ? source.Substring(0, 100) : source;
+                DevToolsLogger.Log("[Module] WARNING: Got HTML instead of JS from " + moduleUri + " preview: " + preview);
+                return;
+            }
+
+            DevToolsLogger.Log("[Module] Fetched OK: " + moduleUri + " (" + source.Length + " bytes)");
             await PrefetchDependencies(source, moduleUri).ConfigureAwait(false);
 
-            ExecuteInNil(source);
+            RunModule(key, source);
         }
 
         private async Task ExecuteInlineModuleAsync(string key, Uri baseUri, string source)
         {
             if (string.IsNullOrWhiteSpace(source)) return;
-
+            lock (_moduleBaseUris) _moduleBaseUris[key] = baseUri;
             await PrefetchDependencies(source, baseUri).ConfigureAwait(false);
-
-            ExecuteInNil(source);
+            RunModule(key, source);
         }
 
-        private void ExecuteInNil(string code)
+        private void RunModule(string key, string code)
         {
             if (string.IsNullOrWhiteSpace(code)) return;
-            try { _nil.Eval(code); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[Module] Eval error: " + ex.Message); }
+            try
+            {
+                var module = new JSModule(key, code, _nil);
+                module.ModuleResolversChain.Add(this);
+                module.Run();
+            }
+            catch (Exception ex) { DevToolsLogger.Log("[Module] Eval error: " + ex.Message); }
         }
 
         private async Task PrefetchDependencies(string source, Uri baseUri)
         {
             if (string.IsNullOrWhiteSpace(source) || baseUri == null) return;
-            foreach (var spec in CollectSpecifiers(source))
+            var specs = CollectSpecifiers(source).ToList();
+            if (specs.Count > 0)
+                DevToolsLogger.Log("[Module] Found " + specs.Count + " import(s) in " + baseUri);
+
+            foreach (var spec in specs)
             {
                 var resolved = ResolveUrl(baseUri, spec);
-                if (resolved == null) continue;
+                if (resolved == null) { DevToolsLogger.Log("[Module] Skip unresolved import: " + spec); continue; }
                 var depKey = resolved.AbsoluteUri;
                 if (_moduleCache.ContainsKey(depKey) || _fetchTasks.ContainsKey(depKey)) continue;
 
+                DevToolsLogger.Log("[Module] Prefetching dependency: " + resolved);
                 string depSource;
                 try { depSource = await FetchModuleTextAsync(resolved, baseUri).ConfigureAwait(false); }
-                catch { continue; }
-                if (depSource == null) continue;
+                catch (Exception ex) { DevToolsLogger.Log("[Module] Prefetch failed: " + resolved + " " + ex.Message); continue; }
+                if (depSource == null) { DevToolsLogger.Log("[Module] Prefetch returned null: " + resolved); continue; }
+
+                if (depSource.TrimStart().StartsWith("<"))
+                {
+                    var preview = depSource.Length > 80 ? depSource.Substring(0, 80) : depSource;
+                    DevToolsLogger.Log("[Module] WARNING: Dependency is HTML: " + resolved + " preview: " + preview);
+                    continue;
+                }
 
                 await PrefetchDependencies(depSource, resolved).ConfigureAwait(false);
 
+                lock (_moduleBaseUris) _moduleBaseUris[depKey] = resolved;
                 CacheModule(depKey, depSource);
             }
         }
@@ -119,8 +131,8 @@ namespace BrowserCore.Engine
         private void CacheModule(string key, string source)
         {
             if (_moduleCache.ContainsKey(key)) return;
-            var module = new JSModule(key, source);
-            if (_moduleContextSetter != null) _moduleContextSetter.Invoke(module, new object[] { _nil });
+            var module = new JSModule(key, source, _nil);
+            module.ModuleResolversChain.Add(this);
             _moduleCache.TryAdd(key, module);
         }
 
@@ -162,43 +174,78 @@ namespace BrowserCore.Engine
             return null;
         }
 
-        private void OnResolveModule(object sender, ResolveModuleEventArgs e)
+        bool IModuleResolver.TryGetModule(ModuleRequest request, out Module result)
         {
-            if (string.IsNullOrWhiteSpace(e.ModulePath)) return;
+            result = null;
+            if (request == null) return false;
 
-            var spec = e.ModulePath;
-            var mapped = ResolveBareSpecifier(spec);
-            var url = mapped ?? spec;
+            var spec = request.CmdArgument;
+            var absPath = request.AbsolutePath;
+
+            if (spec == "_")
+                DevToolsLogger.Log("[Module] import(\"_\") — Vite feature detection (expected to fail)");
+            else
+                DevToolsLogger.Log("[Module] ResolveModule: spec=" + spec + " absPath=" + absPath);
 
             JSModule cached;
-            if (_moduleCache.TryGetValue(url, out cached))
+            if (!string.IsNullOrEmpty(absPath) && _moduleCache.TryGetValue(absPath, out cached))
             {
-                e.Module = cached;
-                e.AddToCache = true;
-                return;
+                DevToolsLogger.Log("[Module] Cache hit: " + absPath);
+                result = cached;
+                return true;
             }
 
-            string source = null;
-            string cacheKey = url;
-
-            if (TryResolveUrl(url, out var absUri))
+            if (_moduleCache.TryGetValue(spec, out cached))
             {
-                var fetchTask = _fetchTasks.GetOrAdd(absUri.AbsoluteUri, _ => FetchModuleTextAsync(absUri, null));
-                try { source = fetchTask.GetAwaiter().GetResult(); cacheKey = absUri.AbsoluteUri; }
-                catch { }
+                DevToolsLogger.Log("[Module] Cache hit (spec): " + spec);
+                result = cached;
+                return true;
             }
 
-            if (source == null) return;
-
-            if (!_moduleCache.ContainsKey(cacheKey))
+            string mapped = ResolveBareSpecifier(spec);
+            if (!string.IsNullOrEmpty(mapped))
             {
-                var module = new JSModule(cacheKey, source);
-                if (_moduleContextSetter != null) _moduleContextSetter.Invoke(module, new object[] { _nil });
-                _moduleCache.TryAdd(cacheKey, module);
+                if (_moduleCache.TryGetValue(mapped, out cached))
+                {
+                    DevToolsLogger.Log("[Module] Cache hit (mapped): " + mapped);
+                    result = cached;
+                    return true;
+                }
             }
 
-            e.Module = _moduleCache[cacheKey];
-            e.AddToCache = true;
+            string initiatorPath = null;
+            if (request.Initiator != null)
+                initiatorPath = request.Initiator.FilePath;
+
+            Uri resolvedUrl = null;
+            if (!string.IsNullOrEmpty(initiatorPath))
+            {
+                Uri baseUri;
+                lock (_moduleBaseUris) _moduleBaseUris.TryGetValue(initiatorPath, out baseUri);
+                if (baseUri == null && Uri.TryCreate(initiatorPath, UriKind.Absolute, out baseUri)) { }
+                if (baseUri != null)
+                    resolvedUrl = ResolveUrl(baseUri, spec);
+            }
+
+            if (resolvedUrl == null)
+            {
+                DevToolsLogger.Log("[Module] ResolveModule could not resolve: spec=" + spec + " initiator=" + initiatorPath);
+                return false;
+            }
+
+            var cacheKey = resolvedUrl.AbsoluteUri;
+            if (_moduleCache.TryGetValue(cacheKey, out cached))
+            {
+                DevToolsLogger.Log("[Module] Cache hit (resolved): " + cacheKey);
+                result = cached;
+                return true;
+            }
+
+            if (spec == "_")
+                DevToolsLogger.Log("[Module] import(\"_\") skipped — Vite feature detection");
+            else
+                DevToolsLogger.Log("[Module] ResolveModule failed: spec=" + spec + " resolved=" + cacheKey);
+            return false;
         }
 
         private bool TryResolveUrl(string url, out Uri absUri)

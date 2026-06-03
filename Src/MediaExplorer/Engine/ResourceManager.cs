@@ -53,13 +53,48 @@ namespace BrowserCore.Engine
 
     public Uri LastTextResponseUri { get; private set; }
 
+        // Network log for DevTools (static - shared across all ResourceManager instances)
+        private static readonly List<string> _networkLog = new List<string>();
+        private static readonly object _networkLogLock = new object();
+        private const int NetworkLogMax = 200;
+
+        public string GetNetworkLog()
+        {
+            lock (_networkLogLock)
+            {
+                if (_networkLog.Count == 0) return "(no network requests yet)";
+                return string.Join("\n", _networkLog);
+            }
+        }
+
+        private void LogNetwork(string message)
+        {
+            lock (_networkLogLock)
+            {
+                _networkLog.Add(message);
+                if (_networkLog.Count > NetworkLogMax)
+                    _networkLog.RemoveAt(0);
+            }
+        }
+
         private sealed class HstsEntry { public DateTimeOffset Expiry; public bool IncludeSub; }
         private readonly Dictionary<string, HstsEntry> _hsts = new Dictionary<string, HstsEntry>(StringComparer.OrdinalIgnoreCase);
         private const string HstsStoreKey = "hsts_store_v1";
 
         public ResourceManager(HttpClient http)
         {
-            _http = http ?? new HttpClient();
+            if (http != null)
+            {
+                _http = http;
+            }
+            else
+            {
+                // Configure HttpClient to NOT auto-redirect so we can handle HTTPS->HTTP manually
+                var filter = new Windows.Web.Http.Filters.HttpBaseProtocolFilter();
+                filter.AllowAutoRedirect = false; // We handle redirects manually
+                filter.AllowUI = false; // Prevent UI prompts
+                _http = new HttpClient(filter);
+            }
             LoadHsts();
         }
 
@@ -202,16 +237,24 @@ namespace BrowserCore.Engine
         {
             if (url == null) return null;
             
+            var startTime = DateTimeOffset.UtcNow;
+            LogNetwork($"[GET] {url}");
+            
             // Handle ms-appx scheme locally
             if (string.Equals(url.Scheme, "ms-appx", StringComparison.OrdinalIgnoreCase))
             {
                 try
                 {
                     var file = await StorageFile.GetFileFromApplicationUriAsync(url);
-                    return await FileIO.ReadTextAsync(file);
+                    var result = await FileIO.ReadTextAsync(file);
+                    var elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                    LogNetwork($"[OK] {url} ({elapsed:F0}ms) [local]");
+                    return result;
                 }
                 catch (Exception ex)
                 {
+                    var elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                    LogNetwork($"[ERR] {url} ({elapsed:F0}ms) {ex.Message}");
                     System.Diagnostics.Debug.WriteLine($"[FetchText] ms-appx failed: {url} {ex.Message}");
                     return null;
                 }
@@ -305,6 +348,18 @@ namespace BrowserCore.Engine
                     try { resp = await _http.SendRequestAsync(req).AsTask(cts.Token); }
                     catch (Exception sendEx)
                     {
+                        var msg = sendEx.Message;
+                        // UWP blocks HTTPS->HTTP redirects at protocol level
+                        // Also handle generic connection errors that may be caused by HTTPS->HTTP redirect blocking
+                        if (current.Scheme == "https" && hops == 0)
+                        {
+                            // First attempt on HTTPS failed - try HTTP fallback
+                            // This handles both explicit redirect errors and connection failures caused by redirect blocking
+                            var httpUri = new UriBuilder(current) { Scheme = "http", Port = -1 }.Uri;
+                            System.Diagnostics.Debug.WriteLine($"[FetchText] HTTPS failed ({sendEx.Message.Substring(0, Math.Min(50, sendEx.Message.Length))}), retrying HTTP: {httpUri}");
+                            current = httpUri;
+                            continue;
+                        }
                         try { System.Diagnostics.Debug.WriteLine("[FetchTextError] send failed " + current + " ex=" + sendEx.Message); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
                         resp = null;
                     }
@@ -312,7 +367,12 @@ namespace BrowserCore.Engine
                     var code = (int)resp.StatusCode;
                     if (code >= 300 && code < 400 && resp.Headers.Location != null)
                     {
-                        var loc = resp.Headers.Location; if (!loc.IsAbsoluteUri) loc = new Uri(current, loc);
+                        var loc = resp.Headers.Location; 
+                        if (!loc.IsAbsoluteUri) loc = new Uri(current, loc);
+                        
+                        // Log redirect
+                        System.Diagnostics.Debug.WriteLine($"[FetchText] Redirect {code}: {current} -> {loc}");
+                        
                         previousRequest = current;
                         current = UpgradeIfHsts(loc);
                         hops++;
@@ -322,6 +382,8 @@ namespace BrowserCore.Engine
                 }
                 if (resp == null || !resp.IsSuccessStatusCode)
                 {
+                    var elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                    LogNetwork($"[FAIL] {url} ({elapsed:F0}ms) status={(resp != null ? (int)resp.StatusCode : 0)}");
                     try { System.Diagnostics.Debug.WriteLine("[FetchTextFail] url=" + url + " hops=" + hops + " status=" + (resp!=null?(int)resp.StatusCode:0)); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
                     return null;
                 }
@@ -338,6 +400,7 @@ namespace BrowserCore.Engine
                     text = null;
                 }
                 try { var _elapsed = DateTimeOffset.UtcNow - _startFetch; var _msg = "[FetchText] " + url + " in " + (int)_elapsed.TotalMilliseconds + "ms"; System.Diagnostics.Debug.WriteLine(_msg); if (LogSink != null) LogSink(_msg); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                LogNetwork($"[OK] {url} ({(DateTimeOffset.UtcNow - startTime).TotalMilliseconds:F0}ms) {(text?.Length ?? 0)} bytes");
 
                 if (LooksTextual(ct))
                 {
@@ -421,16 +484,24 @@ namespace BrowserCore.Engine
         {
             if (url == null) return null;
 
+            var startTime = DateTimeOffset.UtcNow;
+            LogNetwork($"[IMG] {url}");
+
             // Handle ms-appx scheme locally
             if (string.Equals(url.Scheme, "ms-appx", StringComparison.OrdinalIgnoreCase))
             {
                 try
                 {
                     var file = await StorageFile.GetFileFromApplicationUriAsync(url);
-                    return await file.OpenReadAsync();
+                    var result = await file.OpenReadAsync();
+                    var elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                    LogNetwork($"[OK] {url} ({elapsed:F0}ms) [local]");
+                    return result;
                 }
                 catch (Exception ex)
                 {
+                    var elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                    LogNetwork($"[ERR] {url} ({elapsed:F0}ms) {ex.Message}");
                     System.Diagnostics.Debug.WriteLine($"[FetchImage] ms-appx failed: {url} {ex.Message}");
                     return null;
                 }

@@ -1,0 +1,1051 @@
+EN 
+
+ME: Hello, Claude! I would like to ask you to explore  my autobiographical (in terms of nickname and not only) open source project named MediaExplorer (https://github.com/mediaexplorer74/MediaExplorer) . This is a very non-standard "museum" (but with a touch of futurism) browser (not so clever temporary "WebView" codename) developed by me (based on an open-source fork with the funny name WebView for WP 8/8.1 OS) for the long-canceled Windows 10 Mobile operating system and a collection of retro Microsoft/Nokia Lumia smartphones (models 950, 640, 1200). Based on the results of the research, I ask you to develop (or rather, even rework) a plan for the development / refinement of my idea. It is very important to think over testing schemes for HTML, CSS, and JS parsing/rendering. The plan should be divided into stages (or Phases) and important points in these stages. Previously developed plans and a Summary of the latest developed features are attached.Show less18 маяClaude responded: Now I have a full picture.Synthesized project state and architected comprehensive testing framework integrationSynthesized project state and architected comprehensive testing framework integrationNow I have a full picture. Let me read the most recent plan document to align with the current state before writing the new one.Reading Plan_02 for current phase statusReading Plan_02 for current phase statusNow I have everything I need. Let me write the new plan document.Architected comprehensive testing infrastructure and phased development roadmapArchitected comprehensive testing infrastructure and phased development roadmapNow I have everything. Let me compose the new plan document.Created a file, read a fileCreated a file, read a fileHere's Plan_03 — the full reworked development plan. Let me walk you through the key thinking behind it.
+The core insight driving Plan_03 is that Plans 01 and 02 were feature-driven (add X, then add Y), while Plan_03 is quality-driven. After 18 sessions and ~20 000 lines, the biggest risk isn't missing features — it's that you can't tell what's working and what broke quietly. Every bug is found by accident.
+Phase T (Testing Infrastructure) is deliberately placed first and marked 🔴, even ahead of Phase 8B. The rationale: without reproducible tests, every subsequent phase is built on sand. Phase T has four concrete parts:
+The about:test URL loads a bundled test document with three sections — HTML structure tests (T-H-001 through T-H-008), CSS property tests (T-C-001 through T-C-015), and a self-contained JavaScript test runner that writes [PASS] / [FAIL] to a <div> using only DOM primitives that NiL.JS already supports. No external test framework needed. The site compatibility matrix (T-S-001 through T-S-010) is a curated list of 10 real target sites, each annotated with which engine features it exercises.
+The TestLogger class extends the existing [DIAG] system with structured markers like [TEST:PASS], [TEST:FAIL], [TEST:PERF] — greppable from the debug output, so even without a console you can see what happened.
+Phase 8B (Incremental Re-render) gets concrete implementation sketches for CascadeSingle, InvalidateSubtree, and VirtualizingRenderer.Patch — the three missing pieces from 8A. This is what actually unlocks SPAs.
+Phase 16 (Remaining CSS) splits cleanly: transform first (highest visual impact — icons and arrows everywhere), then calc()/vw/vh (layout correctness), then CSS Grid areas (hero sections), then transitions (hover effects last, lowest priority).
+The recommended session sequence gives you a concrete 33-session roadmap from 2.19 to a full regression run, with testing integrated into every phase rather than bolted on at the end.
+
+Plan 03 .Document · Download
+
+ME: Hello again, 3 days later.Hello again, 3 days later. I would like to ask you to review my autobiographical (in the sense of a pseudonym and not only) open source project MediaExplorer (https://github.com/mediaexplorer74/MediaExplorer). Then, after a new study and based on your previous one, I ask you to honestly evaluate the possibility of finalizing such a solo project, well, to give valuable recommendations on speeding up the development / refinement of my idea. Right now, I'm really stuck in refining the JavaScriptEngine.cs JS engine. It is very important to think more about testing schemes for HTML, CSS and JS parsing/rendering.  In general, I would like a new plan from you as an experienced developer and architect of applications.  The plan should be divided into stages (or phases) and the important points in these stages. Previously developed plans and a brief description of many (not only the latest) developed functions are attached. 
+
+
+Claude: Good, now I have everything I need for an honest, grounded assessment.Assessed project maturity, diagnosed JavaScript engine bottleneck, formulated phased completion strategyAssessed project maturity, diagnosed JavaScript engine bottleneck, formulated phased completion strategyGood, now I have everything I need for an honest, grounded assessment. Let me write this properly.Architected comprehensive development plan emphasizing testing and realistic milestonesArchitected comprehensive development plan emphasizing testing and realistic milestonesHere's Plan_04. Let me give you the honest summary of what it says and why.
+The core diagnosis. You're stuck because you've been in the JS engine rabbit hole for 9 consecutive sessions (3.9–3.17). Each NiL.JS fix reveals another issue, and the in operator is just the latest in a long chain. The pattern is an infinite horizon — after in, it would be private fields, then Symbol, then missing DOM events, then Canvas. The Nokia Archive target requires all of those, and each one is days of work.
+The actual in operator fix is 3 lines. In NiL.JS/Expressions/In.cs, just return false when the right-hand side is not an object instead of throwing. That's it. Modern engines silently return false in that case. Do that fix, then stop touching NiL.JS source for at least 5 sessions.
+Where the real leverage is. CSS work has 5–10× better ROI for visual quality than JS work right now. A single session on calc() and vw/vh makes 30–40% of modern sites look dramatically better. A session on NiL.JS makes one site fail slightly less silently. The plan puts CSS (Phase C) immediately after the one-session Phase R rationalization.
+The testing insight. The existing about:test suite is good, but it's missing a crucial piece: a NiL.JS compatibility matrix (Section F in the expanded test suite). Right now, every session rediscovers what NiL.JS can and cannot do. Writing it down once as Doc/NilJS_Compat.md stops that. Known-broken tests get marked KNOWN-FAIL — you don't fix the test, you don't keep trying to fix NiL.JS for them.
+The v1.0 definition. The plan has explicit, measurable release criteria: 8/10 CSS tests pass visually, 7/10 JS tests pass, 5 specific sites render acceptably, no crash in 10 minutes. The minimum path to reach that is Phases R + C + S — about 7–10 focused days. That's genuinely achievable.
+The longer-term vision section also calls out the hybrid engine idea (IBrowserEngine with EdgeHTML fallback) as the cleanest path if you ever want Nokia Archive to work, without having to finish implementing a complete DOM runtime yourself.
+
+Plan 04 Document · MD Download
+
+ME: Ok. Thank you very much!e important assumption and two main questions that bother me:
+ 
+1) the browser should just be able to open one Nokia Design Archive "museum" site; 
+
+2) how long will it take in solo development mode (possibly with the involvement of a good ai programmer)? 
+
+3)  is my content rendering scheme suitable via xaml, without visualizers like Skia?
+
+CLAUDE: Now I have a clear picture of the actual site. Analyzed Nokia Archive requirements, timeline estimates, and XAML rendering feasibilityAnalyzed Nokia Archive requirements, timeline estimates, and XAML rendering feasibilityNow I have a clear picture of the actual site. Let me give you straight answers to all three questions.I've seen enough of the actual site. Let me give you direct, honest answers to all three.
+The Nokia Design Archive is not a content-heavy site with a D3.js decoration. The D3.js visualization IS the site. Without it working, you see a header, filter controls, and zero entries. "Opening" it means making D3.js network/timeline graphs render. That changes the estimates significantly.
+Here's the dependency chain that matters:
+
+
+Claude: 
+# MediaExplorer / WEBVIEW — Plan 04: Pragmatic Path to v1.0
+
+> **Project:** MediaExplorer 0.38.x (codename "WebView") — retro UWP museum browser for W10M
+> **Hardware target:** Lumia 950/1020 (Snapdragon 810, 3 GB RAM, 5" 1440p)
+> **Test environment:** x86 emulator (primary) → ARM device (validation)
+> **Author note:** Plan 04 is the first plan written with explicit *honesty constraints* —
+> it distinguishes between what is achievable, what is a trap, and what the project
+> actually needs to feel finished. Read the Honest Assessment section before the phases.
+> **Last updated:** 2026-05-24
+
+---
+
+## Honest Assessment: Where You Are and What That Means
+
+### What has actually been built (remarkable)
+
+After 35+ sessions across three plan documents, MediaExplorer is not a toy. It is:
+
+- A working custom HTML parser + CSS cascade engine with a selector index (O(candidates) not O(n×rules))
+- A XAML-based virtualizing renderer with element recycling and lazy image loading
+- A NiL.JS 2.6 integration where a real 568 KB Vite bundle now **parses without syntax errors** — this required expert-level parser surgery across 9 sessions (3.9–3.17)
+- 50+ browser globals, MutationObserver, ES Modules, incremental re-render, disk cache, reading modes, AI integration, DevTools with 4 tabs, structured test infrastructure
+
+That is, objectively, a remarkable solo achievement. Most people who start "let's build a browser engine" projects abandon them at the "renders Hello World" stage.
+
+### The current trap: the JS engine rabbit hole
+
+Sessions 3.9–3.17 were almost entirely NiL.JS surgery. Every fix revealed another issue:
+
+```
+3.9  → import.meta, console.warn
+3.10 → destructuring defaults, logical assignment (??=, ||=, &&=)
+3.11 → async methods in object literals
+3.12 → get/set as field names
+3.13 → critical regression fix
+3.14 → arrow functions, IIFE, const{x} spacing → FULL PARSE ✅
+3.15 → querySelectorAll, navigation fixes, toast
+3.16 → new keyword, HostLocation
+3.17 → 50+ globals expansion
+3.18 → in operator ← CURRENTLY STUCK
+```
+
+The pattern is an **infinite horizon**: after `in`, there will be private fields `#name`
+(12 occurrences), then `Symbol`, then `WeakRef`, then more missing DOM APIs, then more
+`InvalidOperationException` spam from NiL.JS internals. Each step is individually small,
+but collectively this path leads to "implementing a browser DOM from scratch," which is
+multi-year solo work.
+
+**The `in` operator issue is actually a 2-line fix.** The problem is in `NiL.JS/Expressions/In.cs:42`:
+```csharp
+// Current (throws):
+if (!rhs.IsObject)
+    ExceptionHelper.Throw(new TypeError("Right-hand value of operator in is not an object."));
+
+// Fix (browser-compatible behavior):
+if (rhs == null || !rhs.IsObject)
+    return false; // undefined/null RHS → false, not throw
+```
+Modern JS engines silently return `false` for `'key' in undefined`. NiL.JS throws. Fix it,
+then **stop touching NiL.JS for at least 5 sessions**.
+
+### What "Nokia Archive renders perfectly" actually requires
+
+The Nokia Design Archive uses D3.js v7. Making it render correctly needs:
+
+| Requirement | Status | Effort |
+|-------------|--------|--------|
+| Parser: full ES2022 syntax | ✅ DONE (3.14) | Done |
+| `in` operator fix | ❌ | 30 min |
+| Private class fields `#name` (12 uses) | ❌ NiL.JS unsupported | 3–5 days |
+| Full DOM event system (addEventListener on SVG, input) | ❌ Stubs only | 5–10 days |
+| Canvas 2D API | ❌ Not started | 10–20 days |
+| SVG DOM manipulation via JS | ❌ Not started | 10–15 days |
+| CSS transitions driven by JS | ❌ Partial | 2–3 days |
+| D3 data binding (enter/exit/update) via DOM mutations | ❌ Untested | Unknown |
+
+**Total estimate for Nokia Archive to actually render:** 30–55 additional days of focused work.
+
+**Recommendation:** Accept Nokia Archive as a "stretch goal that may never be reached" and
+redirect to making the browser excellent for its real audience — simple to moderate sites on
+a retro Lumia.
+
+### What "v1.0 museum-stable" actually requires
+
+| Requirement | Status | Effort |
+|-------------|--------|--------|
+| Fix `in` operator | ❌ | 30 min |
+| CSS: calc(), vw/vh | ❌ | 1–2 days |
+| CSS: grid-template-areas | ❌ | 2–3 days |
+| CSS: proper @media queries | ❌ | 1 day |
+| Robustness: NaN guards, JS timeout, DOM limit | ❌ | 1–2 days |
+| Test suite: all T-H and T-C pass | 🟡 partial | 1 day |
+| 5 target sites render acceptably | 🟡 some | Depends on CSS |
+| No crash in 10 min normal browsing | 🟡 | Depends on stability |
+
+**Total estimate for v1.0:** 8–12 additional days. This is absolutely achievable.
+
+---
+
+## v1.0 Release Criteria (explicit "done" definition)
+
+A release is called v1.0 when ALL of these pass:
+
+```
+HTML:  T-H-001 through T-H-008 — all pass visually
+CSS:   T-C-001 through T-C-010 — at least 8/10 pass visually
+JS:    T-J-001 through T-J-010 — at least 7/10 pass in about:test
+Sites: T-S-001 (DuckDuckGo) — search box visible and typable
+       T-S-004 (httpbin.org/html) — text readable, no crash
+       T-S-005 (example.com) — renders correctly
+       T-S-007 (text.npr.org) — articles readable
+       T-S-008 (lobste.rs) — link list visible
+Perf:  DuckDuckGo total render time < 3000ms on emulator
+       No crash in 10 minutes on any T-S-xxx site
+```
+
+---
+
+## NiL.JS Compatibility Matrix (new document: `Doc/NilJS_Compat.md`)
+
+Before spending more time on JS fixes, establish what NiL.JS 2.6 can and cannot do.
+This becomes the permanent reference for what to stub vs. fix vs. accept.
+
+### What works (confirmed)
+
+| Feature | ES Version | Status |
+|---------|-----------|--------|
+| `var`, `let`, `const` | ES5/6 | ✅ |
+| Arrow functions `=>` | ES6 | ✅ (fixed 3.11/3.14) |
+| Destructuring with defaults | ES6 | ✅ (fixed 3.10) |
+| Template literals | ES6 | ✅ |
+| `async`/`await` | ES8 | ✅ |
+| `async function*` | ES9 | ✅ (fixed 3.11) |
+| `import`/`export` (static) | ES6 | ✅ (NiL.JS native) |
+| `import()` dynamic | ES2020 | ✅ (graceful fallback) |
+| `import.meta` | ES2020 | ✅ (fixed 3.9) |
+| Logical assignment `??=`, `\|\|=`, `&&=` | ES2021 | ✅ (fixed 3.10) |
+| `Promise`, `async/await` | ES8 | ✅ |
+| `JSON.parse` / `JSON.stringify` | ES5 | ✅ |
+| `Array` methods (map, filter, reduce) | ES5/6 | ✅ |
+| `Object.keys`, `Object.assign` | ES6 | ✅ |
+| `class` (basic) | ES6 | ✅ |
+| `class` with private fields `#x` | ES2022 | ❌ Not supported |
+| `in` operator (object RHS) | ES5 | ✅ |
+| `in` operator (non-object RHS) | — | ❌ Throws (fix in 3.18) |
+| `Symbol` | ES6 | ❌ Partial |
+| `WeakRef`, `FinalizationRegistry` | ES2021 | ❌ Not supported |
+| `BigInt` | ES2020 | ❌ Not supported |
+
+### DOM API compatibility
+
+| API | Status | Notes |
+|-----|--------|-------|
+| `document.getElementById` | ✅ | |
+| `document.querySelector` | ✅ | |
+| `document.querySelectorAll` | ✅ (3.15) | |
+| `document.createElement` | ✅ | |
+| `element.innerHTML` | ✅ | triggers MutationObserver |
+| `element.setAttribute` | ✅ | |
+| `element.addEventListener` | 🟡 stub | registered but not fired on XAML events |
+| `element.getBoundingClientRect` | ❌ | returns zeroes |
+| `window.addEventListener` | 🟡 stub | |
+| Canvas 2D API | ❌ | not implemented |
+| SVG DOM manipulation | ❌ | not implemented |
+| `ResizeObserver` | ❌ | |
+| `IntersectionObserver` | ❌ | |
+
+**Key insight:** `element.addEventListener` is registered but XAML events (click, scroll, resize)
+don't fire into NiL.JS. This means interactive JS (dropdowns, modals, carousels) silently does nothing.
+This is acceptable for a "museum browser" — document it, don't spend months fixing it.
+
+---
+
+## Phase R: Rationalization & JS Engine Freeze
+
+> **Priority: 🔴 Must do first — 1 session (~1 hour)**
+> **Goal:** Fix the one remaining trivial NiL.JS bug, then stop touching NiL.JS for 5 sessions.
+
+### R.1 — Fix `in` operator (NiL.JS In.cs)
+
+```csharp
+// NiL.JS/Expressions/In.cs, line ~42
+// BEFORE (throws):
+if (!rhs.IsObject)
+    ExceptionHelper.Throw(new TypeError("..."));
+
+// AFTER (browser-compatible):
+if (rhs == null || rhs.ValueType == JSValueType.Undefined
+                || rhs.ValueType == JSValueType.Null
+                || !rhs.IsObject)
+    return false;
+```
+
+### R.2 — Reduce InvalidOperationException log noise
+
+315 empty catch blocks were noted in session logs. Add a bulk log suppressor for the 3 most
+common NiL.JS internal exception types to keep DevTools console readable:
+
+```csharp
+// JavaScriptEngine.cs — in the top-level eval catch
+catch (InvalidOperationException ex)
+    when (ex.Source == "NiL.JS" && ex.TargetSite?.Name == "Invoke")
+{
+    // Suppress NiL.JS internal reflection errors silently
+    // These are expected when JS uses unsupported features (private fields, Symbol)
+}
+```
+
+### R.3 — Write `Doc/NilJS_Compat.md`
+
+Copy the compatibility matrix from this plan into a dedicated document. 30 minutes.
+Future JS debugging starts here, not by re-running Nokia Archive and guessing.
+
+### R.4 — Set the JS Engine Freeze rule
+
+Add to top of `JavaScriptEngine.cs` as a comment:
+
+```
+// JS ENGINE FREEZE — active until session 3.23
+// No new NiL.JS patches. Acceptable: adding new host globals (window.xxx = ...).
+// Not acceptable: editing Src/NiL.JS/*.cs
+// Reason: each NiL.JS fix risks regression (see session 3.13 near-disaster).
+//         CSS + Stability work has better ROI right now.
+```
+
+### Files affected
+- `Src/NiL.JS/Expressions/In.cs` — 3-line fix
+- `Engine/JavaScriptEngine.cs` — catch clause + freeze comment
+- `Doc/NilJS_Compat.md` — new document
+
+**Effort:** ~1 hour
+
+---
+
+## Phase C: CSS Completion (Highest Visual ROI)
+
+> **Priority: 🔴 High — directly improves every target site**
+> **Effort: 4–6 days / ~500 lines**
+
+CSS completion has dramatically better ROI than JS work for visual quality: a site
+with broken CSS looks broken even if JS works. A site with great CSS looks right
+even without interactive JS.
+
+### C.1 — `calc()` and viewport units (`vw`, `vh`, `dvw`, `dvh`)
+
+Most modern layouts use `width: calc(100% - 16px)` or `height: 100vh`. These are
+currently ignored, causing collapsed or overflowing elements.
+
+**Implementation in `CssLoader.cs`:**
+
+```csharp
+private double? TryPxResolved(string value, double vpW, double vpH, double parentW = 0)
+{
+    value = value.Trim();
+
+    // vw / vh
+    if (value.EndsWith("vw")) return ParseDouble(value, "vw") * vpW / 100.0;
+    if (value.EndsWith("vh")) return ParseDouble(value, "vh") * vpH / 100.0;
+    if (value.EndsWith("dvw")) return ParseDouble(value, "dvw") * vpW / 100.0;
+    if (value.EndsWith("dvh")) return ParseDouble(value, "dvh") * vpH / 100.0;
+
+    // calc()
+    if (value.StartsWith("calc(") && value.EndsWith(")"))
+        return EvalCalc(value[5..^1], vpW, vpH, parentW);
+
+    return TryPx(value); // existing fallback
+}
+
+// EvalCalc: handles "100% - 16px", "50% + 8px", "2 * 24px"
+// Two-operand evaluator is enough for 95% of real-world calc()
+private double? EvalCalc(string expr, double vpW, double vpH, double parentW)
+{
+    // Find +/- that is not inside nested parens (for operator precedence)
+    // Parse left and right operands, apply operator
+    // Resolve units: % → parentW, px → direct, vw/vh → viewport
+    // Return null on parse failure (graceful degradation)
+    ...
+}
+```
+
+**Test:** Add `T-C-011`: `<div style="width:calc(100% - 40px); background:pink">` inside
+a `200px` container → element should be `160px` wide.
+
+### C.2 — `@media` query improvements
+
+Currently only `min-width` is supported. Add:
+- `max-width`
+- `min-height` / `max-height`
+- `orientation: portrait | landscape`
+- `prefers-color-scheme: dark | light` (always return `light` for retro browser feel)
+
+```csharp
+// CssLoader.cs — FlattenBasicMedia
+private bool EvaluateMediaQuery(string mediaText, double vpW, double vpH)
+{
+    // e.g. "screen and (min-width: 768px) and (max-width: 1200px)"
+    var conditions = ParseMediaConditions(mediaText);
+    return conditions.All(c => c switch {
+        ("min-width", var px) => vpW >= px,
+        ("max-width", var px) => vpW <= px,
+        ("min-height", var px) => vpH >= px,
+        ("max-height", var px) => vpH <= px,
+        ("orientation", "landscape") => vpW > vpH,
+        ("orientation", "portrait") => vpH >= vpW,
+        ("prefers-color-scheme", _) => true, // always match light
+        _ => true // unknown → don't filter out
+    });
+}
+```
+
+**Test:** Add `T-C-012`: stylesheet with `@media (max-width: 600px)` rule — on emulator
+(1024px wide) the rule should NOT apply; at 400px viewport it should.
+
+### C.3 — `grid-template-areas`
+
+Many modern layouts use named grid areas for hero/sidebar/footer patterns. This is the
+most impactful missing layout feature after flexbox.
+
+**Implementation:**
+
+```csharp
+// In FlexGridRenderer.cs or new GridAreaRenderer.cs
+// Parse: grid-template-areas: "header header" "nav main" "footer footer"
+// Returns 2D string[][]
+// Assign Grid.Row / Grid.Column / Grid.RowSpan / Grid.ColumnSpan via attached properties
+```
+
+**Test:** Add `T-C-014`:
+```html
+<div style="display:grid;
+  grid-template-columns:1fr 3fr;
+  grid-template-areas:'nav main' 'footer footer'">
+  <div style="grid-area:nav; background:salmon">Nav</div>
+  <div style="grid-area:main; background:lightblue">Main</div>
+  <div style="grid-area:footer; background:gold">Footer</div>
+</div>
+```
+
+### C.4 — CSS custom properties (`--var`) scope fix
+
+Currently `var(--name)` is resolved globally. CSS custom properties cascade per-element.
+Fix: resolve `--name` by walking the element's ancestor chain looking for the nearest
+computed style that defines `--name`. If not found, use `:root` value.
+
+**Effort:** ~60 lines in `CssLoader.cs`
+
+### C.5 — `clamp()` (bonus, if time allows)
+
+```css
+font-size: clamp(14px, 2vw, 20px)
+```
+
+One-liner: `return Math.Max(min, Math.Min(max, preferred))` after resolving each operand.
+
+### Testing
+
+After each C.x sub-phase: navigate to `about:test`, check the corresponding T-C-xxx row.
+Log result in `Doc/Perf_Baseline.md`.
+
+**Files affected:** `Engine/CssLoader.cs`, `Engine/CssComputed.cs`, `Html/test.html`
+
+---
+
+## Phase S: Stability & Robustness
+
+> **Priority: 🔴 Required for v1.0**
+> **Effort: 2–3 days / ~300 lines**
+
+### S.1 — NaN/Infinity guards (systematic)
+
+`elementSize=NaNxNaN` in logs indicates invalid sizes leak into `VirtualizingRenderer`.
+
+Audit strategy: grep for all `.Width =`, `.Height =`, `new GridLength(` in
+`DomBasicRenderer.cs` and `VirtualizingRenderer.cs`. For each assignment:
+
+```csharp
+// Pattern to apply everywhere:
+private static double SanitizeSize(double v, double fallback = 0)
+    => double.IsNaN(v) || double.IsInfinity(v) || v < 0 ? fallback : v;
+
+// Usage:
+element.Width = SanitizeSize(computedWidth);
+element.Height = SanitizeSize(computedHeight);
+new GridLength(SanitizeSize(colWidth, 1)) // fallback to 1px not 0
+```
+
+Add `[DIAG:NaN source={property}]` log when a value is sanitized so you can trace
+which CSS property produced it.
+
+### S.2 — JS execution timeout
+
+NiL.JS can loop forever. Wrap each `_nil.Eval()` call:
+
+```csharp
+// JavaScriptEngine.cs
+private async Task EvalWithTimeout(string code, int timeoutMs = 5000)
+{
+    using var cts = new CancellationTokenSource(timeoutMs);
+    try
+    {
+        await Task.Run(() => _nil.Eval(code), cts.Token);
+    }
+    catch (OperationCanceledException)
+    {
+        DevToolsLogger.Log("[JS:TIMEOUT] Script exceeded 5000ms — abandoned");
+    }
+}
+```
+
+### S.3 — DOM node cap
+
+Enforce the 10 000 node limit from Plan 01. In `HtmlParser`:
+
+```csharp
+private int _nodeCount = 0;
+private const int MaxNodes = 10_000;
+
+LiteElement CreateNode(...)
+{
+    if (++_nodeCount > MaxNodes)
+    {
+        DevToolsLogger.Log($"[WARN] DOM cap hit at {MaxNodes} nodes — truncating");
+        return null; // caller handles null gracefully
+    }
+    return new LiteElement(...);
+}
+```
+
+### S.4 — CSS rule cap
+
+Verify the existing rule cap (5 000) is enforced. Add:
+```csharp
+if (_rules.Count >= MaxRules)
+{
+    DevToolsLogger.Log($"[WARN] CSS rule cap hit at {MaxRules}");
+    return; // don't add more rules
+}
+```
+
+### S.5 — Graceful error page
+
+When `NavigateAsync` throws any unhandled exception, show the styled error page
+(from Phase 11) instead of crashing or showing blank. Ensure the try-catch in
+`NavigateAsync` always calls `ShowErrorPage(url, ex.Message)`.
+
+### Testing
+
+| ID | Test | Expected |
+|----|------|----------|
+| T-R-001 | Navigate to `not-a-url` | Error page shown, no crash |
+| T-R-002 | Run `while(true){}` in DevTools console | `[JS:TIMEOUT]` in log, UI responsive |
+| T-R-003 | Inject 11 000 DOM nodes via innerHTML | `[WARN] DOM cap hit`, partial render |
+| T-R-004 | `image.png` returns 404 | `[img]` placeholder, no crash |
+
+---
+
+## Phase T+: Testing Infrastructure Expansion
+
+> **Priority: 🟡 Medium — makes v1.0 verifiable**
+> **Effort: 2 days / ~400 lines**
+
+The Phase T infrastructure from Plan 03 is done (test.html, TestLogger, about:test routing,
+reference screenshots). Phase T+ expands it systematically.
+
+### T+.1 — JS Compatibility Test Matrix
+
+Add Section F to `test.html`: **NiL.JS Compatibility Matrix**. Each test has
+three outcomes: PASS, FAIL (documented limitation), SKIP (known unsupported).
+
+```javascript
+// test.html Section F — NiL.JS compatibility
+function assertCompat(id, code, expected, knownBroken) {
+    try {
+        var result = eval(code);
+        var pass = result === expected;
+        log(id, pass ? 'PASS' : (knownBroken ? 'KNOWN-FAIL' : 'FAIL'), result);
+    } catch(e) {
+        log(id, knownBroken ? 'KNOWN-FAIL' : 'EXCEPTION', e.message);
+    }
+}
+
+// Language features
+assertCompat('F-001', '"key" in {key:1}', true, false);
+assertCompat('F-002', '"key" in undefined', false, false);    // requires In.cs fix
+assertCompat('F-003', 'class A{#x=1; get(){return this.#x;}}; new A().get()', 1, true); // known broken
+assertCompat('F-004', '(async function*(){yield 1})()', '[object AsyncGenerator]', false);
+assertCompat('F-005', '??= works', true, false);              // logical assignment
+assertCompat('F-006', 'import.meta', '[object Object]', false);
+
+// DOM
+assertCompat('F-010', 'typeof document.querySelector', 'function', false);
+assertCompat('F-011', 'typeof document.querySelectorAll', 'function', false);
+assertCompat('F-012', 'document.createElement("div").tagName', 'DIV', false);
+assertCompat('F-013', '!!document.getElementById', true, false);
+```
+
+### T+.2 — CSS Coverage Report
+
+Add to `test.html` Section G: **CSS Coverage Summary**. A visual grid showing
+each supported property with a green/yellow/red cell based on visual correctness.
+Manual pass/fail per cell, updated each session.
+
+Layout: a `<table>` with rows = CSS category (box model, flexbox, grid, text,
+visual effects, positioning) and columns = property name. Each cell links to the
+corresponding T-C-xxx test.
+
+### T+.3 — Automated performance baseline in test.html
+
+Instead of manually timing renders, add a JS snippet that:
+1. Times `document.body.innerHTML = bigHtml` (measures JS→DOM mutation path)
+2. Reports `[TEST:PERF] mutation=Xms` to the debug log
+3. Tests 5 common CSS selectors using `querySelectorAll` and reports hit count
+
+```javascript
+// T-P-001: Layout performance
+var start = Date.now();
+var big = '<div class="container">'.repeat(100) + '</div>'.repeat(100);
+document.getElementById('perf-target').innerHTML = big;
+console.log('[TEST:PERF] innerHTML-100-divs=' + (Date.now()-start) + 'ms');
+```
+
+### T+.4 — Snapshot-assisted regression testing
+
+The existing Snapshot button (Phase T.5) captures full-page PNGs. Add:
+- After navigating to each T-S-xxx site, auto-suggest a snapshot filename
+- The snapshot goes to `Pictures\MediaExplorer\regression\`
+- Compare against the reference image in `Images/tests/` folder visually
+
+No automated pixel comparison needed — this is a one-person project. The value is
+having a reference image to diff against after a CSS change.
+
+---
+
+## Phase V: Visual Polish for v1.0
+
+> **Priority: 🟡 Medium — makes the browser feel finished**
+> **Effort: 2–3 days / ~300 lines**
+
+These are the small things that make a browser feel like a real browser rather than
+a debug tool. Most are already partially implemented.
+
+### V.1 — Smooth AppBar animation
+
+Replace the current instant `BottomBar.Height = 52/24` toggle with a proper
+`DoubleAnimation` over 150ms using the `EasingFunction = CubicEase`. The previous
+attempt failed because of a UWP layout pass conflict. Use a clip animation on the
+BottomBar's `RenderTransform.Y` instead of animating `Height`:
+
+```csharp
+// Animate TranslateTransform.Y from +28 to 0 (collapse from bottom)
+// instead of animating Height (which conflicts with UWP layout engine)
+var tt = new TranslateTransform();
+BottomBar.RenderTransform = tt;
+var anim = new DoubleAnimation { To = 0, Duration = TimeSpan.FromMilliseconds(150),
+    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+tt.BeginAnimation(TranslateTransform.YProperty, anim);
+```
+
+### V.2 — Page loading progress indicator
+
+The existing `ProgressRing` shows while loading. Improve it:
+- Show a thin top progress bar (like Chrome/Firefox) that fills from 0% to 100%
+- Use `_resources.ActiveFetchCount` to estimate progress (reduce from max → 0)
+- Auto-hide with 300ms fade after render completes
+
+```csharp
+// MainPage.xaml: thin 3px border at top of content area
+// Width animates from 0 to ContentArea.ActualWidth proportionally
+// Timer fires every 200ms during load to update progress
+```
+
+### V.3 — Omnibox improvements
+
+- Show page title (not URL) in collapsed bar
+- Show full URL only when expanded and focused
+- On focus: select all text (Ctrl+A behavior)
+- Display scheme (https://) in gray, host in white, path in lighter gray
+
+### V.4 — Better empty state
+
+When the welcome page is showing (no navigation yet), display:
+- App name + version
+- A short one-sentence description
+- Quick links: about:test, httpbin.org/html, text.npr.org
+- A randomly chosen "museum quote" about the web/technology from a small embedded list
+
+### V.5 — Error recovery button
+
+When an error page is shown, add a "Try in POOR mode" button. One tap switches to
+POOR rendering mode and retries the URL. This is the museum browser's escape hatch.
+
+---
+
+## Phase 7: Service Worker (Deferred, Still Planned)
+
+> **Priority: 🟢 Nice-to-have — after v1.0**
+> **Effort: 3–5 days / ~600 lines**
+
+Unchanged from Plan 03. Prerequisites (Phase 6, Phase 5, Phase 8B) are all done.
+Implement after v1.0 release. Minimal scope: `install` + `fetch` events only.
+
+---
+
+## Testing Strategy Summary
+
+Since this is a solo project with no CI, no unit test framework, and an ARM device
+as the primary target, testing has to be low-friction and high-signal.
+
+### The 5-minute post-session ritual
+
+After every session, before committing:
+
+```
+1. Build (0 errors required — never commit with errors)
+2. Navigate to about:test
+3. Scroll to Section C (JS tests) — note pass/fail count
+4. Scroll to Section B (CSS tests) — visually check T-C-001..010
+5. Navigate to T-S-001 (DuckDuckGo) — search box visible? ✓/✗
+6. Navigate to T-S-004 (httpbin.org/html) — text readable? ✓/✗
+7. Open DevTools Debug tab — any new [ERROR:] or [WARN:] markers?
+8. Add one line to Doc/Perf_Baseline.md: date, build, pass count
+```
+
+If step 6 fails after passing before, **stop and fix before moving on**.
+
+### Three layers of testing
+
+```
+Layer 1: about:test (automated, in-browser)
+         HTML structure × CSS properties × JS behavior
+         Runs on every launch — takes 30 seconds
+         Catches: parser regressions, CSS cascade breaks, NiL.JS regressions
+
+Layer 2: Site matrix (manual, weekly)
+         T-S-001 through T-S-010 — 10 target sites
+         Capture screenshots, compare to reference
+         Catches: real-world rendering regressions
+
+Layer 3: ARM device (manual, before major releases)
+         Test on actual Lumia 950 (if available)
+         Focus: performance (Snapdragon 810 ≠ x86 emulator), touch targets
+         Catches: ARM-specific crashes, performance regressions
+```
+
+### What each test section covers
+
+**Section A (T-H-xxx) — HTML Parser:**
+
+Tests that the HTML tokenizer and tree builder produce correct DOM structure.
+If T-H-003 (table with colspan) breaks, look at `HtmlParser.cs` and `TableRenderer.cs`.
+These tests are almost never wrong — HTML parsing is stable.
+
+**Section B (T-C-xxx) — CSS Engine:**
+
+Tests that `CssLoader.cs` + `CssComputed.cs` + `DomBasicRenderer.cs` correctly
+apply properties. If T-C-002 (flexbox) breaks after a cascade change, look at
+`CascadeIntoComputedStyles` and `FlexPanel`.
+Add a new T-C-xxx case before implementing any new CSS property.
+
+**Section C (T-J-xxx) — JavaScript Runtime:**
+
+Tests that NiL.JS + JsDomElement correctly handle JS operations.
+A regression here usually means a NiL.JS change broke something.
+Known-broken tests are marked `KNOWN-FAIL` — don't "fix" these by changing the test.
+
+**Section F (T-F-xxx) — NiL.JS Compatibility Matrix:**
+
+Static reference. Each row is a JS feature. Green = works, Yellow = partial,
+Red = known unsupported (stop trying to fix these in main sessions).
+Update once per major NiL.JS change session.
+
+---
+
+## Recommended Session Sequence (from 3.18)
+
+```
+Session 3.18: Phase R — in operator fix, InvalidOperationException suppression,
+              NilJS_Compat.md, JS engine freeze comment ← NEXT SESSION
+
+Session 3.19: Phase C.1 — calc() + vw/vh resolver
+              Add T-C-011, T-C-012 to test.html, verify pass
+
+Session 3.20: Phase C.2 — @media improvements (max-width, orientation)
+              Run T-S-002 (ya.ru) — check if mobile-first CSS now applies
+
+Session 3.21: Phase C.3 — grid-template-areas
+              Add T-C-014, run T-S-001 (DuckDuckGo) and T-S-002 (ya.ru)
+
+Session 3.22: Phase S — NaN guards + JS timeout + DOM cap + error recovery
+              Run T-R-001..004, all should pass
+
+Session 3.23: Phase T+ — JS compat matrix Section F, CSS coverage grid Section G
+              END of JS engine freeze — reassess NiL.JS work if needed
+
+Session 3.24: Phase V — AppBar animation + progress bar + omnibox improvements
+
+Session 3.25: Phase V — Error recovery button + welcome page polish
+
+Session 3.26: Full regression run
+              T-H-001..008: all visual pass
+              T-C-001..014: target 10/14 pass
+              T-J-001..010: target 7/10 pass
+              T-S-001,004,005,007,008: all "acceptable" visually
+              → If criteria met: TAG v1.0-museum
+
+Session 3.27+: Phase 7 (Service Worker) — optional, post-v1.0
+```
+
+---
+
+## Summary Table
+
+| Phase | Title | Priority | Effort | Prerequisite | V1.0 blocker? |
+|-------|-------|----------|--------|--------------|--------------|
+| **R** | Rationalization & JS Freeze | 🔴 | 1 hour | — | ✅ Yes |
+| **C** | CSS Completion (calc, media, grid-areas) | 🔴 | 4–6 days | R | ✅ Yes |
+| **S** | Stability & Robustness | 🔴 | 2–3 days | R | ✅ Yes |
+| **T+** | Testing Expansion (compat matrix, perf) | 🟡 | 2 days | S | No |
+| **V** | Visual Polish | 🟡 | 2–3 days | S | No |
+| **7** | Service Worker | 🟢 | 3–5 days | C, S | No |
+
+**Minimum path to v1.0:** Phases R + C + S = **7–10 days of focused work**
+
+---
+
+## Longer-term vision (post v1.0)
+
+After v1.0, the project has three potential directions, in order of feasibility:
+
+**Direction A — "Better museum browser":** Improve CSS to 90%+, more target sites,
+Service Worker for offline. This is achievable solo in 3–6 months.
+
+**Direction B — "AI-first browser":** Lean into the AI differentiation — better Magic
+Bubble, summarization, translation via OpenRouter. Makes the browser unique.
+Achievable solo, relatively low JS dependency.
+
+**Direction C — "Hybrid engine":** Add an `IBrowserEngine` abstraction with two
+implementations: `CustomHtmlEngine` (current) and `EdgeHtmlEngine` (system WebView
+as fallback). Sites that crash the custom engine silently fall back to EdgeHTML.
+Medium complexity (~5–7 days), dramatically improves site compatibility.
+
+Direction C is worth considering if the Nokia Archive goal remains important — it
+would let you render complex SPA sites via EdgeHTML while keeping the custom engine
+for lighter sites.
+
+---
+
+## Notes for Solo Development (updated)
+
+**The `in` operator is the last trivial NiL.JS fix.** After 3.18, resist the urge to
+dive back into NiL.JS for 5 sessions. Every NiL.JS session costs 3× more time than
+planned (regression risk + debugging + re-test).
+
+**CSS work is high leverage.** A morning on `calc()` makes 30% of modern sites look
+significantly better. A morning on NiL.JS makes one site fail less silently.
+
+**Know when a site is a fair test.** httpbin.org/html and text.npr.org are fair tests
+for a museum browser — they're text-heavy sites where your renderer should shine.
+Nokia Design Archive is an unfair test — it's a D3.js-heavy SPA that needs private
+class fields, Canvas API, and full SVG DOM. Don't measure success against unfair tests.
+
+**The POOR mode is your reputation manager.** If a site causes an exception, POOR mode
+should always be able to show at least readable text. Users will appreciate graceful
+degradation over hard crashes every time.
+
+**Ship v1.0.** A released "museum-stable v1.0" that renders 5 sites correctly is more
+valuable than an unreleased browser that almost renders 50 sites. Retro projects gain
+momentum from tangible releases.
+
+---
+
+*Plan v4.0 — 2026-05-24*
+*Based on: Plan_01 (v1.0), Plan_02 (v2.2), Plan_03 (v3.5), sessions 2.01–3.17*
+*Next session: 3.18 — Phase R (JS engine freeze + in operator fix)*
+
+ME: One important assumption and two main questions that bother me: 
+- the  browser should just be able to open one Nokia Design Archive "museum" site; 
+- how long will it take in solo development mode (possibly with the involvement of a good ai programmer)? 
+- is my content rendering scheme suitable via xaml, without visualizers like skia?
+
+Claude: Now the three honest answers.
+Question 1 — Can you open just Nokia Archive?
+Yes, but "open" has to mean "the network graph shows nodes and edges." The site literally has no readable content without D3.js. 
+All five blockers in the diagram above must be solved, and they must be solved in order — you can't test #3 (XAML rendering) until #2 (SVG DOM creation) works, and you can't test #2 until #1 (private class fields) is fixed.
+
+The in operator fix from session 3.18 is not on that diagram — it's trivial (2 lines in In.cs) and should be done first, but it's not actually a Nokia Archive blocker. D3 v7 won't even initialize until private class fields work.
+
+Question 2 — How long, solo with good AI?
+Solo without AI: 10–16 weeks. Private class fields alone is a week of NiL.JS parser and runtime work, and it carries regression risk every time you touch the parser (session 3.13 taught that lesson painfully).
+Solo with a good AI programmer (Claude, GPT-4 in agentic mode): realistically 3–5 weeks. Here's why AI helps dramatically here: steps 2–4 are mostly mechanical code that follows clear patterns. Once you know that <circle cx="50" cy="50" r="20"/> should become XAML <Ellipse Canvas.Left="30" Canvas.Top="30" Width="40" Height="40"/>, an AI can generate all 15–20 SVG element types in one session. The hard parts that stay hard even with AI are NiL.JS private fields (deep parser surgery with regression risk) and the DOM event bridge (requires understanding the existing JS engine architecture well).
+A realistic breakdown with AI assistance: 4–7 days for private fields, 2–3 days for SVG DOM creation, 3–4 days for XAML SVG renderer, 3–4 days for DOM events, 1–2 days for getBoundingClientRect. That's 13–20 working days, call it 4 weeks if you count testing and debugging between steps.
+
+Question 3 — Is XAML rendering suitable, or should you switch to Skia?
+XAML is suitable and you should not switch to Skia. This is the most important of the three answers.
+The rendering primitive is not the bottleneck. D3.js creates SVG elements via JavaScript DOM operations. Regardless of whether you render those elements with XAML, SkiaSharp, or Win2D, you still need to solve the exact same five blockers — private class fields, SVG DOM creation, rendering each element type, DOM events, and getBoundingClientRect. Skia doesn't help with any of them.
+Where SkiaSharp would actually help is if you were rendering static SVG images (like icons or embedded illustrations). It's already partially in your codebase for that purpose and that's the right scope for it. For D3.js dynamic SVG, the path is: JavaScript creates DOM nodes → JsDomElement creates LiteElement SVG nodes → a new SvgRenderer.cs converts each node to its XAML equivalent (Ellipse, Line, Path, TextBlock, XAML Canvas for groups) at render time. This keeps the architecture consistent with everything else in the engine.
+The one place where Win2D (Microsoft's Canvas 2D for UWP) could be useful is if D3 is configured to use a Canvas element instead of SVG — some D3 layouts support both. But the Nokia Archive specifically uses SVG, so Win2D doesn't help here either.
+The short version: don't change the renderer. Fix the JS engine and build the SVG→XAML bridge. That's the only path.
+
+
+======================
+
+RU
+
+Я: Привет, Клод! Я хотел бы попросить тебя ознакомиться с моим автобиографическим (в смысле псевдонима и не только) проектом с открытым исходным кодом MediaExplorer (https://github.com/mediaexplorer74/MediaExplorer). Это очень нестандартный "музейный" (но с налетом футуризма) браузер (не очень умное временное кодовое название "WebView"), разработанный мной (на основе форка с открытым исходным кодом со смешным названием WebView для ОС WP 8/8.1) для давно отмененной Windows 10 Mobile операционная система и коллекция ретро-смартфонов Microsoft/Nokia Lumia (модели 950, 640, 1200). Основываясь на результатах исследования, я прошу вас разработать (а точнее, даже переработать) план развития/доработки моей идеи. Очень важно продумать схемы тестирования для парсинга/рендеринга HTML, CSS и JS. План должен быть разделен на этапы (или фазы) и важные моменты на этих этапах. Ранее разработанные планы и краткое описание последних разработанных функций прилагаются.Показать меньше 18 Клод ответил: Теперь у меня есть полная картина.Синтезированное состояние проекта и спроектированная интеграция с платформой комплексного тестирования. Синтезированное состояние проекта и спроектированная интеграция с платформой комплексного тестирования. Теперь у меня есть полная картина. Позвольте мне прочитать самый последний документ плана, чтобы привести его в соответствие с текущим состоянием, прежде чем писать новый.Прочитайте Plan_02 для определения статуса текущей фазы. Прочитайте Plan_02 для определения статуса текущей фазы. Теперь у меня есть все, что мне нужно. Позвольте мне написать новый документ-план. Спроектирована комплексная инфраструктура тестирования и план поэтапной разработки. Теперь у меня есть все. Позвольте мне составить новый документ-план. Вот полностью проработанный план разработки: 
+
+Plan_03 — документ. скачать
+
+Позвольте мне рассказать вам о ключевых принципах, лежащих в его основе.
+Основная идея, лежащая в основе Plan_03, заключается в том, что планы 01 и 02 были ориентированы на функциональность (добавьте X, затем добавьте Y), в то время как Plan_03 ориентирован на качество. После 18 сеансов и ~ 20 000 строк самый большой риск заключается не в отсутствии функций, а в том, что вы не сможете незаметно определить, что работает, а что сломалось. Каждая ошибка обнаруживается случайно.
+Фаза T (инфраструктура тестирования) намеренно расположена первой и обозначена 🔴, даже перед фазой 8B. Обоснование: без воспроизводимых испытаний каждая последующая фаза строится на песке. Фаза T состоит из четырех бетонных частей:
+URL—адрес about:test загружает готовый тестовый документ, состоящий из трех разделов: тесты структуры HTML (от T-H-001 до T-H-008), тесты свойств CSS (от T-C-001 до T-C-015) и автономный тестовый инструмент JavaScript, который записывает [PASS] / [СБОЙ] в <div>, используя только те DOM-примитивы, которые NiL.JS уже поддерживаются. Внешний тестовый фреймворк не требуется. Матрица совместимости сайтов (от T-S-001 до T-S-010) представляет собой список из 10 реальных целевых сайтов, на каждом из которых указано, какие функции движка он использует.
+Класс TestLogger расширяет существующую систему [DIAG] структурированными маркерами, такими как [TEST:PASS], [TEST:FAIL], [TEST:PERF], которые можно получить из выходных данных отладки, поэтому даже без консоли вы можете увидеть, что произошло.
+На этапе 8B (инкрементальный повторный рендеринг) мы получаем конкретные наброски реализации для CascadeSingle, InvalidateSubtree и VirtualizingRenderer.Исправление — три недостающие части из 8A. Это то, что на самом деле разблокирует SPAs.
+Этап 16 (Оставшийся CSS) полностью разбивается: сначала трансформация (максимальный визуальный эффект — повсюду значки и стрелки), затем calc() /vw/vh (корректность макета), затем области сетки CSS (разделы героев), затем переходы (эффекты наведения курсора в последнюю очередь, самый низкий приоритет).
+Рекомендуемая последовательность сеансов дает вам конкретную дорожную карту из 33 сеансов, начиная с версии 2.19 и заканчивая полным регрессионным прогоном, при этом тестирование будет интегрировано в каждый этап, а не закреплено в конце.
+
+
+Я: И снова здравствуйте, 3 дня спустя.И снова здравствуйте, 3 дня спустя. Я хотел бы попросить вас ознакомиться с моим автобиографическим (в смысле псевдонима и не только) проектом с открытым исходным кодом MediaExplorer (https://github.com/mediaexplorer74/MediaExplorer). Затем, после нового исследования и на основе вашего предыдущего, я прошу вас честно оценить возможность доработки такого сольного проекта, ну и дать ценные рекомендации по ускорению разработки/доработки моей идеи. Прямо сейчас я действительно застрял в доработке JS-движка JavaScriptEngine.cs. Очень важно больше думать о схемах тестирования для парсинга/рендеринга HTML, CSS и JS.  В целом, я хотел бы услышать от вас, как от опытного разработчика и архитектора приложений, новый план.  План должен быть разделен на этапы (или фаз) и обозначать важные моменты на этих этапах. Ранее разработанные планы и краткое описание многих (не только последних) разработанных функций прилагаются.
+
+
+Клод: Хорошо, теперь у меня есть все необходимое для честной, обоснованной оценки. Я оценил зрелость проекта, диагностировал узкое место движка JavaScript, сформулировал стратегию поэтапного завершения. Оценил зрелость проекта, диагностировал узкое место движка JavaScript, сформулировал стратегию поэтапного завершения. Хорошо, теперь у меня есть все, что нужно для честной, обоснованной оценки. Позвольте мне сказать прямо: разработанный комплексный план разработки с акцентом на тестирование и реалистичные контрольные точки будет крайне трудновыполним. Вот он 
+: Документ Plan 04 · MD Скачать 
+
+Позвольте мне честно изложить вам, что в нем говорится и почему:
+Основной диагноз. Вы застряли, потому что провели в кроличьей норе JS engine 9 сессий подряд (3.9–3.17). Каждое исправление NiL.JS выявляет еще одну проблему, и оператор in является лишь последним в длинной цепочке. Шаблон представляет собой бесконечный горизонт — после in будут частные поля, затем Symbol, затем пропущенные события DOM, затем Canvas. Для работы с Nokia Archive target требуются все эти функции, и каждая из них требует нескольких дней работы.
+Фактическое исправление оператора in составляет 3 строки. В NiL.JS/Expressions/In.cs вместо throwing просто возвращайте значение false, когда правая часть не является объектом. Вот и все. В этом случае современные движки автоматически возвращают значение false. Исправьте это, а затем перестаньте прикасаться NiL.JS источник не менее чем на 5 сеансов. Возьмитесь за CSS. 
+В этом и заключается реальная выгода: рентабельность инвестиций при работе с CSS в 5-10 раз выше, чем при работе с JS. За один сеанс работы с calc() и vw/vh 30-40% современных сайтов выглядят значительно лучше. 
+А сессия на NiL.JS приводит к тому, что один сайт выходит из строя чуть менее бесшумно. План предусматривает внедрение CSS (фаза C) сразу после рационализации фазы R, длившейся один сеанс.
+Испытание проницательности. Существующие "но": набор тестов-это хорошо, но вы пропустили решающую часть: NiL.JS матрица совместимости (раздел F в развернутом тестов). Прямо сейчас, каждый сеанс заново открывает, что NiL.JS можно и чего нельзя делать. Однократная запись в Doc/NilJS_Compat.md останавливает это. Заведомо ошибочные тесты помечаются как ЗАВЕДОМО НЕУДАЧНЫЕ - вы не исправляете тест, вы не продолжаете пытаться исправить NiL.JS для них.
+
+Определение версии 1.0. План содержит четкие, поддающиеся измерению критерии выпуска: 8/10 тестов CSS проходят визуально, 7/10 тестов JS проходят успешно, 5 конкретных сайтов отображаются приемлемо, никаких сбоев за 10 минут. Минимальный путь к достижению этого — фазы R + C + S - составляет около 7-10 целенаправленных дней. Это действительно достижимо.
+В разделе "Долгосрочное видение" также упоминается идея гибридного движка (IBrowserEngine с резервной версией EdgeHTML) как наиболее простой способ, если вы хотите, чтобы Nokia Archive работал без необходимости самостоятельно реализовывать полную среду выполнения DOM.
+
+
+
+Я: Хорошо. Большое вам спасибо! Напоследок важное предположение и два основных вопроса, которые меня беспокоят:
+ 
+1) браузер должен иметь возможность открывать только один сайт "музея" архива дизайна Nokia; 
+
+2) сколько времени это займет в режиме самостоятельной разработки (возможно, с привлечением хорошего программиста с искусственным интеллектом)? 
+
+3) подходит ли моя схема рендеринга контента с помощью xaml без визуализаторов, таких как Skia?
+
+КЛОД: Теперь у меня есть четкое представление о реальном сайте. Проанализировав требования к архиву Nokia, оценки временной шкалы и возможности рендеринга в XAML, проанализировав требования к архиву Nokia, оценки временной шкалы и возможности рендеринга в XAML, я получил четкое представление о реальном сайте. Позвольте мне дать вам прямые ответы на все три вопроса.Я достаточно ознакомился с сайтом. Позвольте мне дать вам прямые, честные ответы на все три вопроса.
+Архив дизайна Nokia не является перегруженным контентом сайтом с D3.js украшение. Тот самый D3.js визуализация - ЭТО сайт. Если он не работает, вы видите заголовок, элементы управления фильтром и нулевые записи. "Открывать" - это значит делать D3.js визуализируются графики сети/временной шкалы. Это существенно меняет наши оценки.
+Вот цепочка зависимостей, которая имеет значение:
+
+
+# MediaExplorer / WEBVIEW — План 04: практический путь к версии 1.0
+
+> **Проект:** MediaExplorer 0.38.x (кодовое название "WebView") — ретро-музейный браузер UWP для W10M
+> ** Аппаратное обеспечение:** Lumia 950/1020 (Snapdragon 810, 3 ГБ оперативной памяти, 5" 1440p)
+> ** Тестовая среда: ** эмулятор x86 (основной) → Устройство ARM (проверка)
+> **Примечание автора:** План 04 - это первый план, написанный с явными ограничениями на честность* —
+> он проводит различие между тем, что достижимо, что является ловушкой, и тем, что представляет собой проект.
+> на самом деле нужно чувствовать себя законченным. Перед началом этапов ознакомьтесь с разделом "Честная оценка".
+> **Последнее обновление:** 2026-05-24
+
+---
+
+## Честная оценка: где вы находитесь и что это значит
+
+### Что на самом деле было создано (замечательно)
+
+После более чем 35 сессий по трем документам плана MediaExplorer перестал быть игрушкой. Это:
+
+- Работающий пользовательский HTML-анализатор + каскадный движок CSS с индексом выбора (O (кандидаты), а не O (n × правила))
+- Виртуализирующий рендерер на основе XAML с переработкой элементов и отложенной загрузкой изображений
+- А NiL.JS Интеграция 2.6, при которой настоящий пакет Vite объемом 568 КБАЙТ теперь ** работает без синтаксических ошибок ** — это потребовало работы с синтаксическим анализатором экспертного уровня в течение 9 сессий (3.9-3.17)
+- Более 50 глобальных браузеров, MutationObserver, модули ES, инкрементный рендеринг, дисковый кэш, режимы чтения, интеграция с AI, инструменты разработки с 4 вкладками, структурированная инфраструктура тестирования
+
+Объективно, это выдающееся индивидуальное достижение. Большинство людей, которые начинают проекты "давайте создадим браузерный движок", отказываются от них на этапе "рендеринг Hello World".
+
+### Текущая ловушка: кроличья нора на JS-движке
+
+Сеансы 3.9–3.17 были почти полностью завершены NiL.JS хирургическим вмешательством. Каждое исправление выявляло очередную проблему:
+
+```
+3.9 → import.meta, console.warn
+3.10 → разрушение настроек по умолчанию, логическое назначение (??=, ||=, &&=)
+3.11 → асинхронные методы в объектных литералах
+3.12 → получение/установка в качестве имен полей
+3.13 → критическое исправление регрессии
+3.14 → функции со стрелками, IIFE, константный интервал{x} → ПОЛНЫЙ синтаксический АНАЛИЗ ✅
+3.15 → querySelectorAll, исправления навигации, всплывающие окна
+3.16 → новое ключевое слово, местоположение хоста
+3.17 → расширение более чем на 50 глобальных объектов
+3.18 → в операторе ← В ДАННЫЙ МОМЕНТ ЗАСТРЯЛ
+```
+
+Шаблон представляет собой ** бесконечный горизонт **: после "in" будут частные поля "#name"
+(12 вхождений), затем "Symbol", затем "WeakRef", затем еще несколько отсутствующих DOM API, затем еще
+`InvalidOperationException` - спам от NiL.JS internals. Каждый шаг по отдельности невелик,
+но в совокупности этот путь ведет к "внедрению DOM браузера с нуля", что является
+многолетней самостоятельной работой.
+
+** Проблема с оператором `in` на самом деле исправлена в 2 строках.** Проблема в `NiL.JS/Expressions/In.cs:42`:
+``csharp
+// Current (throws):
+if (!rhs.isObject)
+    ExceptionHelper.Throw(новая ошибка типа("Правое значение оператора в не является объектом"));
+
+// Исправление (поведение, совместимое с браузером):
+if (rhs == null || !rhs.isObject)
+    возвращает false; // undefined/null RHS → false, не выбрасывает
+```
+Современные JS-движки автоматически возвращают `false` для `ключа" в undefined. NiL.JS выдает ошибку. Исправьте это,
+затем ** перестаньте трогать NiL.JS как минимум на 5 сеансов**.
+
+### Что на самом деле требуется для "идеальной визуализации Nokia Archive"
+
+В Nokia Design Archive используется D3.js версия 7. Для правильной визуализации требуется:
+
+| Требование | Статус | Усилия |
+|-------------|--------|--------|
+| Синтаксический анализатор: полный синтаксис ES2022 | ✅ ГОТОВО (3.14) | Готово |
+| исправлено оператором "in" | ❌ | 30 минут |
+| Поля закрытого класса `#name` (12 использований) | ❌ NiL.JS не поддерживается | 3-5 дней |
+| Полноценная система событий DOM (addEventListener в SVG, ввод) | ❌ Только заглушки | 5-10 дней |
+| Canvas 2D API | ❌ Не запущен | 10-20 дней |
+| Манипулирование SVG DOM с помощью JS | ❌ Не запущено | 10-15 дней |
+| CSS-переходы, управляемые JS | ❌ Частичные | 2-3 дня |
+| Привязка данных D3 (ввод/вывод/обновление) с помощью DOM-мутаций | ❌ Не проверено | Неизвестно |
+
+**Общая оценка того, сколько времени потребуется Nokia Archive для реального рендеринга:** 30-55 дополнительных дней целенаправленной работы.
+
+** Рекомендация:** Примите Nokia Archive как "амбициозную цель, которая, возможно, никогда не будет достигнута", и
+сделайте перенаправление на то, чтобы сделать браузер удобным для своей реальной аудитории — упростить модерирование сайтов на
+ретро-Lumia.
+
+### Что на самом деле требуется для "музейной стабильности версии 1.0"
+
+| Требование | Статус | Усилия |
+|-------------|--------|--------|
+| Исправить оператор `in` | ❌ | 30 минут |
+| CSS: calc(), vw/vh | ❌ | 1-2 дня |
+| CSS: сетка-шаблон-области | ❌ | 2-3 дня |
+| CSS: правильные медиазапросы | ❌ | 1 день |
+| Надежность: защита NaN, тайм-аут JS, ограничение DOM | ❌ | 1-2 дня |
+| Набор тестов: все T-H и T-C проходят | 🟡 частично | 1 день |
+| 5 целевых сайтов отображаются приемлемо | 🟡 некоторые | Зависят от CSS |
+| Без сбоев в течение 10 минут при обычном просмотре | 🟡 | Зависит от стабильности |
+
+**Общая оценка для версии 1.0:** 8-12 дополнительных дней. Это абсолютно достижимо.
+
+---
+
+## критерии выпуска версии 1.0 (явное определение "сделано")
+
+Выпуск называется версией 1.0, когда все это завершается.:
+
+```
+HTML:  От T-H-001 до T-H-008 — все они проходят визуально
+CSS: от T-C-001 до T-C-010 — визуально проходит не менее 8 из 10 баллов
+JS: От T-J-001 до T-J-010 — визуально проходит не менее 7 из 10 баллов.
+Сайты: T-S-001 (DuckDuckGo) — окно поиска отображается и доступно для ввода текста
+       T-S-004 (httpbin.org/html) — текст читается без сбоев
+       T-S-005 (example.com) — отображается корректно
+       T-S-007 (text.npr.org) — статьи доступны для чтения
+       T-S-008 (lobste.rs) — список ссылок доступен для просмотра
+Исправлено: общее время рендеринга DuckDuckGo (и любого не особо тяжелого сайта) в эмуляторе < 3000 мс
+       Ни одного сбоя за 10 минут ни на одном сайте T-S-xxx
+```
+
+---
+
+## NiL.JS Матрица совместимости (новый документ: `Doc/NilJS_Compat.md`)
+
+Прежде чем тратить больше времени на исправления JS, определите, что может и чего не может делать NiL.JS 2.6.
+Это становится постоянной ссылкой для определения того, что следует отключить, а что - исправить или принять.
+
+### Что работает (подтверждено)
+
+| Функция | Версия | Статус |
+|---------|-----------|--------|
+| `var`, `let`, `const` | ES5/6 | ✅ |
+| Функции со стрелками `=>` | ES6 | ✅ (исправлено в 3.11/3.14) |
+| Деструктурирование по умолчанию | ES6 | ✅ (исправлено в 3.10) |
+| Шаблонные литералы | ES6 | ✅ |
+| `асинхронный`/`ожидающий` | ES8 | ✅ |
+| `асинхронная функция*` | ES9 | ✅ (исправлено в 3.11) |
+| `импорт`/`экспорт` (статический) | ES6 | ✅ (NiL.JS собственный) |
+| `import()` динамический | ES2020 | ✅ (корректный резервный вариант) |
+| `import.meta` | ES2020 | ✅ (исправлено в версии 3.9) |
+
+
+Я: Одно важное предположение и два основных вопроса, которые меня беспокоят: 
+- браузер должен иметь возможность открывать только один сайт "музея" архива дизайна Nokia; 
+- сколько времени это займет в режиме самостоятельной разработки (возможно, с привлечением хорошего программиста с искусственным интеллектом)? 
+- подходит ли моя схема рендеринга контента с помощью xaml без таких визуализаторов, как skia?
+
+
+Клод: Теперь три честных ответа.
+Вопрос 1. Можете ли вы открыть только архив Nokia?
+Да, но "открыть" должно означать "на сетевом графике показаны узлы и ребра". На сайте буквально нет читаемого контента без D3.js. 
+Все пять блокирующих факторов на диаграмме выше должны быть устранены, и они должны быть устранены по порядку — вы не можете протестировать # 3 (рендеринг XAML), пока не заработает # 2 (создание SVG DOM), и вы не можете протестировать # 2, пока не будет исправлен #1 (поля закрытого класса).
+
+Исправление in operator из сеанса 3.18 отсутствует на этой диаграмме — оно тривиально (2 строки в In.cs) и должно быть сделано в первую очередь, но на самом деле это не блокировщик архивов Nokia. D3 v7 даже не инициализируется, пока не заработают поля закрытого класса.
+
+Вопрос 2. Как долго длится соло с хорошим ИИ?
+Соло без ИИ: 10-16 недель. Одни только поля частного класса - это неделя обучения. Вмешательство в работу синтаксический анализатора и среды выполнения NiL.JS сопряжено с риском регрессии каждый раз, когда вы этому прикасаетесь (урок 3.13 был болезненным).
+В одиночку с хорошим программистом с искусственным интеллектом (Claude, GPT-4 в режиме агента): реально 3-5 недель. Вот почему искусственный интеллект здесь очень помогает: шаги 2-4 - это в основном механический код, который следует четким шаблонам. Как только вы узнаете, что <circle cx="50" cy="50" r="20"/> должен стать XAML <Ellipse Canvas.Left="30" Canvas.Top="30" Width="40" Height="40"/>, искусственный интеллект может сгенерировать все 15-20 типов элементов SVG за один сеанс. Сложные части, которые остаются сложными даже при использовании искусственного интеллекта, - это  приватные поля NiL.JS (операция глубокого синтаксического анализа с риском регрессии) и DOM event bridge (требует хорошего понимания существующей архитектуры движка JS).
+Реалистичная разбивка с помощью искусственного интеллекта: 4-7 дней для частных полей, 2-3 дня для создания SVG DOM, 3-4 дня для рендерера XAML SVG, 3-4 дня для событий DOM, 1-2 дня для getBoundingClientRect. Это 13-20 рабочих дней, то есть около 4 недель, если считать тестирование и отладку между этапами.
+
+Вопрос 3 — Подходит ли рендеринг на XAML или вам следует перейти на Skia?
+XAML подходит, а на Skia переходить не следует. Это самый важный из трех ответов. Примитив рендеринга не является узким местом. 
+D3.js создает SVG-элементы с помощью DOM-операций JavaScript. Независимо от того, визуализируете ли вы эти элементы с помощью XAML, SkiaSharp или Win2D, вам все равно нужно решить те же самые пять проблем: поля закрытого класса, создание SVG DOM, рендеринг каждого типа элемента, события DOM и getBoundingClientRect. Skia не помогает ни с одним из них.
+Где SkiaSharp действительно помог бы, так это при рендеринге статических изображений в формате SVG (например, значков или встроенных иллюстраций). Частично он уже есть в вашей кодовой базе для этой цели, и это подходящая область для него. Для D3.js динамический SVG, путь таков: JavaScript создает узлы DOM → JsDomElement создает узлы LiteElement SVG → новый SvgRenderer.cs преобразует каждый узел в его эквивалент в XAML (эллипс, линия, путь, текстовый блок, холст XAML для групп) во время рендеринга. Это позволяет поддерживать архитектуру в соответствии со всем остальным в движке.
+Единственное, где Win2D (Microsoft Canvas 2D для UWP) может быть полезен, — это если D3 настроен на использование элемента Canvas вместо SVG - некоторые макеты D3 поддерживают и то, и другое. Но в архиве Nokia специально используется SVG, поэтому Win2D здесь тоже не поможет.
+Короткая версия: не меняйте средство визуализации. Исправьте движок JS и создайте мост SVG→XAML. Это единственный путь.

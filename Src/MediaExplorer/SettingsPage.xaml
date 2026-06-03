@@ -40,7 +40,7 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBox Grid.Column="0" x:Name="HomePageBox" PlaceholderText="https://example.com" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" Margin="0,0,8,0"/>
+                        <TextBox Grid.Column="0" x:Name="HomePageBox" PlaceholderText="" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" Margin="0,0,8,0"/>
                         <Button Grid.Column="1" x:Name="SaveHomePageButton" Content="Save" Background="#333333" Foreground="#CCCCCC" BorderThickness="1" BorderBrush="#555555"/>
                     </Grid>
 
@@ -68,6 +68,14 @@
 
             <PivotItem Header="Advanced">
                 <StackPanel Margin="16,12,16,0">
+                    <!-- DevTools toggle -->
+                    <ToggleSwitch x:Name="DevToolsToggle" Header="Developer Tools" IsOn="False" Foreground="White" Margin="0,0,0,16"/>
+                    <TextBlock Text="Enable DevTools console &amp; DOM inspector (for developers)" Foreground="#888888" FontSize="12" Margin="0,0,0,16" TextWrapping="Wrap"/>
+
+                    <!-- Status Bar toggle -->
+                    <ToggleSwitch x:Name="StatusBarToggle" Header="Show Status Bar" IsOn="True" Foreground="White" Margin="0,0,0,16"/>
+                    <TextBlock Text="Hide the bottom status bar for a cleaner view" Foreground="#888888" FontSize="12" Margin="0,0,0,16" TextWrapping="Wrap"/>
+
                     <!-- API key -->
                     <TextBlock Text="OpenRouter API Key" Foreground="White" FontSize="14" Margin="0,0,0,4"/>
                     <TextBox x:Name="AiKeyBox" PlaceholderText="sk-or-v1-..." Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" Margin="0,0,0,16"/>
@@ -81,7 +89,7 @@
                 <StackPanel Margin="16,20,16,0">
                     <TextBlock Text="MediaExplorer" FontSize="22" FontWeight="Bold" Foreground="White" Margin="0,0,0,8"/>
                     <TextBlock Text="Retro alternative browser for Windows 10 Mobile" Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,12"/>
-                    <TextBlock Text="Version: 0.14.18 (museum build)" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
+                    <TextBlock Text="Version: 0.40 (dev; pre-alpha)" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
                     <TextBlock Text="Built for Lumia 950 / 1020" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
                     <TextBlock Text="Custom HTML/CSS/JS engine" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
                     <TextBlock Text="Engine: NiL.JS + Jint" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,16"/>

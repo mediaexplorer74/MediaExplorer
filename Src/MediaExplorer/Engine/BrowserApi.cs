@@ -84,8 +84,8 @@ namespace BrowserCore.Api
 
         public string RenderMode
         {
-            get => _engine.RenderMode;
-            set => _engine.RenderMode = value;
+            get => _engine.RenderModeString;
+            set => _engine.RenderModeString = value;
         }
 
         public BrowserHost()
@@ -144,6 +144,12 @@ namespace BrowserCore.Api
         public Uri BaseUri { get { return _base; } }
         public bool CanGoBack { get { return _historyIndex > 0; } }
         public bool CanGoForward { get { return _historyIndex >= 0 && _historyIndex < _history.Count - 1; } }
+
+        /// <summary>Expose the current active Lite DOM for DevTools.</summary>
+        public LiteElement GetActiveDom()
+        {
+            return _engine.GetActiveDom();
+        }
 
         private void RaiseStatus(string msg)
         {
@@ -234,10 +240,10 @@ namespace BrowserCore.Api
             catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
         }
 
-        private async Task NavigateInternalAsync(Uri uri)
+        private async Task NavigateInternalAsync(Uri uri, bool addToHistory = true)
         {
             if (uri == null) return;
-            await NavigateAsync(uri.AbsoluteUri);
+            await NavigateAsync(uri.AbsoluteUri, addToHistory);
         }
 
         private void UpdateState(Uri uri)
@@ -261,6 +267,11 @@ namespace BrowserCore.Api
         }
 
         public async Task<bool> NavigateAsync(string url)
+        {
+            return await NavigateAsync(url, true);
+        }
+
+        private async Task<bool> NavigateAsync(string url, bool addToHistory)
         {
             if (_isDisposed) { System.Diagnostics.Debug.WriteLine("[DIAG] BrowserHost.NavigateAsync SKIP disposed"); return false; }
 
@@ -389,8 +400,8 @@ namespace BrowserCore.Api
                 await RaiseRepaintAsync(element2);
                 System.Diagnostics.Debug.WriteLine("[DIAG] BrowserHost RaiseRepaintAsync DONE navId=" + currentNavId);
 
+                if (addToHistory) AddHistory(uri);
                 UpdateState(uri);
-                AddHistory(uri);
                 RaiseStatus("Loaded.");
                 return true;
             }
@@ -453,7 +464,7 @@ namespace BrowserCore.Api
             if (CanGoBack)
             {
                 _historyIndex--;
-                var ignored = NavigateInternalAsync(_history[_historyIndex]);
+                var ignored = NavigateInternalAsync(_history[_historyIndex], addToHistory: false);
             }
         }
 
@@ -462,7 +473,7 @@ namespace BrowserCore.Api
             if (CanGoForward)
             {
                 _historyIndex++;
-                var ignored = NavigateInternalAsync(_history[_historyIndex]);
+                var ignored = NavigateInternalAsync(_history[_historyIndex], addToHistory: false);
             }
         }
 

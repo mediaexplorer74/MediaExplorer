@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html>
+<head><title>import.meta.url Test</title></head>
+<body>
+  <h1>import.meta.url Test</h1>
+  <div id="output"></div>
+  <script type="module">
+    var metaUrl = typeof import !== 'undefined' && import.meta && import.meta.url ? import.meta.url : 'unavailable';
+    document.getElementById('output').textContent = 'import.meta.url: ' + metaUrl;
+  </script>
+</body>
+</html>

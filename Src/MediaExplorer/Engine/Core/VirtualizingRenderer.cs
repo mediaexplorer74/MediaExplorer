@@ -6,6 +6,8 @@ using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Media;
 using Windows.Storage.Streams;
 using System.Runtime.InteropServices.WindowsRuntime;
+using Windows.UI.Xaml.Input;
+using BrowserCore.Engine;
 
 namespace BrowserCore.Engine.Core
 {
@@ -25,6 +27,48 @@ namespace BrowserCore.Engine.Core
 
         // Lazy image loading: RenderObject → Image element (Source deferred until in-viewport)
         private readonly Dictionary<RenderObject, Image> _lazyImages = new Dictionary<RenderObject, Image>();
+
+        // Track elements that already have a Tapped link handler (to avoid duplicates from pool reuse)
+        private readonly HashSet<UIElement> _linkHandledElements = new HashSet<UIElement>();
+
+        // Store handler references for cleanup on pool return
+        private readonly Dictionary<UIElement, object> _linkHandlerRefs = new Dictionary<UIElement, object>();
+
+        private static bool IsZero(Thickness t)
+        {
+            return t.Left == 0 && t.Top == 0 && t.Right == 0 && t.Bottom == 0;
+        }
+
+        private static Thickness GetSafeThickness(Thickness? t)
+        {
+            if (t == null) return new Thickness(0);
+            return new Thickness(
+                EnsureValid(t.Value.Left),
+                EnsureValid(t.Value.Top),
+                EnsureValid(t.Value.Right),
+                EnsureValid(t.Value.Bottom));
+        }
+
+        private static Thickness SafeThickness(Thickness? source, Thickness defaultVal)
+        {
+            if (source == null) return defaultVal;
+            return GetSafeThickness(source.Value);
+        }
+
+        private static double EnsureDimension(double v)
+        {
+            if (double.IsNaN(v) || double.IsInfinity(v) || v < 0) return 0;
+            return v;
+        }
+
+        private static Thickness EnsureThickness(Thickness t)
+        {
+            return new Thickness(
+                EnsureDimension(t.Left),
+                EnsureDimension(t.Top),
+                EnsureDimension(t.Right),
+                EnsureDimension(t.Bottom));
+        }
 
         public VirtualizingRenderer(RenderObject root, Uri baseUri, Action<Uri> onNavigate)
         {
@@ -126,37 +170,11 @@ namespace BrowserCore.Engine.Core
                 }
             }
 
-            // Ensure visible nodes are on canvas with correct positions
+            // Place all visible nodes on canvas
             foreach (var node in newVisible)
             {
-                if (_activeElements.ContainsKey(node))
-                    continue;
-
-                var visual = GetOrCreateVisual(node);
-                if (visual != null)
-                {
-                    // Compute absolute position via parent chain
-                    double ax = 0, ay = 0;
-                    var cur = node;
-                    while (cur != null)
-                    {
-                        ax += cur.Bounds.X;
-                        ay += cur.Bounds.Y;
-                        cur = cur.Parent;
-                    }
-                    ax = EnsureValid(ax);
-                    ay = EnsureValid(ay);
-
-                    if (visual is FrameworkElement fe)
-                    {
-                        fe.Width = EnsureValid(node.Bounds.Width);
-                        fe.Height = EnsureValid(node.Bounds.Height);
-                    }
-                    Canvas.SetLeft(visual, ax);
-                    Canvas.SetTop(visual, ay);
-                    _canvas.Children.Add(visual);
-                    _activeElements[node] = visual;
-                }
+                if (!_activeElements.ContainsKey(node))
+                    PlaceVisualOnCanvas(node);
             }
 
             // Load / cancel images based on final visible set
@@ -240,6 +258,7 @@ namespace BrowserCore.Engine.Core
                     return typeof(TextBox);
                 }
                 if (tag == "BUTTON") return typeof(Button);
+
                 if (HasBorderOrBackground(box)) return typeof(Border);
                 return null; // no visual needed
             }
@@ -268,6 +287,146 @@ namespace BrowserCore.Engine.Core
             }
         }
 
+        /// <summary>
+        /// Incremental patch: apply only the changed nodes to the canvas.
+        /// Much cheaper than full UpdateView when only a few nodes changed.
+        /// </summary>
+        public void PatchAdded(RenderObject subtreeRoot)
+        {
+            if (subtreeRoot == null) return;
+            // Only patch if the node is in the current viewport
+            var viewport = GetViewportRect();
+            var newlyVisible = new HashSet<RenderObject>();
+            CollectVisible(subtreeRoot, viewport, 0, 0, newlyVisible);
+
+            foreach (var node in newlyVisible)
+            {
+                if (_activeElements.ContainsKey(node)) continue;
+                PlaceVisualOnCanvas(node);
+            }
+        }
+
+        /// <summary>
+        /// Patch style/attribute changes on an existing node.
+        /// Updates the visual in-place without recreating it.
+        /// </summary>
+        public void PatchStyle(RenderObject node)
+        {
+            if (node == null) return;
+            UIElement el;
+            if (!_activeElements.TryGetValue(node, out el)) return;
+
+            // Update bounds
+            if (el is FrameworkElement fe)
+            {
+                fe.Width = EnsureValid(node.Bounds.Width);
+                fe.Height = EnsureValid(node.Bounds.Height);
+            }
+
+            // Update position
+            double ax = 0, ay = 0;
+            var cur = node;
+            while (cur != null)
+            {
+                ax += cur.Bounds.X;
+                ay += cur.Bounds.Y;
+                cur = cur.Parent;
+            }
+            Canvas.SetLeft(el, EnsureValid(ax));
+            Canvas.SetTop(el, EnsureValid(ay));
+
+            // Update style-dependent properties
+            ApplyStyleToVisual(el, node);
+        }
+
+        private void PlaceVisualOnCanvas(RenderObject node)
+        {
+            var visual = GetOrCreateVisual(node);
+            if (visual == null) return;
+
+            double ax = 0, ay = 0;
+            var cur = node;
+            while (cur != null)
+            {
+                ax += cur.Bounds.X;
+                ay += cur.Bounds.Y;
+                cur = cur.Parent;
+            }
+
+            if (visual is FrameworkElement fe)
+            {
+                fe.Width = EnsureValid(node.Bounds.Width);
+                // Don't set explicit Height on TextBlock — use natural text height
+                if (!(visual is TextBlock))
+                    fe.Height = EnsureValid(node.Bounds.Height);
+            }
+            Canvas.SetLeft(visual, EnsureValid(ax));
+            Canvas.SetTop(visual, EnsureValid(ay));
+            _canvas.Children.Add(visual);
+            _activeElements[node] = visual;
+        }
+
+        private void ApplyStyleToVisual(UIElement el, RenderObject node)
+        {
+            var style = node.Style;
+            if (style == null) return;
+
+            if (el is TextBlock tb)
+            {
+                if (style.FontSize.HasValue) tb.FontSize = style.FontSize.Value;
+                if (style.ForegroundColor.HasValue) tb.Foreground = new SolidColorBrush(style.ForegroundColor.Value);
+                if (!string.IsNullOrEmpty(style.FontFamilyName)) tb.FontFamily = new FontFamily(style.FontFamilyName);
+                if (style.FontWeight.HasValue) tb.FontWeight = style.FontWeight.Value;
+            }
+            else if (el is Border b)
+            {
+                if (style.Background != null) b.Background = style.Background;
+                if (style.BorderBrush != null) b.BorderBrush = style.BorderBrush;
+                if (style.BorderThickness != default(Thickness)) b.BorderThickness = style.BorderThickness;
+                if (style.BorderRadius != default(CornerRadius)) b.CornerRadius = style.BorderRadius;
+            }
+            else if (el is Button btn)
+            {
+                if (style.Background != null) btn.Background = style.Background;
+                if (style.ForegroundColor.HasValue) btn.Foreground = new SolidColorBrush(style.ForegroundColor.Value);
+                if (style.BorderBrush != null) btn.BorderBrush = style.BorderBrush;
+                if (style.BorderThickness != default(Thickness)) btn.BorderThickness = style.BorderThickness;
+                if (style.FontSize.HasValue) btn.FontSize = style.FontSize.Value;
+            }
+            else if (el is TextBox tbx)
+            {
+                if (style.Background != null) tbx.Background = style.Background;
+                if (style.ForegroundColor.HasValue) tbx.Foreground = new SolidColorBrush(style.ForegroundColor.Value);
+                if (style.BorderBrush != null) tbx.BorderBrush = style.BorderBrush;
+                if (style.BorderThickness != default(Thickness)) tbx.BorderThickness = style.BorderThickness;
+                if (style.FontSize.HasValue) tbx.FontSize = style.FontSize.Value;
+            }
+            else if (el is Grid g)
+            {
+                if (style.BackgroundColor.HasValue) g.Background = new SolidColorBrush(style.BackgroundColor.Value);
+            }
+        }
+
+        private Rect GetViewportRect()
+        {
+            double horizontalOffset = _scrollViewer.HorizontalOffset;
+            double verticalOffset = _scrollViewer.VerticalOffset;
+            double viewportWidth = _scrollViewer.ViewportWidth;
+            double viewportHeight = _scrollViewer.ViewportHeight;
+
+            if (viewportWidth == 0) viewportWidth = _scrollViewer.ActualWidth;
+            if (viewportHeight == 0) viewportHeight = _scrollViewer.ActualHeight;
+            if (viewportWidth == 0) viewportWidth = 800;
+            if (viewportHeight == 0) viewportHeight = 600;
+
+            double buffer = 200;
+            return new Rect(
+                EnsureValid(horizontalOffset - buffer),
+                EnsureValid(verticalOffset - buffer),
+                EnsureValid(viewportWidth + 2 * buffer),
+                EnsureValid(viewportHeight + 2 * buffer));
+        }
+
         private void RemoveSubtreeVisuals(RenderObject node)
         {
             if (node == null) return;
@@ -291,6 +450,14 @@ namespace BrowserCore.Engine.Core
 
         private void ReturnToPool(UIElement element)
         {
+            // Remove any Tapped link handler that was attached
+            if (_linkHandlerRefs.TryGetValue(element, out var linkHandler))
+            {
+                element.Tapped -= (TappedEventHandler)linkHandler;
+                _linkHandlerRefs.Remove(element);
+                _linkHandledElements.Remove(element);
+            }
+
             var t = element.GetType();
             if (!_pools.TryGetValue(t, out var stack))
             {
@@ -310,6 +477,8 @@ namespace BrowserCore.Engine.Core
             else if (element is Grid g)
             {
                 g.Children.Clear();
+                g.RowDefinitions.Clear();
+                g.ColumnDefinitions.Clear();
                 g.Background = null;
             }
             else if (element is Border b)
@@ -382,6 +551,21 @@ namespace BrowserCore.Engine.Core
         private UIElement CreateTextVisual(RenderText textNode)
         {
             var style = textNode.Style ?? textNode.Parent?.Style;
+            var margin = style?.Margin ?? new Thickness(0);
+            var padding = style?.Padding ?? new Thickness(0);
+
+            // Ensure margin/padding are safe (no NaN/Infinity)
+            margin = new Thickness(
+                EnsureValid(margin.Left),
+                EnsureValid(margin.Top),
+                EnsureValid(margin.Right),
+                EnsureValid(margin.Bottom));
+            padding = new Thickness(
+                EnsureValid(padding.Left),
+                EnsureValid(padding.Top),
+                EnsureValid(padding.Right),
+                EnsureValid(padding.Bottom));
+            
             var tb = new TextBlock
             {
                 Text = textNode.Text,
@@ -392,13 +576,35 @@ namespace BrowserCore.Engine.Core
                 TextWrapping = TextWrapping.Wrap
             };
 
-            if (style?.TextDecoration != null && style.TextDecoration.Contains("underline"))
+            // Apply text-decoration (underline, line-through)
+            if (style?.TextDecoration != null)
             {
-                tb.Text = "";
-                var u = new Windows.UI.Xaml.Documents.Underline();
-                u.Inlines.Add(new Windows.UI.Xaml.Documents.Run { Text = textNode.Text });
-                tb.Inlines.Add(u);
+                if (style.TextDecoration.Contains("underline"))
+                {
+                    tb.Text = "";
+                    var u = new Windows.UI.Xaml.Documents.Underline();
+                    u.Inlines.Add(new Windows.UI.Xaml.Documents.Run { Text = textNode.Text });
+                    tb.Inlines.Add(u);
+                }
+                if (style.TextDecoration.Contains("line-through"))
+                {
+                    // UWP doesn't support line-through directly, skip for now
+                }
             }
+
+            // Wrap in Border if padding is needed (TextBlock doesn't support Padding)
+            if (!IsZero(padding) || !IsZero(margin))
+            {
+                var border = new Border
+                {
+                    Margin = margin,
+                    Padding = padding,
+                    Child = tb
+                };
+                AttachLinkHandler(border, textNode);
+                return border;
+            }
+
             if (textNode.Bounds.Width > 0) tb.Width = textNode.Bounds.Width;
 
             AttachLinkHandler(tb, textNode);
@@ -414,12 +620,16 @@ namespace BrowserCore.Engine.Core
             if (tag == "INPUT") return CreateInputVisual(box);
             if (tag == "BUTTON") return CreateButtonVisual(box);
 
-            if (HasBorderOrBackground(box) || tag == "A")
-            {
-                var bg = box.Style?.Background;
-                var borderBrush = box.Style?.BorderBrush;
-                var borderThick = box.Style?.BorderThickness ?? new Thickness(0);
+            // Create visual for ALL elements, not just those with border/background
+            var bg = box.Style?.Background;
+            var borderBrush = box.Style?.BorderBrush;
+            var borderThick = GetSafeThickness(box.Style?.BorderThickness);
+            var margin = GetSafeThickness(box.Style?.Margin);
+            var padding = GetSafeThickness(box.Style?.Padding);
 
+            // Only create Border if there's something to style
+            if (HasBorderOrBackground(box) || tag == "A" || !IsZero(margin) || !IsZero(padding))
+            {
                 var border = new Border
                 {
                     Width = EnsureValid(box.Bounds.Width),
@@ -427,12 +637,15 @@ namespace BrowserCore.Engine.Core
                     Background = bg,
                     BorderBrush = borderBrush,
                     BorderThickness = borderThick,
-                    CornerRadius = box.Style?.BorderRadius ?? new CornerRadius(0)
+                    CornerRadius = box.Style?.BorderRadius ?? new CornerRadius(0),
+                    Margin = margin,
+                    Padding = padding
                 };
 
                 AttachLinkHandler(border, box);
                 return border;
             }
+
             return null;
         }
 
@@ -482,8 +695,8 @@ namespace BrowserCore.Engine.Core
                 Background = box.Style?.Background ?? new SolidColorBrush(Windows.UI.Colors.White),
                 Foreground = box.Style?.Foreground ?? new SolidColorBrush(Windows.UI.Colors.Black),
                 BorderBrush = box.Style?.BorderBrush ?? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 200, 200, 200)),
-                BorderThickness = box.Style?.BorderThickness ?? new Thickness(1),
-                Padding = box.Style?.Padding ?? new Thickness(8, 6, 8, 6)
+                BorderThickness = SafeThickness(box.Style?.BorderThickness, new Thickness(1)),
+                Padding = SafeThickness(box.Style?.Padding, new Thickness(8, 6, 8, 6))
             };
 
             if (box.Children != null)
@@ -520,8 +733,8 @@ namespace BrowserCore.Engine.Core
                     Background = box.Style?.Background ?? new SolidColorBrush(Windows.UI.Colors.LightGray),
                     Foreground = box.Style?.Foreground ?? new SolidColorBrush(Windows.UI.Colors.Black),
                     BorderBrush = box.Style?.BorderBrush ?? new SolidColorBrush(Windows.UI.Colors.Gray),
-                    BorderThickness = box.Style?.BorderThickness ?? new Thickness(1),
-                    Padding = box.Style?.Padding ?? new Thickness(4),
+                    BorderThickness = SafeThickness(box.Style?.BorderThickness, new Thickness(1)),
+                    Padding = SafeThickness(box.Style?.Padding, new Thickness(4)),
                     FontSize = box.Style?.FontSize ?? 14,
                 };
                 return btn;
@@ -547,8 +760,8 @@ namespace BrowserCore.Engine.Core
                     Background = box.Style?.Background ?? new SolidColorBrush(Windows.UI.Colors.White),
                     Foreground = box.Style?.Foreground ?? new SolidColorBrush(Windows.UI.Colors.Black),
                     BorderBrush = box.Style?.BorderBrush ?? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 200, 200, 200)),
-                    BorderThickness = box.Style?.BorderThickness ?? new Thickness(1),
-                    Padding = box.Style?.Padding ?? new Thickness(8, 6, 8, 6)
+                    BorderThickness = SafeThickness(box.Style?.BorderThickness, new Thickness(1)),
+                    Padding = SafeThickness(box.Style?.Padding, new Thickness(8, 6, 8, 6))
                 };
             }
         }
@@ -563,8 +776,8 @@ namespace BrowserCore.Engine.Core
                 Background = box.Style?.Background ?? new SolidColorBrush(Windows.UI.Colors.LightGray),
                 Foreground = box.Style?.Foreground ?? new SolidColorBrush(Windows.UI.Colors.Black),
                 BorderBrush = box.Style?.BorderBrush ?? new SolidColorBrush(Windows.UI.Colors.Gray),
-                BorderThickness = box.Style?.BorderThickness ?? new Thickness(1),
-                Padding = box.Style?.Padding ?? new Thickness(4),
+                BorderThickness = SafeThickness(box.Style?.BorderThickness, new Thickness(1)),
+                Padding = SafeThickness(box.Style?.Padding, new Thickness(4)),
                 FontSize = box.Style?.FontSize ?? 14,
             };
         }
@@ -597,22 +810,29 @@ namespace BrowserCore.Engine.Core
 
             if (href != null)
             {
+                // Prevent duplicate handlers on pooled elements
+                if (_linkHandledElements.Contains(element))
+                    return;
+                _linkHandledElements.Add(element);
+
                 var uri = ResolveUri(_baseUri, href);
                 if (uri != null)
                 {
                     if (element is Border b && b.Background == null)
                         b.Background = new SolidColorBrush(Windows.UI.Colors.Transparent);
 
-                    element.Tapped += (s, e) =>
+                    TappedEventHandler handler = (s, e) =>
                     {
                         e.Handled = true;
                         _onNavigate?.Invoke(uri);
                     };
+                    _linkHandlerRefs[element] = handler;
+                    element.Tapped += handler;
                 }
             }
         }
 
-        private double EnsureValid(double v)
+        private static double EnsureValid(double v)
         {
             if (double.IsNaN(v) || double.IsInfinity(v)) return 0;
             return Math.Max(0, v);

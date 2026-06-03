@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Threading.Tasks;
 using Windows.Foundation;
+using Windows.UI;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -10,6 +11,9 @@ using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Navigation;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Animation;
+using Windows.UI.Xaml.Media.Imaging;
+using Windows.Graphics.Imaging;
+using System.Runtime.InteropServices.WindowsRuntime;
 using BrowserCore.Engine;
 using BrowserCore.Api;
 using Windows.Web.Http;
@@ -21,7 +25,8 @@ namespace WEBVIEW
     {
         private bool _safeMode = false;
         private string _lastErrorMessage;
-        private bool _errorOverlayVisible;
+        private bool _messageOverlayVisible;
+        private DispatcherTimer _toastTimer;
         public static MainPage Current { get; private set; }
 
         private readonly HttpClient _http = new HttpClient();
@@ -30,6 +35,32 @@ namespace WEBVIEW
         private readonly BrowserHost _browser;
         private bool _barExpanded = false;
         private string _appBarMode = "Semi"; // "Full", "Semi", "Hided"
+
+        // Magic Bubble: long-tap triggers existing AI summary (reuses AiOverlay)
+        private DateTime _holdingStart;
+
+        // DevTools
+        private bool _devToolsEnabled;
+        private System.Text.StringBuilder _devConsoleBuffer = new System.Text.StringBuilder();
+        private System.Text.StringBuilder _debugLogBuffer = new System.Text.StringBuilder();
+
+        public bool DevToolsEnabled
+        {
+            get => _devToolsEnabled;
+            set
+            {
+                _devToolsEnabled = value;
+                Ui(() =>
+                {
+                    if (DevToolsPanel != null)
+                        DevToolsPanel.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+                    if (DevToolsRow != null)
+                        DevToolsRow.Height = value ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+                    if (value && DevConsoleText != null && DevConsoleText.Blocks.Count == 0)
+                        DevToolsLog("[DevTools] Console ready.");
+                });
+            }
+        }
 
         private Uri _currentUri;
         private bool _welcomeShown;
@@ -45,12 +76,43 @@ namespace WEBVIEW
             InitializeComponent();
             Current = this;
 
+            // Subscribe to DevToolsLogger to capture TestLogger and JS console output
+            try
+            {
+                BrowserCore.Engine.DevToolsLogger.OnLog += msg =>
+                {
+                    if (_devToolsEnabled)
+                    {
+                        // Must dispatch to UI thread because OnLog can fire from background threads (ResourceManager, ModuleLoader)
+                        Ui(() =>
+                        {
+                            try
+                            {
+                                AppendDevToolsLog(msg);
+                                // Also buffer [DIAG] messages for Debug tab
+                                if (msg.StartsWith("[DIAG]"))
+                                {
+                                    _debugLogBuffer.AppendLine(msg);
+                                    // Limit buffer size
+                                    if (_debugLogBuffer.Length > 50000)
+                                        _debugLogBuffer.Clear();
+                                }
+                            }
+                            catch { }
+                        });
+                    }
+                };
+            }
+            catch { }
+
             if (GoButton != null) GoButton.Click += GoButton_Click;
             if (Omnibox != null) Omnibox.KeyDown += Omnibox_KeyDown;
             if (BackButton != null) BackButton.Click += BackButton_Click;
             if (ForwardButton != null) ForwardButton.Click += ForwardButton_Click;
             if (SettingsButton != null) SettingsButton.Click += SettingsButton_Click;
             if (AiButton != null) AiButton.Click += AiButton_Click;
+            if (SnapshotButton != null) SnapshotButton.Click += SnapshotButton_Click;
+            if (CopyButton != null) CopyButton.Click += CopyButton_Click;
             if (AiCloseButton != null) AiCloseButton.Click += AiCloseButton_Click;
             if (AiCopyButton != null) AiCopyButton.Click += AiCopyButton_Click;
             if (ReaderCloseButton != null) ReaderCloseButton.Click += ReaderCloseButton_Click;
@@ -102,6 +164,10 @@ namespace WEBVIEW
             if (ContentArea != null)
                 ContentArea.Tapped += (s, e) => CollapseBar();
 
+            // Magic Bubble: long-tap / long-press on content area
+            if (ContentArea != null)
+                ContentArea.Holding += ContentArea_Holding;
+
             _resources = new ResourceManager(_http);
 
             try { if (ContentArea != null) JavaScriptEngine.RegisterVisualRoot(ContentArea); } catch { }
@@ -128,9 +194,11 @@ namespace WEBVIEW
 
             SizeChanged += MainPage_SizeChanged;
 
-            Loaded += (s, e) => { try { ApplyAppBarMode(); ApplyRenderMode(); } catch { } };
+            Loaded += (s, e) => { try { ApplyAppBarMode(); ApplyRenderMode(); ApplyDevTools(); ApplyStatusBar(); } catch { } };
             try { ApplyAppBarMode(); } catch { }
             try { ApplyRenderMode(); } catch { }
+            try { ApplyDevTools(); } catch { }
+            try { ApplyStatusBar(); } catch { }
 
             Task.Run(() => RunNilJsStartupTest());
         }
@@ -182,6 +250,25 @@ namespace WEBVIEW
             if (BarStrip != null) BarStrip.IsHitTestVisible = true;
             if (BarContent != null) BarContent.IsHitTestVisible = false;
             UpdateBarClip();
+        }
+
+        // --- Magic Bubble (long-tap triggers existing AI summary) ---
+
+        private void ContentArea_Holding(object sender, HoldingRoutedEventArgs e)
+        {
+            if (e.HoldingState == Windows.UI.Input.HoldingState.Started)
+            {
+                _holdingStart = DateTime.Now;
+            }
+            else if (e.HoldingState == Windows.UI.Input.HoldingState.Completed)
+            {
+                var elapsed = DateTime.Now - _holdingStart;
+                if (elapsed.TotalMilliseconds >= 500)
+                {
+                    // Long press — reuse existing AiOverlay + OpenRouter summary
+                    AiButton_Click(null, null);
+                }
+            }
         }
 
         private void ToggleBar()
@@ -322,6 +409,28 @@ namespace WEBVIEW
                 UpdateStatusMessage("Enter a URL.");
                 return;
             }
+
+            // about:scheme routing
+            if (address.StartsWith("about:", StringComparison.OrdinalIgnoreCase))
+            {
+                var aboutPage = address.Substring(6).Trim().ToLowerInvariant();
+                if (aboutPage == "test")
+                {
+                    address = "ms-appx:///Html/test.html";
+                }
+                else if (aboutPage == "blank")
+                {
+                    ResetContentHost();
+                    UpdateStatusMessage("about:blank");
+                    return;
+                }
+                else
+                {
+                    UpdateStatusMessage("Unknown about: page — " + address);
+                    return;
+                }
+            }
+
             if (!address.StartsWith("http", StringComparison.OrdinalIgnoreCase) &&
                 !address.StartsWith("file", StringComparison.OrdinalIgnoreCase) &&
                 !address.StartsWith("ms-appx", StringComparison.OrdinalIgnoreCase))
@@ -425,6 +534,16 @@ namespace WEBVIEW
             int seq = _renderSequence;
             double w = 0, h = 0;
             try { w = element.Width; h = element.Height; } catch { }
+            
+            // NaN guard: use ActualWidth/ActualHeight as fallback
+            bool hasNaN = double.IsNaN(w) || double.IsNaN(h) || double.IsInfinity(w) || double.IsInfinity(h);
+            if (hasNaN)
+            {
+                try { w = element.ActualWidth; h = element.ActualHeight; } catch { }
+                if (double.IsNaN(w) || double.IsInfinity(w)) w = 0;
+                if (double.IsNaN(h) || double.IsInfinity(h)) h = 0;
+            }
+            
             System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady seq=" + seq + " currentSeq=" + _renderSequence + " elementSize=" + w + "x" + h + " type=" + element.GetType().Name);
             Ui(() =>
             {
@@ -543,30 +662,98 @@ namespace WEBVIEW
             UpdateStatusMessage("Error: " + (message ?? string.Empty), overrideStartup: true);
             try { if (LoadingRing != null) LoadingRing.IsActive = false; } catch { }
             try { if (LoadingOverlay != null) LoadingOverlay.Visibility = Visibility.Collapsed; } catch { }
-            ShowErrorOverlay(message);
+            ShowMessageOverlay(message, "Aw, Snap!", "Important", isError: true);
         }
 
-        private void ShowErrorOverlay(string message)
+        private void ShowMessageOverlay(string message, string title = "Aw, Snap!", string icon = "Important", bool isError = true)
         {
             Ui(() =>
             {
                 _lastErrorMessage = message ?? "Unknown error.";
-                _errorOverlayVisible = true;
-                if (ErrorOverlay != null) ErrorOverlay.Visibility = Visibility.Visible;
-                if (ErrorOverlayMessage != null) ErrorOverlayMessage.Text = _lastErrorMessage;
+                _messageOverlayVisible = true;
+                if (MessageOverlay != null) MessageOverlay.Visibility = Visibility.Visible;
+                if (MessageOverlayTitle != null) MessageOverlayTitle.Text = title;
+                if (MessageText != null) MessageText.Text = _lastErrorMessage;
+                if (MessageOverlayIcon != null)
+                {
+                    MessageOverlayIcon.Foreground = new SolidColorBrush(
+                        isError ? Windows.UI.Colors.Crimson : Windows.UI.Colors.LightSkyBlue);
+                    if (Enum.TryParse<Symbol>(icon, out var sym))
+                        MessageOverlayIcon.Symbol = sym;
+                }
             });
         }
 
-        private void HideErrorOverlay()
+        private void HideMessageOverlay()
         {
             Ui(() =>
             {
-                _errorOverlayVisible = false;
-                if (ErrorOverlay != null) ErrorOverlay.Visibility = Visibility.Collapsed;
+                _messageOverlayVisible = false;
+                if (MessageOverlay != null) MessageOverlay.Visibility = Visibility.Collapsed;
             });
         }
 
-        private void ErrorOverlayClose_Click(object sender, RoutedEventArgs e) => HideErrorOverlay();
+        private void MessageClose_Click(object sender, RoutedEventArgs e) => HideMessageOverlay();
+
+        // ========== Toast Notifications ==========
+        public void ShowToast(string message, int durationMs = 5000)
+        {
+            Ui(() =>
+            {
+                if (ToastOverlay == null || ToastBar == null || ToastMessage == null) return;
+
+                _toastTimer?.Stop();
+
+                ToastMessage.Text = message;
+                ToastOverlay.Visibility = Visibility.Visible;
+                ToastBar.Opacity = 0;
+
+                var sb = new Windows.UI.Xaml.Media.Animation.Storyboard();
+                var da = new Windows.UI.Xaml.Media.Animation.DoubleAnimation
+                {
+                    From = 0,
+                    To = 0.95,
+                    Duration = TimeSpan.FromMilliseconds(200)
+                };
+                Windows.UI.Xaml.Media.Animation.Storyboard.SetTarget(da, ToastBar);
+                Windows.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(da, "Opacity");
+                sb.Children.Add(da);
+                sb.Begin();
+
+                _toastTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(durationMs) };
+                _toastTimer.Tick += (s, e) =>
+                {
+                    _toastTimer.Stop();
+                    HideToast();
+                };
+                _toastTimer.Start();
+            });
+        }
+
+        private void HideToast()
+        {
+            Ui(() =>
+            {
+                if (ToastBar == null || ToastOverlay == null) return;
+
+                var sb = new Windows.UI.Xaml.Media.Animation.Storyboard();
+                var da = new Windows.UI.Xaml.Media.Animation.DoubleAnimation
+                {
+                    From = ToastBar.Opacity,
+                    To = 0,
+                    Duration = TimeSpan.FromMilliseconds(300)
+                };
+                Windows.UI.Xaml.Media.Animation.Storyboard.SetTarget(da, ToastBar);
+                Windows.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(da, "Opacity");
+                sb.Children.Add(da);
+                sb.Completed += (s, e) =>
+                {
+                    if (ToastOverlay != null)
+                        ToastOverlay.Visibility = Visibility.Collapsed;
+                };
+                sb.Begin();
+            });
+        }
 
         // ========== Settings ==========
         private void SettingsButton_Click(object sender, RoutedEventArgs e)
@@ -581,6 +768,31 @@ namespace WEBVIEW
                 var s = Windows.Storage.ApplicationData.Current.LocalSettings;
                 if (s.Values.TryGetValue("RenderMode", out var v) && v is string mode && !string.IsNullOrWhiteSpace(mode))
                     RenderMode = mode;
+            }
+            catch { }
+        }
+
+        public void ApplyDevTools()
+        {
+            try
+            {
+                var s = Windows.Storage.ApplicationData.Current.LocalSettings;
+                if (s.Values.TryGetValue("DevToolsEnabled", out var v) && v is bool enabled)
+                    DevToolsEnabled = enabled;
+            }
+            catch { }
+        }
+
+        public void ApplyStatusBar()
+        {
+            try
+            {
+                var s = Windows.Storage.ApplicationData.Current.LocalSettings;
+                bool visible = true;
+                if (s.Values.TryGetValue("StatusBarVisible", out var v) && v is bool vb)
+                    visible = vb;
+                if (StatusBarBorder != null)
+                    StatusBarBorder.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
             }
             catch { }
         }
@@ -636,7 +848,7 @@ namespace WEBVIEW
             set
             {
                 _browser.RenderMode = value;
-                _welcomeEngine.RenderMode = value;
+                _welcomeEngine.RenderModeString = value;
             }
         }
 
@@ -644,6 +856,418 @@ namespace WEBVIEW
         {
             _resources.ClearCache();
             UpdateStatusMessage("Cache cleared.");
+        }
+
+        // --- Snapshot (screenshot) ---
+
+        private async void SnapshotButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("[Snapshot] START");
+
+                // Check if page is scrollable and tall enough to warrant scrolling capture
+                ScrollViewer sv = null;
+                try
+                {
+                    for (int i = 0; i < Windows.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(ContentArea); i++)
+                    {
+                        var child = Windows.UI.Xaml.Media.VisualTreeHelper.GetChild(ContentArea, i);
+                        if (child is ScrollViewer) { sv = (ScrollViewer)child; break; }
+                    }
+                }
+                catch { }
+
+                // If scrollable height is significant (more than 1.5x viewport), use scrolling mode
+                if (sv != null && sv.ScrollableHeight > sv.ViewportHeight * 1.5)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] Page is tall (" + sv.ScrollableHeight + " > " + (sv.ViewportHeight * 1.5) + "), using SnapshotWithScrolling");
+                    SnapshotWithScrolling();
+                    return;
+                }
+
+                // Otherwise, use basic snapshot (faster)
+                System.Diagnostics.Debug.WriteLine("[Snapshot] Page fits in viewport, using basic snapshot");
+
+                // Prefer _activeVisual (the rendered page Border) over ContentArea
+                FrameworkElement target = _activeVisual;
+                if (target == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] _activeVisual is null, falling back to ContentHost");
+                    target = ContentHost;
+                }
+                if (target == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] FAIL: no render target available");
+                    UpdateStatusMessage("Snapshot: nothing to capture.");
+                    return;
+                }
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] target=" + target.GetType().Name + " ActualSize=" + target.ActualWidth + "x" + target.ActualHeight);
+
+                UpdateStatusMessage("Taking snapshot...");
+
+                var bitmap = new RenderTargetBitmap();
+                await bitmap.RenderAsync(target);
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] bitmap.PixelWidth=" + bitmap.PixelWidth + " PixelHeight=" + bitmap.PixelHeight);
+
+                if (bitmap.PixelWidth == 0 || bitmap.PixelHeight == 0)
+                {
+                    // Fallback: try rendering ContentArea (visible viewport)
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] Zero-size bitmap, trying ContentArea fallback");
+                    if (ContentArea != null)
+                    {
+                        bitmap = new RenderTargetBitmap();
+                        await bitmap.RenderAsync(ContentArea);
+                        System.Diagnostics.Debug.WriteLine("[Snapshot] fallback bitmap=" + bitmap.PixelWidth + "x" + bitmap.PixelHeight);
+                    }
+                    if (bitmap.PixelWidth == 0 || bitmap.PixelHeight == 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine("[Snapshot] FAIL: still zero-size");
+                        UpdateStatusMessage("Snapshot failed: could not capture content.");
+                        return;
+                    }
+                }
+
+                var pixelBuffer = await bitmap.GetPixelsAsync();
+                var pixels = pixelBuffer.ToArray();
+                System.Diagnostics.Debug.WriteLine("[Snapshot] pixels.Length=" + pixels.Length);
+
+                var filename = GenerateSnapshotFilename();
+                System.Diagnostics.Debug.WriteLine("[Snapshot] filename=" + filename);
+
+                await SavePngAsync(bitmap, pixels, filename);
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] DONE");
+                UpdateStatusMessage("Snapshot saved: " + filename);
+                ShowToast("📷 Snapshot saved: " + filename, 3000);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[Snapshot] ERROR: " + ex.GetType().Name + " — " + ex.Message);
+                if (ex.InnerException != null)
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] Inner: " + ex.InnerException.Message);
+                UpdateStatusMessage("Snapshot failed: " + ex.Message, overrideStartup: true);
+            }
+        }
+
+        // --- Snapshot with scrolling support (full-page capture) ---
+
+        private async void SnapshotWithScrolling()
+        {
+            try
+            {
+                if (ContentHost.Children.Count == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] FAIL: ContentHost has no children");
+                    UpdateStatusMessage("Snapshot: nothing to capture.");
+                    return;
+                }
+
+                UpdateStatusMessage("Taking full-page snapshot...");
+
+                // Find the ScrollViewer inside ContentArea
+                ScrollViewer sv = null;
+                try
+                {
+                    for (int i = 0; i < Windows.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(ContentArea); i++)
+                    {
+                        var child = Windows.UI.Xaml.Media.VisualTreeHelper.GetChild(ContentArea, i);
+                        if (child is ScrollViewer) { sv = (ScrollViewer)child; break; }
+                    }
+                }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[Snapshot] Find SV error: " + ex.Message); }
+
+                if (sv == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] No ScrollViewer found, using basic snapshot");
+                    SnapshotButton_Click(null, null);
+                    return;
+                }
+
+                double originalOffset = sv.VerticalOffset;
+                double viewportHeight = sv.ViewportHeight;
+                double totalHeight = sv.ScrollableHeight + viewportHeight;
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] Viewport=" + viewportHeight + " Total=" + totalHeight + " Scrollable=" + sv.ScrollableHeight);
+
+                // Calculate number of captures needed (limit to 50 to prevent memory issues)
+                int captures = (int)Math.Ceiling(totalHeight / viewportHeight);
+                if (captures > 50) captures = 50;
+                if (captures < 1) captures = 1;
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] Will capture " + captures + " frames");
+
+                var frames = new List<byte[]>();
+                int frameWidth = 0, frameHeight = 0;
+
+                try
+                {
+                    for (int i = 0; i < captures; i++)
+                    {
+                        double offset = i * viewportHeight;
+                        if (offset > sv.ScrollableHeight) offset = sv.ScrollableHeight;
+
+                        System.Diagnostics.Debug.WriteLine("[Snapshot] Scrolling to offset " + offset + " (frame " + (i + 1) + "/" + captures + ")");
+                        UpdateStatusMessage("Capturing frame " + (i + 1) + "/" + captures + "...");
+
+                        // Scroll to position
+                        sv.ChangeView(null, offset, null, true);
+
+                        // Wait for rendering to complete
+                        await Task.Delay(250);
+
+                        // Capture the frame
+                        var bitmap = new RenderTargetBitmap();
+                        await bitmap.RenderAsync(ContentArea);
+
+                        if (bitmap.PixelWidth == 0 || bitmap.PixelHeight == 0)
+                        {
+                            System.Diagnostics.Debug.WriteLine("[Snapshot] Frame " + (i + 1) + " is empty, skipping");
+                            continue;
+                        }
+
+                        frameWidth = bitmap.PixelWidth;
+                        frameHeight = bitmap.PixelHeight;
+
+                        var pixelBuffer = await bitmap.GetPixelsAsync();
+                        frames.Add(pixelBuffer.ToArray());
+
+                        System.Diagnostics.Debug.WriteLine("[Snapshot] Frame " + (i + 1) + " captured: " + frameWidth + "x" + frameHeight);
+                    }
+                }
+                finally
+                {
+                    // Restore original scroll position
+                    try { sv.ChangeView(null, originalOffset, null, true); } catch { }
+                }
+
+                if (frames.Count == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] FAIL: no frames captured");
+                    UpdateStatusMessage("Snapshot failed: could not capture content.");
+                    return;
+                }
+
+                // Stitch frames together vertically
+                System.Diagnostics.Debug.WriteLine("[Snapshot] Stitching " + frames.Count + " frames...");
+                UpdateStatusMessage("Stitching " + frames.Count + " frames...");
+
+                int totalPixelHeight = frameHeight * frames.Count;
+                var stitchedPixels = new byte[frameWidth * totalPixelHeight * 4];
+
+                for (int i = 0; i < frames.Count; i++)
+                {
+                    var frame = frames[i];
+                    int destOffset = i * frameWidth * frameHeight * 4;
+                    Array.Copy(frame, 0, stitchedPixels, destOffset, frame.Length);
+                }
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] Stitched size: " + frameWidth + "x" + totalPixelHeight);
+
+                var filename = GenerateSnapshotFilename();
+                await SaveStitchedPngAsync(frameWidth, totalPixelHeight, stitchedPixels, filename);
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] DONE");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[Snapshot] OUTER error: " + ex.GetType().Name + " — " + ex.Message);
+                if (ex.InnerException != null)
+                    System.Diagnostics.Debug.WriteLine("[Snapshot] Inner: " + ex.InnerException.Message);
+                UpdateStatusMessage("Snapshot failed: " + ex.Message, overrideStartup: true);
+            }
+        }
+
+        private async Task SaveStitchedPngAsync(int width, int height, byte[] pixels, string filename)
+        {
+            System.Diagnostics.Debug.WriteLine("[Snapshot] Saving stitched PNG: " + width + "x" + height + " pixels=" + pixels.Length);
+
+            var folder = await Windows.Storage.KnownFolders.PicturesLibrary.CreateFolderAsync(
+                "MediaExplorer", Windows.Storage.CreationCollisionOption.OpenIfExists);
+
+            System.Diagnostics.Debug.WriteLine("[Snapshot] Folder: " + folder.Path);
+
+            var file = await folder.CreateFileAsync(filename, Windows.Storage.CreationCollisionOption.GenerateUniqueName);
+
+            System.Diagnostics.Debug.WriteLine("[Snapshot] File: " + file.Name);
+
+            using (var stream = await file.OpenAsync(Windows.Storage.FileAccessMode.ReadWrite))
+            {
+                System.Diagnostics.Debug.WriteLine("[Snapshot] Encoding PNG...");
+
+                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, stream);
+                encoder.SetPixelData(
+                    BitmapPixelFormat.Bgra8,
+                    BitmapAlphaMode.Ignore,
+                    (uint)width,
+                    (uint)height,
+                    96.0, 96.0,
+                    pixels);
+                await encoder.FlushAsync();
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] PNG flushed");
+            }
+
+            System.Diagnostics.Debug.WriteLine("[Snapshot] File saved successfully");
+            UpdateStatusMessage("Full-page snapshot saved: " + filename, overrideStartup: true);
+            ShowToast("📷 Full-page snapshot saved: " + filename, 3000);
+        }
+
+        private async Task SavePngAsync(RenderTargetBitmap bitmap, byte[] pixels, string filename)
+        {
+            System.Diagnostics.Debug.WriteLine("[Snapshot] Saving to Pictures\\MediaExplorer\\" + filename);
+
+            var folder = await Windows.Storage.KnownFolders.PicturesLibrary.CreateFolderAsync(
+                "MediaExplorer", Windows.Storage.CreationCollisionOption.OpenIfExists);
+
+            System.Diagnostics.Debug.WriteLine("[Snapshot] Folder path=" + folder.Path);
+
+            var file = await folder.CreateFileAsync(filename, Windows.Storage.CreationCollisionOption.GenerateUniqueName);
+
+            System.Diagnostics.Debug.WriteLine("[Snapshot] File created: " + file.Name);
+
+            using (var stream = await file.OpenAsync(Windows.Storage.FileAccessMode.ReadWrite))
+            {
+                System.Diagnostics.Debug.WriteLine("[Snapshot] Stream opened, encoding PNG...");
+
+                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, stream);
+                encoder.SetPixelData(
+                    BitmapPixelFormat.Bgra8,
+                    BitmapAlphaMode.Ignore,
+                    (uint)bitmap.PixelWidth,
+                    (uint)bitmap.PixelHeight,
+                    96.0, 96.0,
+                    pixels);
+                await encoder.FlushAsync();
+
+                System.Diagnostics.Debug.WriteLine("[Snapshot] PNG encoded and flushed");
+            }
+
+            System.Diagnostics.Debug.WriteLine("[Snapshot] Stream closed, file saved");
+            UpdateStatusMessage("Snapshot saved: " + filename, overrideStartup: true);
+        }
+
+        private string GenerateSnapshotFilename()
+        {
+            string baseName = "snapshot";
+            try
+            {
+                if (_currentUri != null)
+                {
+                    var host = _currentUri.Host;
+                    if (string.IsNullOrWhiteSpace(host))
+                    {
+                        var path = _currentUri.AbsolutePath.Trim('/');
+                        if (!string.IsNullOrWhiteSpace(path))
+                            host = path;
+                        else
+                            host = _currentUri.Scheme;
+                    }
+                    if (!string.IsNullOrWhiteSpace(host))
+                    {
+                        baseName = host.Replace('.', '_').Replace(':', '_').Replace('/', '_').Replace('\\', '_');
+                        var pathPart = _currentUri.AbsolutePath.Trim('/');
+                        if (!string.IsNullOrWhiteSpace(pathPart) && pathPart != host)
+                        {
+                            var safePath = pathPart.Replace('/', '_').Replace('\\', '_');
+                            if (safePath.Length > 30) safePath = safePath.Substring(0, 30);
+                            baseName += "_" + safePath;
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            return $"{baseName}_{timestamp}.png";
+        }
+
+        // --- Copy page text to clipboard ---
+
+        private void CopyButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var dom = _browser.GetActiveDom();
+                if (dom == null)
+                {
+                    UpdateStatusMessage("Nothing to copy.");
+                    return;
+                }
+
+                var text = ExtractInnerText(dom);
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    UpdateStatusMessage("No text content found.");
+                    return;
+                }
+
+                var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                pkg.SetText(text);
+                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
+                UpdateStatusMessage("Copied " + text.Length + " characters to clipboard.");
+                ShowToast("📋 Copied " + text.Length + " characters to clipboard", 2000);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[Copy] ERROR: " + ex.Message);
+                UpdateStatusMessage("Copy failed: " + ex.Message);
+            }
+        }
+
+        private string ExtractInnerText(BrowserCore.Engine.LiteElement node)
+        {
+            if (node == null) return "";
+            var sb = new System.Text.StringBuilder();
+            ExtractInnerTextRecursive(node, sb);
+            return sb.ToString().Trim();
+        }
+
+        private void ExtractInnerTextRecursive(BrowserCore.Engine.LiteElement node, System.Text.StringBuilder sb)
+        {
+            if (node == null) return;
+
+            // Skip script/style content
+            if (node.Tag == "script" || node.Tag == "style") return;
+
+            if (node.IsText)
+            {
+                var text = node.Text?.Trim();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    if (sb.Length > 0 && !sb.ToString().EndsWith("\n") && !sb.ToString().EndsWith(" "))
+                        sb.Append(" ");
+                    sb.Append(text);
+                }
+            }
+            else
+            {
+                // Add newline for block elements
+                if (node.Tag == "p" || node.Tag == "div" || node.Tag == "h1" || node.Tag == "h2" || 
+                    node.Tag == "h3" || node.Tag == "h4" || node.Tag == "h5" || node.Tag == "h6" ||
+                    node.Tag == "li" || node.Tag == "br" || node.Tag == "hr")
+                {
+                    if (sb.Length > 0 && !sb.ToString().EndsWith("\n"))
+                        sb.AppendLine();
+                }
+
+                if (node.Children != null)
+                {
+                    foreach (var child in node.Children)
+                        ExtractInnerTextRecursive(child, sb);
+                }
+
+                // Add newline after closing block elements
+                if (node.Tag == "p" || node.Tag == "div" || node.Tag == "h1" || node.Tag == "h2" || 
+                    node.Tag == "h3" || node.Tag == "h4" || node.Tag == "h5" || node.Tag == "h6" ||
+                    node.Tag == "li" || node.Tag == "br")
+                {
+                    if (!sb.ToString().EndsWith("\n"))
+                        sb.AppendLine();
+                }
+            }
         }
 
         private static string LoadHomePage()
@@ -859,6 +1483,185 @@ namespace WEBVIEW
                 }
             }
             catch { }
+        }
+
+        // --- DevTools ---
+
+        private void AppendDevToolsLog(string message)
+        {
+            if (DevConsoleText == null) return;
+
+            // Determine color based on message content
+            Windows.UI.Color color = Windows.UI.Colors.Gray;
+            if (message.Contains("[TEST:PASS]")) color = Windows.UI.Colors.LimeGreen;
+            else if (message.Contains("[TEST:FAIL]")) color = Windows.UI.Colors.Red;
+            else if (message.Contains("[TEST:SITE]")) color = Windows.UI.Colors.Yellow;
+            else if (message.Contains("[TEST:PERF]")) color = Windows.UI.Colors.Cyan;
+            else if (message.Contains("[ERROR]") || message.Contains("Exception") || message.Contains("Error:")) color = Windows.UI.Colors.OrangeRed;
+            else if (message.StartsWith("[DIAG]")) color = Windows.UI.Colors.DarkGray;
+
+            // RichTextBlock uses Blocks -> Paragraph -> Inlines
+            if (DevConsoleText.Blocks.Count == 0)
+                DevConsoleText.Blocks.Add(new Windows.UI.Xaml.Documents.Paragraph());
+            
+            var paragraph = (Windows.UI.Xaml.Documents.Paragraph)DevConsoleText.Blocks[0];
+            
+            // Append with color using Inlines
+            var run = new Windows.UI.Xaml.Documents.Run
+            {
+                Text = message + "\n",
+                Foreground = new SolidColorBrush(color)
+            };
+
+            // Limit log size to prevent UI lag
+            if (paragraph.Inlines.Count > 500)
+            {
+                paragraph.Inlines.Clear();
+                _devConsoleBuffer.Clear();
+            }
+
+            paragraph.Inlines.Add(run);
+            _devConsoleBuffer.AppendLine(message);
+
+            // Auto-scroll
+            if (DevConsoleOutput != null)
+                DevConsoleOutput.ChangeView(null, DevConsoleOutput.ScrollableHeight, null);
+        }
+
+        private void DevToolsLog(string message)
+        {
+            // This is for internal DevTools messages, not captured by TraceListener
+            AppendDevToolsLog(message);
+        }
+
+        private void DevConsoleTab_Click(object sender, RoutedEventArgs e)
+        {
+            if (DevConsoleContent != null) DevConsoleContent.Visibility = Visibility.Visible;
+            if (DevDomContent != null) DevDomContent.Visibility = Visibility.Collapsed;
+            if (DevNetworkContent != null) DevNetworkContent.Visibility = Visibility.Collapsed;
+            if (DevDebugContent != null) DevDebugContent.Visibility = Visibility.Collapsed;
+            if (DevConsoleTab != null) DevConsoleTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xCC, 0xCC, 0xCC));
+            if (DevDomTab != null) DevDomTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevNetworkTab != null) DevNetworkTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevDebugTab != null) DevDebugTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+        }
+
+        private void DevDomTab_Click(object sender, RoutedEventArgs e)
+        {
+            if (DevConsoleContent != null) DevConsoleContent.Visibility = Visibility.Collapsed;
+            if (DevDomContent != null) DevDomContent.Visibility = Visibility.Visible;
+            if (DevNetworkContent != null) DevNetworkContent.Visibility = Visibility.Collapsed;
+            if (DevDebugContent != null) DevDebugContent.Visibility = Visibility.Collapsed;
+            if (DevConsoleTab != null) DevConsoleTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevDomTab != null) DevDomTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xCC, 0xCC, 0xCC));
+            if (DevNetworkTab != null) DevNetworkTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevDebugTab != null) DevDebugTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+
+            // Populate DOM tree from active browser engine
+            try
+            {
+                var dom = _browser.GetActiveDom();
+                if (dom != null && DevDomText != null)
+                    DevDomText.Text = DumpDomTree(dom, 0);
+                else if (DevDomText != null)
+                    DevDomText.Text = "(no DOM loaded)";
+            }
+            catch { }
+        }
+
+        private void DevNetworkTab_Click(object sender, RoutedEventArgs e)
+        {
+            if (DevConsoleContent != null) DevConsoleContent.Visibility = Visibility.Collapsed;
+            if (DevDomContent != null) DevDomContent.Visibility = Visibility.Collapsed;
+            if (DevNetworkContent != null) DevNetworkContent.Visibility = Visibility.Visible;
+            if (DevDebugContent != null) DevDebugContent.Visibility = Visibility.Collapsed;
+            if (DevConsoleTab != null) DevConsoleTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevDomTab != null) DevDomTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevNetworkTab != null) DevNetworkTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xCC, 0xCC, 0xCC));
+            if (DevDebugTab != null) DevDebugTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+
+            // Show network log from ResourceManager
+            if (DevNetworkText != null)
+                DevNetworkText.Text = _resources.GetNetworkLog();
+        }
+
+        private void DevDebugTab_Click(object sender, RoutedEventArgs e)
+        {
+            if (DevConsoleContent != null) DevConsoleContent.Visibility = Visibility.Collapsed;
+            if (DevDomContent != null) DevDomContent.Visibility = Visibility.Collapsed;
+            if (DevNetworkContent != null) DevNetworkContent.Visibility = Visibility.Collapsed;
+            if (DevDebugContent != null) DevDebugContent.Visibility = Visibility.Visible;
+            if (DevConsoleTab != null) DevConsoleTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevDomTab != null) DevDomTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevNetworkTab != null) DevNetworkTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88));
+            if (DevDebugTab != null) DevDebugTab.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xCC, 0xCC, 0xCC));
+
+            // Show debug log (filtered [DIAG] messages)
+            if (DevDebugText != null)
+                DevDebugText.Text = _debugLogBuffer.ToString();
+        }
+
+        private void DevToolsClose_Click(object sender, RoutedEventArgs e)
+        {
+            DevToolsEnabled = false;
+            // Also save to settings
+            try { ApplicationData.Current.LocalSettings.Values["DevToolsEnabled"] = false; } catch { }
+        }
+
+        private void DevConsoleRun_Click(object sender, RoutedEventArgs e)
+        {
+            var code = DevConsoleInput?.Text?.Trim();
+            if (string.IsNullOrEmpty(code)) return;
+
+            // Show input in log
+            AppendDevToolsLog("> " + code);
+            DevConsoleInput.Text = "";
+
+            try
+            {
+                // Try to evaluate as expression first
+                var result = _browser.EvaluateExpression(code);
+                if (result != null && result != "undefined")
+                    AppendDevToolsLog("← " + result);
+                else
+                {
+                    // If expression returned nothing, try running as statement
+                    // Wrap in console.log to capture output
+                    var wrappedCode = "try { var __r = (" + code + "); if(__r !== undefined) console.log(__r); } catch(e) { console.error(e); }";
+                    _browser.EvaluateAsync(wrappedCode).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendDevToolsLog("✕ " + ex.Message);
+            }
+        }
+
+        private string DumpDomTree(BrowserCore.Engine.LiteElement node, int depth)
+        {
+            if (node == null) return "";
+            var sb = new System.Text.StringBuilder();
+            var indent = new string(' ', depth * 2);
+            if (node.IsText)
+            {
+                var text = (node.Text ?? "").Trim();
+                if (text.Length > 0)
+                    sb.AppendLine(indent + "#text: \"" + (text.Length > 40 ? text.Substring(0, 40) + "..." : text) + "\"");
+            }
+            else
+            {
+                sb.Append(indent + "<" + (node.Tag ?? "unknown"));
+                if (node.Attr != null)
+                {
+                    foreach (var kv in node.Attr)
+                        sb.Append(" " + kv.Key + "=\"" + (kv.Value.Length > 20 ? kv.Value.Substring(0, 20) + "..." : kv.Value) + "\"");
+                }
+                sb.AppendLine(">");
+                if (node.Children != null)
+                    foreach (var child in node.Children)
+                        sb.Append(DumpDomTree(child, depth + 1));
+            }
+            return sb.ToString();
         }
     }
 }

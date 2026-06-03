@@ -18,13 +18,55 @@ using Windows.Foundation;
 namespace BrowserCore.Engine
 {
     /// <summary>
+    /// Rendering mode controlling JS/CSS/image behavior.
+    /// FULL  — NiL.JS + full CSS cascade + images (default)
+    /// RICH  — MiniRunner only (timeouts/analytics-kill) + full CSS + images + AI companion
+    /// POOR  — No JS + minimal reader stylesheet + no images + AI summary (e-book mode)
+    /// </summary>
+    public enum RenderModeType
+    {
+        Full,   // NiL.JS + full CSS + images
+        Rich,   // MiniRunner only + full CSS + images
+        Poor    // No JS + reader stylesheet + no images
+    }
+
+    /// <summary>
     /// Lightweight orchestrator that composes HtmlLiteParser + CssLoader + DomBasicRenderer.
     /// Clean, dependency-free wrapper suitable for WP8.1 without WebView.
     /// </summary>
     public sealed class CustomHtmlEngine : IDisposable
     {
         public bool SafeMode { get; set; } = false;
-        public string RenderMode { get; set; } = "Full"; // "Full", "Rich", "Poor"
+
+        private RenderModeType _renderMode = RenderModeType.Full;
+        public RenderModeType RenderMode
+        {
+            get { return _renderMode; }
+            set
+            {
+                _renderMode = value;
+                // Backward compat: also update string property
+                _renderModeString = value.ToString();
+            }
+        }
+
+        // Backward compat: string-based API (Settings page, BrowserApi)
+        private string _renderModeString = "Full";
+        public string RenderModeString
+        {
+            get { return _renderModeString; }
+            set
+            {
+                _renderModeString = value;
+                if (string.Equals(value, "Poor", StringComparison.OrdinalIgnoreCase))
+                    _renderMode = RenderModeType.Poor;
+                else if (string.Equals(value, "Rich", StringComparison.OrdinalIgnoreCase))
+                    _renderMode = RenderModeType.Rich;
+                else
+                    _renderMode = RenderModeType.Full;
+            }
+        }
+
         public event EventHandler<bool> LoadingChanged;
 
         public bool EnableJavaScript { get; set; } = true;
@@ -348,6 +390,117 @@ namespace BrowserCore.Engine
                 else { outSb.Append(c); inWs = false; }
             }
             return outSb.ToString().Trim();
+        }
+
+        /// <summary>
+        /// POOR mode: apply minimal reader stylesheet to DOM nodes.
+        /// Strips CSS noise, shows clean text, preserves readability — e-book feel.
+        /// </summary>
+        private void ApplyReaderStylesheet(LiteElement dom)
+        {
+            if (dom == null) return;
+            foreach (var node in dom.SelfAndDescendants())
+            {
+                if (node.IsText) continue;
+                var tag = node.Tag?.ToUpperInvariant();
+                if (tag == "SCRIPT" || tag == "STYLE" || tag == "META" || tag == "LINK" || tag == "HEAD")
+                    continue;
+
+                // Hide images in POOR mode
+                if (tag == "IMG")
+                {
+                    node.SetAttribute("style", "display:none");
+                    continue;
+                }
+
+                // Hide nav, header, footer, sidebar noise
+                var id = (node.Attr != null && node.Attr.ContainsKey("id")) ? node.Attr["id"].ToLowerInvariant() : "";
+                var cls = (node.Attr != null && node.Attr.ContainsKey("class")) ? node.Attr["class"].ToLowerInvariant() : "";
+                if (id.Contains("nav") || id.Contains("menu") || id.Contains("sidebar") || id.Contains("ad") ||
+                    cls.Contains("nav") || cls.Contains("menu") || cls.Contains("sidebar") || cls.Contains("ad-") || cls.Contains("advertisement"))
+                {
+                    node.SetAttribute("style", "display:none");
+                    continue;
+                }
+
+                // Apply reader styles to content elements
+                if (tag == "BODY")
+                    ApplyInlineStyle(node, "font-family:Segoe UI,sans-serif; font-size:16px; line-height:1.6; color:#111; margin:16px; max-width:65ch;");
+                else if (tag == "H1")
+                    ApplyInlineStyle(node, "font-size:28px; font-weight:bold; margin:24px 0 12px; color:#000;");
+                else if (tag == "H2")
+                    ApplyInlineStyle(node, "font-size:22px; font-weight:bold; margin:20px 0 10px; color:#000;");
+                else if (tag == "H3")
+                    ApplyInlineStyle(node, "font-size:18px; font-weight:bold; margin:16px 0 8px; color:#000;");
+                else if (tag == "P")
+                    ApplyInlineStyle(node, "margin:0 0 12px;");
+                else if (tag == "A")
+                    ApplyInlineStyle(node, "color:#00b; text-decoration:underline;");
+                else if (tag == "BLOCKQUOTE")
+                    ApplyInlineStyle(node, "border-left:4px solid #ccc; padding-left:12px; margin:12px 0; color:#555; font-style:italic;");
+                else if (tag == "PRE" || tag == "CODE")
+                    ApplyInlineStyle(node, "font-family:Consolas,monospace; font-size:14px; background:#f5f5f5; padding:2px 4px; border-radius:3px;");
+                else if (tag == "UL" || tag == "OL")
+                    ApplyInlineStyle(node, "margin:8px 0 8px 24px; padding:0;");
+                else if (tag == "LI")
+                    ApplyInlineStyle(node, "margin:4px 0;");
+                else if (tag == "TABLE")
+                    ApplyInlineStyle(node, "border-collapse:collapse; margin:12px 0; width:auto;");
+                else if (tag == "TH" || tag == "TD")
+                    ApplyInlineStyle(node, "border:1px solid #ccc; padding:6px 8px;");
+                else if (tag == "HR")
+                    ApplyInlineStyle(node, "border:none; border-top:1px solid #ccc; margin:16px 0;");
+            }
+        }
+
+        private static void ApplyInlineStyle(LiteElement node, string style)
+        {
+            if (node == null || string.IsNullOrEmpty(style)) return;
+            string existing = null;
+            if (node.Attr != null) node.Attr.TryGetValue("style", out existing);
+            node.SetAttribute("style", style + (existing != null ? " " + existing : ""));
+        }
+
+        /// <summary>
+        /// RICH mode: run MiniRunner for setTimeout/clearTimeout support and analytics kill.
+        /// Does NOT execute full JS — only lightweight timers and script blocking.
+        /// </summary>
+        private void RunRichMiniRunner(LiteElement dom, JavaScriptEngine js)
+        {
+            if (dom == null || js == null) return;
+
+            // Collect inline <script> blocks that are likely analytics/tracking
+            var scripts = dom.Descendants()
+                .Where(n => string.Equals(n.Tag, "script", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            int killed = 0;
+            foreach (var script in scripts)
+            {
+                var src = script.Attr != null && script.Attr.ContainsKey("src") ? script.Attr["src"] : "";
+                var text = script.Text ?? "";
+                var combined = (src + " " + text).ToLowerInvariant();
+
+                // Kill known analytics/tracking patterns
+                if (combined.Contains("google-analytics") ||
+                    combined.Contains("gtag") ||
+                    combined.Contains("googletagmanager") ||
+                    combined.Contains("facebook.com/tr") ||
+                    combined.Contains("fbq(") ||
+                    combined.Contains("analytics") ||
+                    combined.Contains("telemetry") ||
+                    combined.Contains("tracking") ||
+                    combined.Contains("doubleclick"))
+                {
+                    // Remove analytics scripts — they won't execute
+                    script.Text = "";
+                    if (script.Attr != null) script.Attr["src"] = "";
+                    killed++;
+                    System.Diagnostics.Debug.WriteLine("[RICH] Killed analytics script: " + (src != "" ? src : "(inline)"));
+                }
+            }
+
+            System.Diagnostics.Debug.WriteLine("[RICH] MiniRunner: killed " + killed + " analytics scripts, setTimeout/clearTimeout available");
         }
 
         private void CaptureActiveContext(
@@ -777,15 +930,38 @@ namespace BrowserCore.Engine
 
             System.Diagnostics.Debug.WriteLine("[DIAG] IncrementalUpdate mutations=" + mutations.Count);
 
-            // Process mutations on UI thread (manipulates RenderObject tree)
+            // Collect affected LiteElements for re-cascade
+            var affectedNodes = new HashSet<LiteElement>();
+            var addedNodes = new List<LiteElement>();
+            var removedNodes = new List<LiteElement>();
+
+            foreach (var mut in mutations)
+            {
+                if (mut.Type == "childList")
+                {
+                    if (mut.Added != null)
+                        foreach (var a in mut.Added) affectedNodes.Add(a);
+                    if (mut.Removed != null)
+                        foreach (var r in mut.Removed) affectedNodes.Add(r);
+                    if (mut.Target != null) affectedNodes.Add(mut.Target);
+                }
+                else if (mut.Type == "attributes")
+                {
+                    if (mut.Target != null) affectedNodes.Add(mut.Target);
+                }
+            }
+
+            // Process mutations on UI thread
             await UiThreadHelper.RunAsyncAwaitable(disp, CoreDispatcherPriority.Normal, () =>
             {
                 try
                 {
+                    // Phase 1: Apply DOM mutations to RenderObject tree
                     foreach (var mut in mutations)
                     {
                         if (mut.Type == "childList")
                         {
+                            // Removed nodes
                             if (mut.Removed != null)
                             {
                                 foreach (var removed in mut.Removed)
@@ -803,18 +979,23 @@ namespace BrowserCore.Engine
                                 }
                             }
 
+                            // Added nodes
                             if (mut.Added != null)
                             {
                                 var targetParent = mut.Target;
                                 foreach (var added in mut.Added)
                                 {
+                                    // Re-cascade styles for the added subtree
+                                    var newStyles = CssLoader.CascadeSingle(added, _currentStyles);
+                                    foreach (var kv in newStyles)
+                                        _currentStyles[kv.Key] = kv.Value;
+
                                     var newSubtree = RenderTreeBuilder.BuildSubtree(added, _currentStyles, _elementToRenderObject);
                                     if (newSubtree != null && _elementToRenderObject.TryGetValue(targetParent, out var parentRo))
                                     {
                                         int insertIndex = 0;
                                         if (mut.Added.Count > 1)
                                         {
-                                            // Find position of added in target's children
                                             var targetChildren = targetParent.Children;
                                             for (int i = 0; i < targetChildren.Count; i++)
                                             {
@@ -824,7 +1005,6 @@ namespace BrowserCore.Engine
                                                     insertIndex = parentRo.Children.IndexOf(childRo);
                                                     if (insertIndex >= 0)
                                                     {
-                                                        // Insert before this child
                                                         parentRo.Children.Insert(insertIndex, newSubtree);
                                                         newSubtree.Parent = parentRo;
                                                         break;
@@ -842,22 +1022,50 @@ namespace BrowserCore.Engine
                         }
                         else if (mut.Type == "attributes")
                         {
+                            // Re-cascade styles for the attribute-changed node
                             if (_elementToRenderObject.TryGetValue(mut.Target, out var ro))
                             {
+                                var newStyles = CssLoader.CascadeSingle(mut.Target, _currentStyles);
+                                foreach (var kv in newStyles)
+                                {
+                                    _currentStyles[kv.Key] = kv.Value;
+                                    // Update RenderObject style reference
+                                    RenderObject targetRo;
+                                    if (_elementToRenderObject.TryGetValue(kv.Key, out targetRo))
+                                        targetRo.Style = kv.Value;
+                                }
                                 ro.MarkDirty();
                             }
                         }
                     }
 
-                    // Re-layout incrementally
+                    // Phase 2: Incremental layout
                     double vw = _activeViewportWidth ?? 0;
                     double vh = 0;
                     try { vh = Windows.UI.Xaml.Window.Current.Bounds.Height; } catch { vh = 800; }
                     if (vw <= 0) { try { vw = Windows.UI.Xaml.Window.Current.Bounds.Width; } catch { vw = 480; } }
                     LayoutEngine.PerformIncrementalLayout(_currentRenderTree, new Windows.Foundation.Size(vw, vh));
 
+                    // Phase 3: Patch renderer (incremental, not full UpdateView)
                     _currentRenderer.UpdateCanvasSize();
-                    _currentRenderer.UpdateView();
+
+                    // Patch added subtrees
+                    foreach (var added in addedNodes)
+                    {
+                        if (_elementToRenderObject.TryGetValue(added, out var ro))
+                            _currentRenderer.PatchAdded(ro);
+                    }
+
+                    // Patch style-changed nodes
+                    foreach (var node in affectedNodes)
+                    {
+                        if (_elementToRenderObject.TryGetValue(node, out var ro))
+                            _currentRenderer.PatchStyle(ro);
+                    }
+
+                    // Fallback: if no specific patches were applied, do full UpdateView
+                    if (addedNodes.Count == 0 && affectedNodes.Count == 0)
+                        _currentRenderer.UpdateView();
                 }
                 catch (System.Exception ex)
                 {
@@ -953,7 +1161,15 @@ namespace BrowserCore.Engine
             bool disableAutoFallback = false)
         {
             var host = (baseUri != null ? baseUri.Host : "null");
-            System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync START host=" + host + " htmlLen=" + (html != null ? html.Length.ToString() : "null") + " vw=" + (viewportWidth.HasValue ? viewportWidth.Value.ToString() : "null") + " js=" + (forceJavascript.HasValue ? forceJavascript.Value.ToString() : "default"));
+            var diagMsg = "[DIAG] RenderAsync START host=" + host + " htmlLen=" + (html != null ? html.Length.ToString() : "null") + " vw=" + (viewportWidth.HasValue ? viewportWidth.Value.ToString() : "null") + " js=" + (forceJavascript.HasValue ? forceJavascript.Value.ToString() : "default");
+            System.Diagnostics.Debug.WriteLine(diagMsg);
+            DevToolsLogger.Log(diagMsg);
+
+            // Diagnostic: check SVG decoder availability
+            var svgType = Type.GetType("Windows.UI.Xaml.Media.Imaging.SvgImageSource, Windows, ContentType=WindowsRuntime");
+            var svgDiag = "[DIAG] SvgType available: " + (svgType != null ? "true" : "false");
+            System.Diagnostics.Debug.WriteLine(svgDiag);
+            DevToolsLogger.Log(svgDiag);
 
             // Ensure we are on the UI thread. If not, marshal the call.
             var uiDisp = _uiDispatcher ?? UiThreadHelper.TryGetDispatcher();
@@ -1002,32 +1218,31 @@ namespace BrowserCore.Engine
                 _activeDom = dom;
                 System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase1 PARSED dom children=" + (dom.Children != null ? dom.Children.Count.ToString() : "0"));
 
-                // Fast path: "Poor" mode — no CSS, no JS, just plain text
-                if (string.Equals(RenderMode, "Poor", StringComparison.OrdinalIgnoreCase))
+                // POOR mode — e-book style: minimal reader stylesheet, no JS, no images
+                if (_renderMode == RenderModeType.Poor)
                 {
-                    System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Poor mode — plain text render");
-                    var plainText = GatherPlainText(dom);
-                    var sp = new StackPanel { Margin = new Windows.UI.Xaml.Thickness(12) };
-                    if (!string.IsNullOrWhiteSpace(plainText))
-                    {
-                        var lines = plainText.Split('\n');
-                        foreach (var line in lines)
-                        {
-                            var trimmed = line.Trim();
-                            if (string.IsNullOrWhiteSpace(trimmed)) continue;
-                            sp.Children.Add(new TextBlock
-                            {
-                                Text = trimmed,
-                                TextWrapping = TextWrapping.Wrap,
-                                FontSize = 14,
-                                Foreground = new SolidColorBrush(Windows.UI.Colors.Black),
-                                Margin = new Windows.UI.Xaml.Thickness(0, 0, 0, 4)
-                            });
-                        }
-                    }
-                    if (sp.Children.Count == 0)
-                        sp.Children.Add(new TextBlock { Text = "(no text content)", FontSize = 14, Foreground = new SolidColorBrush(Windows.UI.Colors.Gray) });
-                    var poorElement = new Border { Background = new SolidColorBrush(Windows.UI.Colors.White), Child = new ScrollViewer { Content = sp } };
+                    var msg = "[DIAG] RenderAsync Poor mode — reader stylesheet";
+                    System.Diagnostics.Debug.WriteLine(msg);
+                    DevToolsLogger.Log(msg);
+
+                    // Apply reader stylesheet overrides before building visual tree
+                    ApplyReaderStylesheet(dom);
+
+                    // No-op image loader for POOR mode (skip all image fetching)
+                    Func<Uri, Task<IRandomAccessStream>> noImageLoader = async _ => null;
+
+                    var poorElement = await BuildVisualTreeAsync(
+                        dom,
+                        baseUri,
+                        fetchExternalCssAsync,
+                        noImageLoader, // Skip images in Poor mode
+                        onNavigate,
+                        null, // No JS in Poor mode
+                        viewportWidth,
+                        _activeFixedBackground,
+                        false // No diagnostics banner in Poor mode
+                    ).ConfigureAwait(false);
+
                     return poorElement;
                 }
 
@@ -1088,8 +1303,9 @@ namespace BrowserCore.Engine
                 try { PrewarmImages(dom, baseUri, imageLoader, viewportWidth); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
 
                 bool allowJs = EnableJavaScript;
-                if (string.Equals(RenderMode, "Rich", StringComparison.OrdinalIgnoreCase))
-                    allowJs = false;
+                bool richMode = _renderMode == RenderModeType.Rich;
+                if (richMode)
+                    allowJs = false; // RICH: skip NiL.JS full engine, MiniRunner only below
                 if (forceJavascript.HasValue)
                 {
                     allowJs = forceJavascript.Value;
@@ -1263,14 +1479,28 @@ namespace BrowserCore.Engine
 
                 if (allowJs)
                 {
-                    System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase3 JS RunScriptsAsync start");
-                    try { await js.RunScriptsAsync(dom, baseUri); System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase3 JS DONE"); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase3 JS EXC " + ex.Message); }
+                    var msg = "[DIAG] RenderAsync Phase3 JS RunScriptsAsync start";
+                    System.Diagnostics.Debug.WriteLine(msg);
+                    DevToolsLogger.Log(msg);
+                    try { await js.RunScriptsAsync(dom, baseUri); var m2 = "[DIAG] RenderAsync Phase3 JS DONE"; System.Diagnostics.Debug.WriteLine(m2); DevToolsLogger.Log(m2); } catch (Exception ex) { var m3 = "[DIAG] RenderAsync Phase3 JS EXC " + ex.Message; System.Diagnostics.Debug.WriteLine(m3); DevToolsLogger.Log(m3); }
                 }
-                else System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase3 JS SKIPPED allowJs=" + allowJs);
+                else if (richMode)
+                {
+                    // RICH mode: run MiniRunner only for setTimeout/clearTimeout + analytics kill
+                    var msg = "[DIAG] RenderAsync Phase3 RICH MiniRunner start";
+                    System.Diagnostics.Debug.WriteLine(msg);
+                    DevToolsLogger.Log(msg);
+                    try { RunRichMiniRunner(dom, js); var m2 = "[DIAG] RenderAsync Phase3 RICH MiniRunner DONE"; System.Diagnostics.Debug.WriteLine(m2); DevToolsLogger.Log(m2); } catch (Exception ex) { var m3 = "[DIAG] RenderAsync Phase3 RICH MiniRunner EXC " + ex.Message; System.Diagnostics.Debug.WriteLine(m3); DevToolsLogger.Log(m3); }
+                }
+                else { var msg = "[DIAG] RenderAsync Phase3 JS SKIPPED allowJs=" + allowJs; System.Diagnostics.Debug.WriteLine(msg); DevToolsLogger.Log(msg); }
 
-                System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase4 BuildVisualTreeAsync start");
+                var msg4 = "[DIAG] RenderAsync Phase4 BuildVisualTreeAsync start";
+                System.Diagnostics.Debug.WriteLine(msg4);
+                DevToolsLogger.Log(msg4);
                 var element = await BuildVisualTreeAsync(dom, baseUri, cssFetcher, imageLoader, onNavigate, js, viewportWidth, onFixedBackground, includeDiagnosticsBanner: false).ConfigureAwait(false);
-                System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase4 BuildVisualTreeAsync DONE element=" + (element != null ? element.GetType().Name : "null"));
+                var msg5 = "[DIAG] RenderAsync Phase4 BuildVisualTreeAsync DONE element=" + (element != null ? element.GetType().Name : "null");
+                System.Diagnostics.Debug.WriteLine(msg5);
+                DevToolsLogger.Log(msg5);
 
                 // Auto-fallback (re-render without JS) only makes sense when we
                 // actually attempted JS and are not in app-shell safe-mode.

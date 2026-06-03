@@ -1,14 +1,14 @@
 # MediaExplorer / WEBVIEW — Plan 03: Testing-First Stabilization & Completion
 
-> **Project:** MediaExplorer 0.14.x (codename "WebView") — retro UWP browser for Windows 10 Mobile
+> **Project:** MediaExplorer 0.40 (codename "WebView") — retro UWP browser for Windows 10 Mobile
 > **Hardware target:** Lumia 950/1020 (Snapdragon 810, 3 GB RAM, 5" 1440p)
 > **Test environment:** x86 emulator (primary) → ARM device (validation)
 > **Engine:** Custom HTML parser + CSS cascade + NiL.JS + XAML renderer (~35 files, ~20 000 lines)
-> **Last plan update:** 2026-05-18 (Plan_03 — post-session 2.18)
+> **Last plan update:** 2026-05-19 (Plan_03 — post-session 3.7)
 
 ---
 
-## Current State (as of session 2.18)
+## Current State (as of session 3.6)
 
 | Phase | Title | Status |
 |-------|-------|--------|
@@ -18,22 +18,29 @@
 | 3 | Layout Offload + VirtualizingRenderer | ✅ DONE |
 | 4 | JavaScript Engine Improvements | ✅ DONE |
 | 5 | Resource Loading (disk cache, priority queue) | ✅ DONE |
-| 6 | ES Modules (NiL.JS native module loader) | ✅ DONE |
+| 6 | ES Modules (NiL.JS native module loader) | ✅ DONE (needs Vite validation) |
 | 7 | Service Worker + Offline-First | ⏸ DEFERRED (after Phase T + 8B) |
 | 8A | MutationObserver API (NiL.JS host object) | ✅ DONE |
-| 8B | Incremental Re-render (VirtualizingRenderer.Patch) | 🔴 PENDING |
+| 8B | Incremental Re-render (VirtualizingRenderer.Patch) | ✅ DONE |
 | 9/14/15 | CSS Property Expansion (batches 1–4) | 🟡 IN PROGRESS |
-| 10 | DevTools Console + Inspector | 🔴 PENDING |
+| **10** | **DevTools Console + Inspector** | **✅ DONE** (Console, DOM, Network, Debug tabs) |
 | 11 | UI Polish (loading, swipe, reading mode) | ✅ DONE |
 | 12 | AI Integration (DeepSeek via OpenRouter) | ✅ DONE |
 | 13 | White Screen Fixes, AppBar Modes, Settings Page | ✅ DONE |
 | 16/17/18 | Image Loading Fix + Diagnostics | ✅ DONE |
+| T | Testing Infrastructure | ✅ DONE |
+| **19** | **DevTools Enhancement & ES Modules Validation** | **🟡 IN PROGRESS** |
+| **20** | **NiL.JS 2.6 Integration (netstandard2.0 → 1.4)** | **✅ DONE** (fully builds for W10M 15063) |
+| **16.5** | **CSS Stabilization (margin/padding, font-weight, text-decoration)** | **✅ DONE** (Session 3.19) |
+| **20.1** | **NiL.JS netstandard1.4 Migration** | **✅ DONE** (Session 3.20 — ~120 compile errors fixed) |
 
 **Known active issues:**
-- Images partially loading (SVG unsupported; `elementSize=NaNxNaN` still appears in logs)
-- White screen on dzen.ru / ya.ru (may still manifest — not fully confirmed fixed)
-- NiL.JS exceptions on complex sites (expected, engine limitation)
-- No systematic testing infrastructure — every bug is found by accident
+- **ES Modules Vite Compatibility**: ✅ **PARSER FIXED (Session 3.14)** — full 568KB bundle parses without syntax errors.
+- **NiL.JS migrated to `netstandard1.4`**: Now compatible with UWP 15063 (W10M). Source in `Src/NiL.JS`, `ProjectReference` in `MediaExplorer.csproj`.
+- **White screen on dzen.ru / ya.ru**: May still manifest.
+
+**New Primary Target:**
+- **Nokia Design Archive** (`nokiadesignarchive.aalto.fi`) — The "Museum Build" benchmark.
 
 ---
 
@@ -315,6 +322,43 @@ Maintain a handwritten reference table in `Doc/Perf_Baseline.md` with expected r
 
 Maintain a `/Images/tests/` folder in the repo with reference screenshots for each T-C-xxx test case and each T-S-xxx target site. When a CSS change is made, compare the new render against the reference screenshot visually. Low-tech but effective for a solo project.
 
+### T.5 — Snapshot Button (AppBar Screenshot)
+
+Add a **Snapshot** button (📷 camera icon) to the bottom AppBar. On click:
+1. Checks if the page is scrollable (if `ScrollViewer.ScrollableHeight > ViewportHeight * 1.5`)
+2. For short pages: instant single-frame capture.
+3. For long pages: automatic scrolling mode:
+   - Calculates number of frames needed
+   - Scrolls to each position with 250ms render delay
+   - Captures each frame via `RenderTargetBitmap`
+   - Stitches all frames vertically into one PNG
+   - Restores original scroll position
+4. Encodes to PNG and saves to `Pictures\MediaExplorer\` folder with auto-generated filename (with sanitization: replace `.` and `\` with `_`)
+5. Shows status message: `"Snapshot saved: <filename>"`
+
+```csharp
+// MainPage.xaml.cs — SnapshotButton_Click
+private async void SnapshotButton_Click(object sender, RoutedEventArgs e)
+{
+    if (IsScrollablePage())
+    {
+        await CaptureAndStitchAsync();
+    }
+    else
+    {
+        await CaptureSingleFrameAsync();
+    }
+}
+```
+
+**Files affected:**
+
+| File | Change |
+|------|--------|
+| `MainPage.xaml` | Add SnapshotButton (Grid.Column 6, FontIcon Glyph="&#xE722;") |
+| `MainPage.xaml.cs` | Add SnapshotButton_Click handler + filename sanitization |
+| `Doc/Plan_03.md` | This section (T.5) |
+
 ### Files affected
 
 | File | Change |
@@ -443,11 +487,32 @@ The README already lists three rendering modes, and the basic AppBar mode switch
 
 ### Mode definitions
 
-| Mode | JS | CSS | Images | AI cursor | Use case |
-|------|----|-----|--------|-----------|----------|
-| FULL | NiL.JS enabled | Full cascade | Enabled | Optional | Modern sites |
-| RICH | Minimal inline JS only | Full cascade | Enabled | Enabled | Reading + AI |
-| POOR | Disabled | Base styles only | Disabled | Disabled | Text/FIDO-style |
+| Mode | JS | CSS | Images | AI cursor | Magic Bubble | Use case |
+|------|----|-----|--------|-----------|--------------|----------|
+| FULL | NiL.JS enabled | Full cascade | Enabled | Optional | ✅ Long-tap → AI element explanation | Modern sites |
+| RICH | MiniRunner only (timeouts/analytics-kill) | Full cascade | Enabled | Enabled | ✅ Long-tap → AI element explanation | Reading + AI |
+| POOR | Disabled | Minimal inline (reader stylesheet) | Disabled | Enabled | ✅ Long-tap → AI content summary | E-book / FIDO-style |
+
+### User philosophy (beyond technical implementation)
+
+**RICH — "Reading mode with AI companion"**
+- Technical: skip NiL.JS module loading, run only MiniRunner for timeouts/analytics-kill
+- User experience: full visual fidelity (CSS + images) but no heavy JS execution
+- **Magic Bubble**: long-tap / long-click on any element → overlay popup with AI-powered explanation of that element's content
+- Initial implementation: stub popup (placeholder UI, no AI call yet)
+
+**POOR — "E-book mode with magic summary"**
+- Technical: no JS, minimal inline stylesheet, no images — plain text reading experience
+- User experience: imitate an "e-reader" — strip CSS noise, show clean text, preserve readability
+- **Magic Bubble**: long-tap / long-click anywhere → overlay popup with AI summary of the entire page content
+- Initial implementation: stub popup (placeholder UI, no AI call yet)
+
+**Magic Bubble — shared component**
+- Trigger: long-tap (touch) or long mouse press (>500ms) on content area
+- UI: semi-transparent overlay popup near the tapped position
+- Content: depends on mode (RICH = element explanation, POOR = page summary)
+- Phase 15 scope: UI stub only (show popup with placeholder text like "[AI: analyzing...]")
+- Phase 12+ integration: wire to DeepSeek/OpenRouter for actual AI responses
 
 ### Implementation
 
@@ -709,16 +774,205 @@ Testing via T-S-009 (hacker-news Firebase app) — it ships a service worker and
 
 ---
 
+## Phase 19: DevTools Enhancement & ES Modules Validation
+
+> **Priority: 🟡 Medium — improves debuggability + validates Phase 6**
+> **Effort: 2–3 days / ~400 lines**
+
+### 19.1 DevTools Enhancement (Session 3.6)
+
+**Completed:**
+- DOM tab: Connected `DumpDomTree()` to `_browser.GetActiveDom()`
+- Network tab: Added `_networkLog` to `ResourceManager` with `GetNetworkLog()`
+- Debug tab: New 4th tab for `[DIAG]` engine logs (orange color)
+- All tab handlers updated to manage visibility correctly
+
+**Files changed:**
+- `MainPage.xaml` — Added DevDebugTab + DevDebugContent
+- `MainPage.xaml.cs` — Added `_debugLogBuffer`, `DevDebugTab_Click`
+- `Engine/ResourceManager.cs` — Added network logging
+- `Engine/BrowserApi.cs` — Added `GetActiveDom()`
+
+### 19.2 DevTools Logging Fixes (Session 3.7)
+
+**Problem:** `[Module]` messages from `ModuleLoader` used `Debug.WriteLine()` only — invisible in Console/Debug tabs. Same for `[ImgTry]`/`[ImgSkipSvg]` in `DomBasicRenderer`.
+
+**Changes:**
+- `ModuleLoader.cs` — All `[Module]` diagnostics routed through `DevToolsLogger.Log()` instead of `Debug.WriteLine()` only
+- `DomBasicRenderer.cs` — `log()` lambda (image loading diagnostics) now calls both `Debug.WriteLine()` and `DevToolsLogger.Log()`
+- `CustomHtmlEngine.cs` — Added `[DIAG] SvgType available: true/false` diagnostic on each render
+
+**Result:** Console/Debug tabs now show `[Module] Fetching`, `[Module] Eval error`, `[ImgTry]`, `[ImgSkipSvg]`, and `[DIAG] SvgType available:` messages.
+
+**Observation (Session 3.7):** `SvgType available: true` on desktop target. `SyntaxError: Unexpected token (1:361)` confirmed — NiL.JS 2.5.1294 `Eval()` cannot parse Vite ES module bundles.
+
+### 19.3 ES Module Test Suite (Session 3.7)
+
+**Created `Html/TestModule/`:**
+- `inline.html` — inline `<script type="module">` without imports
+- `module-import.html` — `import { greet } from './lib.js'`
+- `import-meta.html` — `import.meta.url` resolution
+- `lib.js` — exported function + variable
+
+Links added to `Html/test.html` as Section E (T-M-001 through T-M-003).
+
+### 19.4 Next Direction: NiL.JS 2.6 Downshift
+
+After auditing `Src/NiL.JS` (2.6 source), the downshift is feasible:
+
+| Concern | Status |
+|---------|--------|
+| `Span<T>`, `stackalloc`, `ref struct` | **0 occurrences** |
+| `ValueTask`, `IAsyncEnumerable` | **0 occurrences** |
+| `System.Buffers`, `System.IO.Pipelines` | **0 occurrences** |
+| `[Serializable]` (~170 uses) | Already guarded by `#if !(PORTABLE \|\| NETCORE)` |
+| `AppDomain` (2 uses) | Already guarded by `#if !NETCORE` |
+| `CompiledNode.cs` (JIT) | Already guarded by `#if !NETCORE` |
+| `ValueTuple` polyfill | Need to extend `#if NET461` → `#if NET461 \|\| NETSTANDARD1_4` |
+| `System.Reflection.Emit` | Available as NuGet for netstandard1.4 |
+
+Switch from NuGet `NiL.JS 2.5.1294` → project reference `Src/NiL.JS` (with downshift).
+
+---
+
+## Phase 20: NiL.JS 2.6 Integration + Parser Patch (netstandard2.0 via ProjectReference)
+
+> **Priority: 🔴 Must have — unblocks ES Modules validation**
+> **Effort: 3–5 days / ~300 lines changed in NiL.JS + MediaExplorer**
+> **Status: 🟡 IN PROGRESS (import.meta added, logical assignment next)**
+
+### Background
+
+Current project uses `NiL.JS 2.5.1294` as a NuGet package. Vite bundles fail with `SyntaxError: Unexpected token (1:361)` because `Eval()` cannot parse `import`/`export` declarations. The local source (`Src/NiL.JS`, version 2.6) has better ES module support but targets `netstandard2.1+`.
+
+### What Was Done
+
+**Step 1 — NiL.JS 2.6 netstandard2.0 build:**
+- Added `<TargetFramework>netstandard2.0</TargetFramework>` to `NiL.JS.csproj`
+- Polyfills in `Backward.cs`: `MaybeNullWhenAttribute`, `TypeBuilder.CreateType()` fix
+- `Tools.cs:679`: `Enum.TryParse` → `Enum.Parse` under `NETSTANDARD2_0`
+- Build: `msbuild /p:TargetFramework=netstandard2.0` → 0 errors
+
+**Step 2 — Switch to ProjectReference:**
+- Removed `PackageReference Include="NiL.JS" Version="2.6.0-local"`
+- Added `ProjectReference Include="..\NiL.JS\NiL.JS\NiL.JS.csproj"`
+- Linked source approach abandoned (300+ files incompatible with UWP)
+
+**Step 3 — ModuleLoader rewrite:**
+- `IModuleResolver` interface implementation (replaces `ResolveModuleEventArgs`)
+- `Module.ModuleResolversChain.Add(this)` (replaces static event)
+- `RunModule(key, code)` → `new JSModule(key, code, _nil).Run()`
+- `_fetchTasks` for async prefetch of imported modules
+- `ms-appx:///` fetch via `StorageFile.GetFileFromApplicationUriAsync`
+
+**Step 4 — GlobalContext fix (InvalidCastException):**
+- `_nil` type changed: `Context` → `GlobalContext` (both `JavaScriptEngine.cs` and `ModuleLoader.cs`)
+- `_nilInit()`: `new Context()` → `new GlobalContext()`
+- Removed `(GlobalContext)` cast — no longer needed
+
+**Step 5 — Module Resolution Fix (baseUri tracking):**
+- Added `_moduleBaseUris` dictionary to track parent module base URIs
+- `TryGetModule` now uses `request.Initiator.FilePath` → lookup baseUri → resolve relative specifiers
+- **T-M-002 ✅ PASS** — `import { greet } from './lib.js'` works correctly
+
+**Step 6 — console.warn/error/info support:**
+- Added `warn()`, `error()`, `info()` methods to `HostConsole` class
+- Extended console getter to handle all 4 method names
+
+**Step 7 — `import.meta` Parser Patch:**
+- Created `Expressions/ImportMeta.cs` (following `NewTarget` pattern)
+- Added `ImportMeta` property to `Module.cs` with `_oValue = Dictionary<string, JSValue>` initialization
+- Added parser rules in `Parser.cs` (all 3 rule sets)
+- Added `import.meta` case in `ExpressionTree.cs:parseOperand`
+- `import.meta` now parses without `SyntaxError` and returns `{ url: filePath }` at runtime
+
+### Vite Bundle Analysis (nokiadesignarchive.aalto.fi)
+
+| Syntax Feature | Occurrences | ES Version | NiL.JS Support | Priority |
+|----------------|-------------|------------|----------------|----------|
+| `import.meta.url` | 1 | ES2020 | ✅ ADDED + runtime works | 🔴 |
+| `import()` dynamic | 1 | ES2020 | ✅ Supported + graceful fallback | 🔴 |
+| `async function*` | 1 | ES2018 | ✅ **FIXED (Session 3.11)** | 🔴 |
+| Private fields `#name` | 12 | ES2022 | ❌ Not supported | 🟢 |
+| Logical assignment `??=`, `\|\|=`, `&&=` | 172 | ES2021 | ✅ ADDED (Session 3.10) | 🔴 |
+| Arrow functions | ~50 | ES2015 | ✅ **FIXED (Sessions 3.11, 3.14)** | 🔴 |
+| **Async arrow functions with await** | ~20 | ES2017 | ✅ **FIXED (Session 3.14)** | 🔴 |
+| **Destructuring with array defaults** | ~20 | ES2015 | ✅ **FIXED (Session 3.10)** | 🔴 |
+| **Async methods in object literals** | ~50 | ES2017 | ✅ **FIXED (Session 3.11)** | 🔴 |
+| **get/set as field names with colons** | ~30 | ES5 | ✅ **FIXED (Session 3.12)** | 🔴 |
+| **IIFE after function (no semicolon)** | ~5 | ES5 | ✅ **FIXED (Session 3.14)** | 🔴 |
+| **`const{x}` without space** | ~30 | ES2015 | ✅ **FIXED (Session 3.14)** | 🔴 |
+
+**Step 13 — Full Bundle Parse (Session 3.14):**
+- **568,328 characters** — parses completely without syntax errors!
+- First runtime error: `ReferenceError: Variable "document" is not defined` (expected — DOM global)
+- Parser position progress: 1133 → 133079 → 133673 → 150674 → 168266 → **FULL PARSE**
+
+**Step 8 — Logical Assignment (`??=`, `||=`, `&&=`):**
+- Created `Expressions/LogicalAssignment.cs` — handles all 3 logical assignment operators
+- Added 3 new OperationTypes: `LogicalOrAssignment`, `LogicalAndAssignment`, `NullishCoalescingAssignment`
+- Modified `ExpressionTree.cs` parser to recognize `||=`, `&&=`, `??=` syntax
+- Added `Visitor.cs` method for LogicalAssignment
+- **172 occurrences** in Vite bundle now work correctly ✅
+
+**Step 9 — Destructuring with Array Defaults Fix:**
+- Исправлен баг в `Parser.cs` в функции `skipExpression` внутри `ValidateDestructuring`
+- Заменено общее условие на три отдельных с правильными парами скобок (`{}` `()` `[]`)
+- **~20 occurrences** в Vite bundle теперь работают корректно ✅
+
+**Step 10 — Async Methods in Object Literals Fix:**
+- Исправлен баг в `ObjectDefinition.cs` — парсер теперь не парсит "async" как имя поля
+- Добавлена переменная `nameStart`, чтобы правильно обрабатывать позицию после `async` или `*`
+- **~50 occurrences** в Vite bundle теперь работают корректно ✅
+
+**Step 11 — get/set Keywords as Regular Field Names Fix:**
+- Исправлен баг в `ObjectDefinition.cs` — теперь парсер проверяет не только `(` после `get`/`set`, но и `:`
+- Если после `get`/`set` идет `:`, то это обрабатывается как обычное имя поля, а не как getter/setter
+- **~30 occurrences** в Vite bundle теперь работают корректно ✅
+
+**Step 12 — Critical Regression Fix:**
+- Исправлен критический баг, который сломал обычные (не‑async/не‑generator) методы в объектах
+- Убрано условие сброса `i` только при наличии async/asterisk; теперь `i` всегда сбрасывается на `nameStart` для всех методов
+- **All object‑literal parsing is now fully functional again! ✅
+
+### Risks
+
+- `import.meta` — ✅ ADDED to NiL.JS parser (Session 3.9)
+- `typeof import` syntax — may still not be supported
+- `async function*` (async generators) — ✅ **FIXED (Session 3.11)**
+- **Destructuring with array defaults** — ✅ FIXED (Session 3.10)
+- **Logical assignment `??=`, `\|\|=`, `&&=`** — ✅ ADDED (Session 3.10)
+- **Async methods in object literals** — ✅ FIXED (Session 3.11)
+- **get/set as field names with colons** — ✅ FIXED (Session 3.12)
+- **Critical regression: normal methods in objects** — ✅ FIXED (Session 3.13)
+- **Arrow functions in expressions** — ✅ FIXED (Sessions 3.11, 3.14)
+- **Async arrow functions with await** — ✅ FIXED (Session 3.14)
+- **IIFE after function declaration** — ✅ FIXED (Session 3.14)
+- **`const{x}` without space** — ✅ FIXED (Session 3.14)
+- Private fields `#name` — ❌ Not supported, 12 occurrences in Vite bundle
+- **Full bundle parse** — ✅ **568KB parses without syntax errors! (Session 3.14)**
+
+### Remaining Work
+
+1. **`in` operator fix** — NiL.JS `In.cs:42` throws TypeError when RHS is not Object; need to return `false` for non-objects (browser-compatible behavior)
+2. **Private fields `#name`** — 12 occurrences, lower priority
+3. **Continue fixing runtime errors** in the bundle (many `InvalidOperationException` in NiL.JS)
+4. **Log noise reduction** — 315 `empty catch` blocks spamming Visual Studio Output
+
+---
+
 ## Summary & Sequencing
 
 | Phase | Title | Priority | Effort | Depends on |
 |-------|-------|----------|--------|------------|
-| **T** | **Testing Infrastructure** | 🔴 | 3–4 days | — |
-| **8B** | **Incremental Re-render** | 🔴 | 4–6 days | T, 8A |
-| **15** | Rendering Modes (FULL/RICH/POOR) | 🟡 | 2–3 days | T |
+| **T** | **Testing Infrastructure** | 🔴 | 3–4 days | — | ✅ DONE |
+| **8B** | **Incremental Re-render** | 🔴 | 4–6 days | T, 8A | ✅ DONE |
+| **15** | Rendering Modes (FULL/RICH/POOR) | 🟡 | 2–3 days | T | ✅ DONE |
 | **16** | CSS: transform, calc, Grid areas, transitions | 🟡 | 5–7 days | T, 16.1 before 16.4 |
-| **10** | DevTools (Console + DOM + Network) | 🟡 | 3–5 days | T |
-| **17** | Robustness & Memory | 🟡 | 2–3 days | T |
+| **10** | DevTools (Console + DOM + Network + Debug) | 🟡 | 3–5 days | T | ✅ DONE |
+| **17** | Robustness & Memory |  | 2–3 days | T |
+| **19** | DevTools Enhancement & ES Modules Validation | 🟡 | 2–3 days | 10, 6 |  IN PROGRESS |
+| **20** | NiL.JS 2.6 Integration + Parser Patch | ✅ DONE | ~300 lines | 19 | Full 568KB Vite bundle parses + Nokia Archive validates (Sessions 3.14–3.15) |
 | **7** | Service Worker + Offline-First | 🟢 | 3–5 days | 8B, 10 |
 
 **Total: ~22–33 working days / ~3300 lines**
@@ -728,21 +982,40 @@ Testing via T-S-009 (hacker-news Firebase app) — it ships a service worker and
 ## Recommended Session Sequence
 
 ```
-Session 2.19: Phase T — test.html (Sections A+B+C), TestLogger, about:test routing
-Session 2.20: Phase T — site matrix first run, Perf_Baseline.md, reference screenshots
-Session 2.21: Phase 8B — CascadeSingle + InvalidateSubtree
-Session 2.22: Phase 8B — VirtualizingRenderer.Patch + wire to CustomHtmlEngine
-Session 2.23: Phase 15 — RenderMode enum + POOR/RICH implementations
-Session 2.24: Phase 16.1 — transform (rotate/scale/translate)
+Session 2.19: Phase T — test.html (Sections A+B+C), TestLogger, about:test routing ✅
+Session 2.20: Phase T — site matrix first run, Perf_Baseline.md, reference screenshots ✅
+Session 2.21: Phase 8B — CascadeSingle + InvalidateSubtree ✅
+Session 2.22: Phase 8B — VirtualizingRenderer.Patch + wire to CustomHtmlEngine ✅
+Session 2.23: Phase 15 — RenderMode enum + POOR/RICH implementations ✅
+Session 2.24: Phase 16.1 — transform (rotate/scale/translate) [ALREADY DONE]
 Session 2.25: Phase 16.2 — calc() + vw/vh resolver
 Session 2.26: Phase 16.3 — grid-template-areas
 Session 2.27: Phase 16.4 — basic CSS transitions
-Session 2.28: Phase 10 — DevTools Console + DOM tab
-Session 2.29: Phase 10 — Network tab + TestLogger integration
+Session 2.28: Phase 10 — DevTools Console + DOM tab ✅
+Session 2.29: Phase 10 — Network tab + TestLogger integration ✅
 Session 2.30: Phase 17 — NaN guards, DOM limit, JS timeout
 Session 2.31: Phase 7 — SwContext + install/fetch events
 Session 2.32: Phase 7 — caches API + ResourceManager integration
 Session 2.33: Full regression run against T-S site matrix; update Perf_Baseline.md
+Session 3.4: DevTools Panel (Console + DOM + Network tabs) ✅
+Session 3.5: DevTools Logger + Nokia Archive Focus ✅
+Session 3.6: DevTools Enhancement (Debug tab, Network log, DOM tree) ✅
+Session 3.7: Phase 19 — DevTools logging fixes, SVG diagnostic, ES Module test suite ✅
+Session 3.8: Phase 20 — NiL.JS 2.6 integration, GlobalContext fix (InvalidCastException) ✅
+Session 3.9: Phase 20 — Module resolution fix, console.warn, import.meta parser patch ✅
+Session 3.10: Phase 20 — import.meta runtime fix, logical assignment (??=, ||=, &&=), destructuring with array defaults ✅
+Session 3.11: Phase 20 — Arrow function fix (position 58), async function* support ✅
+Session 3.12: Phase 20 — get/set as field names with colons ✅
+Session 3.13: Phase 20 — Critical regression fix (normal methods in objects) ✅
+Session 3.14: Phase 20 — **Full Vite bundle parses!** (import space, IIFE, const space, async arrow await) ✅
+Session 3.15: Phase 20 — **Nokia Archive validation + UI polish** (Toast, MessageOverlay, Status Bar toggle, Nav fix) ✅
+Session 3.16: Phase 20 — **NiL.JS `new keyword` fix** (MethodProxy + ExternalFunction), **HostLocation** (pathname, origin, etc.) ✅
+Session 3.17: Phase 20 — **Massive globals expansion** — `_nilInit()` rewritten: 50+ JS globals (performance, crypto, URL, WebSocket, Blob, Event, Image, atob/btoa, requestAnimationFrame, full HostNavigator with 30+ properties, HostImage, window aliases) ✅
+Session 3.18: Phase 20 — **`in` operator fix** (In.cs returns `false` instead of throw) + **JS ENGINE FROZEN**  — 9 sessions in rabbit hole, shift to CSS/Rendering for 5+ sessions ✅
+Session 3.19: Phase 16.5 — **CSS Stabilization** — VirtualizingRenderer margin/padding fix, HTTPS→HTTP redirect handling, `text.npr.org` + `example.com` → `iana.org` working ✅
+
+Session 3.20: Phase 20.1 — **NiL.JS netstandard1.4 Migration** — target framework changed from `netstandard2.0` to `netstandard1.4` (UWP 15063 compat). ~120 compile errors fixed via `Backward.cs` polyfills, property→`GetTypeInfo()` call-site changes, type stubs, and `#if` guards across 20+ files. Full solution builds with **0 errors**. ✅
+Session 3.20: Phase 16.6 — CSS Grid/Flexbox for complex layouts (`iana.org`), CSS variables, `@media` queries ← NEXT
 ```
 
 ---
@@ -754,9 +1027,9 @@ HTML → LiteElement (HtmlParser)
   → JsDomElement ↔ NiL.JS (ES Modules, ModuleResolver)
                 ↔ MutationObserver (8A done)
                           ↓ mutations
-             MutationProcessor → CssLoader.CascadeSingle(node)   [8B]
-                               → LayoutEngine.InvalidateSubtree  [8B]
-                               → VirtualizingRenderer.Patch()    [8B]
+              MutationProcessor → CssLoader.CascadeSingle(node)   [8B ✅]
+                                → LayoutEngine.InvalidateSubtree  [8B ✅]
+                                → VirtualizingRenderer.Patch()    [8B ✅]
                                          ↓
             ServiceWorker (Phase 7) intercepts fetch → sw_cache\
                                          ↓
@@ -770,8 +1043,9 @@ Background:  LayoutEngine.RelayoutSubtreeAsync (dirty subtree only)
              ES Module graph resolution (CPU-bound)
 
 DevTools:    Console → RunInlineJS → log output
-             DOM tab → LiteElement tree (live)
-             Network tab → ResourceManager fetch log (ring buffer 200)
+              DOM tab → LiteElement tree (live via GetActiveDom)
+              Network tab → ResourceManager fetch log (ring buffer 200)
+              Debug tab → [DIAG] engine logs (filtered stream)
 
 Rendering modes:
   FULL:  NiL.JS + CSS cascade + images
@@ -799,7 +1073,9 @@ Since this is a one-person retro project with no CI and no unit test framework:
 
 **The POOR mode is your emergency exit:** if a site crashes the engine, switch to POOR and at least show the user readable text. This is the "museum browser" philosophy — graceful degradation over crash-and-burn.
 
+**Future: Toast Notifications via ErrorOverlay:** The `ErrorOverlay` (`MainPage.xaml`, Grid.Row="1") is designed for "Aw, Snap!" crashes (large centered panel). It could be repurposed as a **toast notification** for non-critical events (Snapshot saved, Copied to clipboard, etc.) by showing it briefly (2-3s) with a transparent background and fading out. This would be far more visible on small screens than the current status bar. *(Idea noted for future implementation)*
+
 ---
 
-*Plan v3.0 — 2026-05-18*
-*Based on: Plan_01.md (v1.0), Plan_02.md (v2.2), sessions 2.01–2.18, GitHub repos mediaexplorer74/MediaExplorer + UDAIE-A/WEBVIEW*
+*Plan v3.7 — 2026-06-03*
+*Based on: Plan_01.md (v1.0), Plan_02.md (v2.2), sessions 2.01–3.20, GitHub repos mediaexplorer74/MediaExplorer + UDAIE-A/WEBVIEW*
