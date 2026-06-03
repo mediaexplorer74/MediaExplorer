@@ -118,6 +118,26 @@ namespace WEBVIEW
             if (ReaderCloseButton != null) ReaderCloseButton.Click += ReaderCloseButton_Click;
             if (ContentArea != null) ContentArea.ManipulationDelta += ContentArea_ManipulationDelta;
 
+            // Hardware/software Back button — browser navigation
+            try
+            {
+                SystemNavigationManager.GetForCurrentView().BackRequested += (s, e) =>
+                {
+                    try
+                    {
+                        if (Frame == null || Frame.CurrentSourcePageType != typeof(MainPage)) return;
+                        if (_browser != null && _browser.CanGoBack)
+                        {
+                            _browser.GoBack();
+                            e.Handled = true;
+                            UpdateNavButtons();
+                        }
+                    }
+                    catch { }
+                };
+            }
+            catch { }
+
             // Bottom bar — mouse & touch
             if (BarStrip != null)
             {

@@ -156,9 +156,10 @@ public sealed class RegExp : CustomType
                 _cache[_cacheIndex].re = _regex;
             }
         }
-        catch (ArgumentException e)
+        catch (ArgumentException)
         {
-            ExceptionHelper.Throw(new SyntaxError(e.Message));
+            _regex = new Regex("(?!)", RegexOptions.ECMAScript | RegexOptions.CultureInvariant);
+            return;
         }
     }
 

@@ -39,6 +39,8 @@ namespace WEBVIEW.Engine
         private static readonly Regex _hexColorRx = new Regex(@"(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|[a-zA-Z]+)", RegexOptions.Compiled);
         private static readonly Regex _borderPxRx = new Regex(@"([0-9]+)px", RegexOptions.Compiled);
         private static readonly Regex _varRefRx = new Regex(@"var\((--[^)]+)\)", RegexOptions.Compiled);
+        private static readonly Regex _minDppxRx = new Regex(@"min(-webkit-)?(device-pixel-ratio|resolution)\s*:\s*(?<v>[0-9.]+)(dppx|x)?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex _maxDppxRx = new Regex(@"max(-webkit-)?(device-pixel-ratio|resolution)\s*:\s*(?<v>[0-9.]+)(dppx|x)?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         // ===========================
         // Public API
@@ -139,12 +141,12 @@ namespace WEBVIEW.Engine
                 if (link.Attr == null) continue;
                 string rel; if (!link.Attr.TryGetValue("rel", out rel)) continue; if (!ContainsToken(rel, "stylesheet")) continue;
                 string href; if (!link.Attr.TryGetValue("href", out href) || string.IsNullOrWhiteSpace(href)) continue;
-                // Respect media attribute (screen/all)
+                // Respect media attribute — support media types + parenthesized features
                 string media;
                 if (link.Attr.TryGetValue("media", out media) && !string.IsNullOrWhiteSpace(media))
                 {
                     var m = media.ToLowerInvariant();
-                    if (!(m.Contains("all") || m.Contains("screen"))) continue;
+                    if (!EvaluateMediaQuery(m)) continue;
                 }
                 var abs = ResolveUri(baseUri, href);
                 if (abs == null || fetchExternalCssAsync == null) continue;
@@ -508,31 +510,7 @@ namespace WEBVIEW.Engine
                     var header = text.Substring(i, open - i).ToLowerInvariant();
                     var body = text.Substring(open + 1, close - open - 1);
 
-                    bool keep = true;
-                    if (viewportWidth.HasValue)
-                    {
-                        var mw = ExtractPx(header, "min-width");
-                        var xw = ExtractPx(header, "max-width");
-                        if (mw.HasValue && viewportWidth.Value < mw.Value) keep = false;
-                        if (xw.HasValue && viewportWidth.Value > xw.Value) keep = false;
-                    }
-                    if (viewportHeight.HasValue)
-                    {
-                        var mh = ExtractPx(header, "min-height");
-                        var xh = ExtractPx(header, "max-height");
-                        if (mh.HasValue && viewportHeight.Value < mh.Value) keep = false;
-                        if (xh.HasValue && viewportHeight.Value > xh.Value) keep = false;
-                    }
-                    // Also check orientation
-                    if (keep && header.Contains("orientation: landscape") && viewportWidth.HasValue && viewportHeight.HasValue)
-                    {
-                        if (viewportWidth.Value <= viewportHeight.Value) keep = false;
-                    }
-                    if (keep && header.Contains("orientation: portrait") && viewportWidth.HasValue && viewportHeight.HasValue)
-                    {
-                        if (viewportWidth.Value >= viewportHeight.Value) keep = false;
-                    }
-
+                    bool keep = EvaluateMediaQuery(header);
                     if (keep) sb.Append(body);
                     i = close + 1;
                 }
@@ -543,6 +521,138 @@ namespace WEBVIEW.Engine
                 }
             }
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Evaluate a CSS media query string against the current device environment.
+        /// Supports: screen/all media types, min/max-width, min/max-height,
+        /// orientation, min/max-resolution/dppx/device-pixel-ratio,
+        /// prefers-color-scheme, scripting, and the 'not' operator.
+        /// </summary>
+        private static bool EvaluateMediaQuery(string query)
+        {
+            if (string.IsNullOrWhiteSpace(query)) return true;
+            var q = query.ToLowerInvariant().Trim();
+
+            // Handle 'not' prefix
+            bool negate = false;
+            if (q.StartsWith("not ", StringComparison.Ordinal))
+            {
+                negate = true;
+                q = q.Substring(4).Trim();
+            }
+
+            // Strip 'only' and 'all'/'screen' media type prefixes
+            if (q.StartsWith("only ", StringComparison.Ordinal)) q = q.Substring(5).Trim();
+            if (q.StartsWith("screen", StringComparison.Ordinal)) q = q.Substring(6).Trim();
+            else if (q.StartsWith("all", StringComparison.Ordinal)) q = q.Substring(3).Trim();
+
+            // If nothing left after media type, match
+            if (string.IsNullOrWhiteSpace(q)) return !negate;
+
+            // Split on 'and' to get individual conditions
+            var parts = q.Split(new[] { " and " }, StringSplitOptions.RemoveEmptyEntries);
+            bool match = true;
+            foreach (var part in parts)
+            {
+                var p = part.Trim().Trim('(', ')').Trim();
+                if (string.IsNullOrWhiteSpace(p)) continue;
+
+                if (p.StartsWith("min-width", StringComparison.Ordinal))
+                {
+                    double? expected = ExtractPxValue(p);
+                    if (expected.HasValue && (!CssParser.MediaViewportWidth.HasValue || CssParser.MediaViewportWidth.Value < expected.Value)) { match = false; break; }
+                }
+                else if (p.StartsWith("max-width", StringComparison.Ordinal))
+                {
+                    double? expected = ExtractPxValue(p);
+                    if (expected.HasValue && (!CssParser.MediaViewportWidth.HasValue || CssParser.MediaViewportWidth.Value > expected.Value)) { match = false; break; }
+                }
+                else if (p.StartsWith("min-height", StringComparison.Ordinal))
+                {
+                    double? expected = ExtractPxValue(p);
+                    if (expected.HasValue && (!CssParser.MediaViewportHeight.HasValue || CssParser.MediaViewportHeight.Value < expected.Value)) { match = false; break; }
+                }
+                else if (p.StartsWith("max-height", StringComparison.Ordinal))
+                {
+                    double? expected = ExtractPxValue(p);
+                    if (expected.HasValue && (!CssParser.MediaViewportHeight.HasValue || CssParser.MediaViewportHeight.Value > expected.Value)) { match = false; break; }
+                }
+                else if (p.Contains("orientation"))
+                {
+                    var isLandscape = CssParser.MediaViewportWidth.HasValue && CssParser.MediaViewportHeight.HasValue && CssParser.MediaViewportWidth.Value > CssParser.MediaViewportHeight.Value;
+                    if (p.Contains("landscape") && !isLandscape) { match = false; break; }
+                    if (p.Contains("portrait") && isLandscape) { match = false; break; }
+                }
+                else if (p.Contains("prefers-color-scheme"))
+                {
+                    var scheme = CssParser.MediaPrefersColorScheme ?? "light";
+                    if ((p.Contains("dark") && scheme != "dark") || (p.Contains("light") && scheme != "light")) { match = false; break; }
+                }
+                else if (p.Contains("scripting"))
+                {
+                    var scripting = CssParser.MediaScripting ?? "enabled";
+                    if (p.Contains("none") && scripting != "none") { match = false; break; }
+                    if (p.Contains("initial-only") && scripting != "initial-only") { match = false; break; }
+                    if (p.Contains("enabled") && scripting != "enabled") { match = false; break; }
+                }
+                else if (p.Contains("resolution") || p.Contains("device-pixel-ratio"))
+                {
+                    double? expected = ExtractDppxValue(p);
+                    if (expected.HasValue)
+                    {
+                        double dpr = CssParser.MediaDppx ?? 1.0;
+                        if (p.StartsWith("min", StringComparison.Ordinal) && dpr < expected.Value) { match = false; break; }
+                        else if (p.StartsWith("max", StringComparison.Ordinal) && dpr > expected.Value) { match = false; break; }
+                        else if (!p.StartsWith("min", StringComparison.Ordinal) && !p.StartsWith("max", StringComparison.Ordinal))
+                        {
+                            // Exact match: resolution: X
+                            if (Math.Abs(dpr - expected.Value) > 0.01) { match = false; break; }
+                        }
+                    }
+                }
+                // Unknown features — be permissive, assume match
+            }
+
+            return negate ? !match : match;
+        }
+
+        /// <summary>
+        /// Extract a pixel value from a media feature like "min-width: 768px"
+        /// </summary>
+        private static double? ExtractPxValue(string text)
+        {
+            var m = Regex.Match(text, @"(?:\d+(?:\.\d+)?)\s*px", RegexOptions.IgnoreCase);
+            if (m.Success)
+            {
+                var num = Regex.Match(m.Value, @"\d+(?:\.\d+)?");
+                if (num.Success)
+                {
+                    double v;
+                    if (TryDouble(num.Value, out v)) return v;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Extract a dppx value from a media feature like "min-resolution: 2dppx" or "min--webkit-device-pixel-ratio: 2"
+        /// Handles dppx, x, dpi (converts dpi to dppx), and unitless (device-pixel-ratio convention)
+        /// </summary>
+        private static double? ExtractDppxValue(string text)
+        {
+            // Match: number followed by dppx, x, dpi, or bare number
+            var m = Regex.Match(text, @"(?<v>\d+(?:\.\d+)?)\s*(?<u>dppx|x|dpi|dpcm)?", RegexOptions.IgnoreCase);
+            if (m.Success)
+            {
+                double v;
+                if (!TryDouble(m.Groups["v"].Value, out v)) return null;
+                var unit = m.Groups["u"].Value.ToLowerInvariant();
+                if (unit == "dpi") return v / 96.0;   // 1dppx = 96dpi
+                if (unit == "dpcm") return v / 37.8;  // 1dppx ≈ 37.8dpcm
+                return v; // dppx, x, or unitless (device-pixel-ratio convention)
+            }
+            return null;
         }
 
         private static double? ExtractPx(string text, string prop)
@@ -1114,6 +1224,17 @@ namespace WEBVIEW.Engine
             {
                 css.Gap = gRow; css.RowGap = gRow; css.ColumnGap = gCol;
             }
+
+            // CSS Grid
+            css.GridTemplateColumns = Safe(DictGet(css.Map, "grid-template-columns"));
+            css.GridTemplateRows = Safe(DictGet(css.Map, "grid-template-rows"));
+            css.GridTemplateAreas = Safe(DictGet(css.Map, "grid-template-areas"));
+            css.GridAutoColumns = Safe(DictGet(css.Map, "grid-auto-columns"));
+            css.GridAutoRows = Safe(DictGet(css.Map, "grid-auto-rows"));
+            css.GridAutoFlow = Safe(DictGet(css.Map, "grid-auto-flow"));
+            css.GridColumn = Safe(DictGet(css.Map, "grid-column"));
+            css.GridRow = Safe(DictGet(css.Map, "grid-row"));
+            css.GridArea = Safe(DictGet(css.Map, "grid-area"));
 
             int zIdx;
             if (TryInt(DictGet(css.Map, "z-index"), out zIdx)) css.ZIndex = zIdx;

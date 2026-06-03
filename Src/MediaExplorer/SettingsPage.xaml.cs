@@ -1,4 +1,5 @@
 using System;
+using Windows.ApplicationModel;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -15,14 +16,18 @@ namespace WEBVIEW
             Loaded += (s, e) =>
             {
                 LoadSettings();
+                var v = Package.Current.Id.Version;
+                VersionText.Text = $"Version: {v.Major}.{v.Minor}.{v.Build}.{v.Revision} (dev; pre-alpha)";
                 SystemNavigationManager.GetForCurrentView().AppViewBackButtonVisibility = AppViewBackButtonVisibility.Visible;
             };
 
-            BackButton.Click += (s, e) => GoBack();
             SystemNavigationManager.GetForCurrentView().BackRequested += (s, e) =>
             {
-                e.Handled = true;
-                GoBack();
+                if (Frame.CanGoBack)
+                {
+                    e.Handled = true;
+                    Frame.GoBack();
+                }
             };
 
             JsToggle.Toggled += (s, e) =>
@@ -93,18 +98,6 @@ namespace WEBVIEW
                 }
                 catch { }
             };
-        }
-
-        private void GoBack()
-        {
-            try
-            {
-                if (Frame.CanGoBack)
-                {
-                    Frame.GoBack();
-                }
-            }
-            catch { }
         }
 
         private void LoadSettings()

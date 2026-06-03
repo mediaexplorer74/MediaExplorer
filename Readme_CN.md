@@ -1,4 +1,4 @@
-# MediaExplorer 0.40
+# MediaExplorer 0.41.2 - dev branch
 
 ![](/Images/logo.png)
 
@@ -10,10 +10,11 @@ MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的�
 
 ## 截图
 
+![](/Images/sshot.png)
 ![](/Images/sshot01.png)
 ![](/Images/sshot02.png)
 ![](/Images/sshot03.png)
-
+![](/Images/sshot04.png)
 
 ## 功能
 
@@ -29,7 +30,7 @@ MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的�
 
 ## 状态
 
-- **Pre-alpha。** 所有功能均高度未完成。
+- **Pre-alpha。** 未在真实 W10M 设备上测试。尚无 appx 安装包。所有功能均高度未完成。
 - **NiL.JS 2.6集成(netstandard2.0 → 1.4)** | **✅ 完成**(w10m15063完全构建)
 
 这是一个自制的浏览器引擎——不是生产级产品，也不打算替代 Edge 或 Chrome。它的存在是为了证明：渲染网页不一定需要 Chromium。
@@ -71,6 +72,6 @@ MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的�
 
 按原样提供。不提供支持。仅用于研究。自己动手。
 
-[m][e] 2026 年 6 月 3 日
+[m][e] 2026 年 5 月 21 日
 
 ![](/Images/footer.png)

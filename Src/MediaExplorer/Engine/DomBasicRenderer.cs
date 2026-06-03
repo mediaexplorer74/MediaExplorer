@@ -31,6 +31,16 @@ namespace BrowserCore.Engine
 
         private async Task<FrameworkElement> DispatchTagAsync(LiteElement n, Uri baseUri, Action<Uri> onNavigate, JavaScriptEngine js, CancellationToken ct)
         {
+            // Check CSS display value for Grid/Flex containers
+            var css = TryGetCss(n);
+            if (css != null)
+            {
+                if (IsGridContainer(css))
+                    return await RenderCssGridAsync(n, baseUri, onNavigate, js, ct);
+                if (IsFlexContainer(css))
+                    return await MakeGridFallbackAsync(n, baseUri, onNavigate, js, ct);
+            }
+
             switch (n.TagId)
             {
                 case HtmlTag.Div:
@@ -1457,6 +1467,503 @@ namespace BrowserCore.Engine
             catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
         }
 
+        // ---------- CSS Grid ----------
+
+        private async Task<FrameworkElement> RenderCssGridAsync(LiteElement n, Uri baseUri, Action<Uri> onNavigate, JavaScriptEngine js, CancellationToken ct)
+        {
+            var css = TryGetCss(n);
+            var grid = new Grid();
+
+            try { ApplyComputedStyles(grid, n); } catch { }
+            try { ApplyInlineStyles(grid, n); } catch { }
+
+            // Parse column template
+            var colTemplate = css?.GridTemplateColumns;
+            if (!string.IsNullOrWhiteSpace(colTemplate))
+            {
+                var colDefs = ParseGridTrackList(colTemplate);
+                foreach (var cd in colDefs)
+                    grid.ColumnDefinitions.Add(cd);
+            }
+
+            // Parse row template
+            var rowTemplate = css?.GridTemplateRows;
+            if (!string.IsNullOrWhiteSpace(rowTemplate))
+            {
+                var rowDefs = ParseGridRowTrackList(rowTemplate);
+                foreach (var rd in rowDefs)
+                    grid.RowDefinitions.Add(rd);
+            }
+
+            // Gap
+            double colGap = 0, rowGap = 0;
+            if (css != null)
+            {
+                if (css.ColumnGap.HasValue) colGap = css.ColumnGap.Value;
+                if (css.RowGap.HasValue) rowGap = css.RowGap.Value;
+                if (css.Gap.HasValue)
+                {
+                    if (colGap <= 0) colGap = css.Gap.Value;
+                    if (rowGap <= 0) rowGap = css.Gap.Value;
+                }
+            }
+            if (colGap > 0) grid.ColumnSpacing = colGap;
+            if (rowGap > 0) grid.RowSpacing = rowGap;
+
+            grid.HorizontalAlignment = HorizontalAlignment.Stretch;
+
+            // Parse grid-template-areas
+            var namedAreas = ParseGridTemplateAreas(css?.GridTemplateAreas);
+            bool hasNamedAreas = namedAreas != null && namedAreas.Count > 0;
+
+            // If only areas are defined (no explicit template), infer grid size
+            if (hasNamedAreas && grid.ColumnDefinitions.Count == 0)
+            {
+                int maxCol = 0, maxRow = 0;
+                foreach (var area in namedAreas.Values)
+                {
+                    int endCol = area.col + area.colSpan;
+                    int endRow = area.row + area.rowSpan;
+                    if (endCol > maxCol) maxCol = endCol;
+                    if (endRow > maxRow) maxRow = endRow;
+                }
+                for (int c = 0; c < maxCol; c++)
+                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                for (int r = 0; r < maxRow; r++)
+                    grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            }
+
+            // Place children
+            var children = n.Children ?? new List<LiteElement>();
+            int nextCol = 0, nextRow = 0;
+            int maxCols = grid.ColumnDefinitions.Count > 0 ? grid.ColumnDefinitions.Count : 1;
+            string autoFlow = css?.GridAutoFlow;
+
+            foreach (var child in children)
+            {
+                ct.ThrowIfCancellationRequested();
+                var childCss = TryGetCss(child);
+
+                // Skip absolute/fixed — handled by parent
+                if (childCss != null && (childCss.Position == "absolute" || childCss.Position == "fixed")) continue;
+
+                var fe = await RenderNodeAsync(child, baseUri, onNavigate, js, ct);
+                if (fe == null) continue;
+
+                int col = -1, row = -1, colSpan = 1, rowSpan = 1;
+
+                // Check named grid-area first (grid-template-areas)
+                string areaName = childCss?.GridArea;
+                if (hasNamedAreas && !string.IsNullOrWhiteSpace(areaName) && areaName.IndexOf('/') < 0)
+                {
+                    GridAreaInfo area;
+                    if (namedAreas.TryGetValue(areaName.Trim().ToLowerInvariant(), out area))
+                    {
+                        col = area.col;
+                        row = area.row;
+                        colSpan = area.colSpan;
+                        rowSpan = area.rowSpan;
+                    }
+                }
+                else if (childCss != null) ParseGridPlacement(childCss, out col, out row, out colSpan, out rowSpan);
+
+                if (col >= 0 || row >= 0)
+                {
+                    if (col >= 0) Grid.SetColumn(fe, col);
+                    if (row >= 0) Grid.SetRow(fe, row);
+                }
+                else
+                {
+                    // Auto-placement
+                    if (autoFlow != null && autoFlow.Contains("column"))
+                    {
+                        Grid.SetColumn(fe, nextCol);
+                        Grid.SetRow(fe, nextRow);
+                        nextRow++;
+                        if (maxCols > 0 && nextRow >= grid.RowDefinitions.Count)
+                        { nextRow = 0; nextCol++; }
+                    }
+                    else
+                    {
+                        Grid.SetColumn(fe, nextCol);
+                        Grid.SetRow(fe, nextRow);
+                        nextCol++;
+                        if (nextCol >= maxCols) { nextCol = 0; nextRow++; }
+                    }
+                }
+
+                if (colSpan > 1) Grid.SetColumnSpan(fe, colSpan);
+                if (rowSpan > 1) Grid.SetRowSpan(fe, rowSpan);
+
+                grid.Children.Add(fe);
+            }
+
+            // Handle absolute-positioned children via Canvas overlay
+            var absoluteItems = CollectAbsoluteChildren(n);
+            if (absoluteItems.Count > 0)
+            {
+                var overlay = new Canvas();
+                overlay.Children.Add(grid);
+                foreach (var abs in absoluteItems)
+                {
+                    var absFe = await RenderNodeAsync(abs.Item1, baseUri, onNavigate, js, ct);
+                    if (absFe != null)
+                    {
+                        overlay.Children.Add(absFe);
+                        try { PositionOnCanvas(absFe, abs.Item2, grid); } catch { }
+                    }
+                }
+                return overlay;
+            }
+
+            return grid;
+        }
+
+        private static List<ColumnDefinition> ParseGridTrackList(string template)
+        {
+            var defs = new List<ColumnDefinition>();
+            if (string.IsNullOrWhiteSpace(template)) return defs;
+
+            // Handle repeat()
+            var repeatMatch = Regex.Match(template, @"repeat\(\s*(\d+)\s*,\s*(.+?)\s*\)", RegexOptions.IgnoreCase);
+            if (repeatMatch.Success)
+            {
+                int count;
+                if (int.TryParse(repeatMatch.Groups[1].Value, out count) && count > 0)
+                {
+                    var inner = repeatMatch.Groups[2].Value.Trim();
+                    var innerTracks = ParseTrackValues(inner);
+                    for (int i = 0; i < count; i++)
+                        defs.AddRange(innerTracks);
+                }
+                // Also parse any tracks before/after repeat
+                var before = template.Substring(0, repeatMatch.Index).Trim();
+                var after = template.Substring(repeatMatch.Index + repeatMatch.Length).Trim();
+                if (!string.IsNullOrEmpty(before))
+                    defs.InsertRange(0, ParseTrackValues(before));
+                if (!string.IsNullOrEmpty(after))
+                    defs.AddRange(ParseTrackValues(after));
+                return defs;
+            }
+
+            return ParseTrackValues(template);
+        }
+
+        private static List<ColumnDefinition> ParseTrackValues(string value)
+        {
+            var defs = new List<ColumnDefinition>();
+            if (string.IsNullOrWhiteSpace(value)) return defs;
+
+            var parts = SplitGridTrackValues(value);
+            foreach (var part in parts)
+            {
+                var trimmed = part.Trim();
+                if (trimmed.Length == 0) continue;
+
+                // minmax(min, max)
+                var mm = Regex.Match(trimmed, @"minmax\(\s*(.+?)\s*,\s*(.+?)\s*\)", RegexOptions.IgnoreCase);
+                if (mm.Success)
+                {
+                    var minVal = mm.Groups[1].Value.Trim();
+                    var maxVal = mm.Groups[2].Value.Trim();
+                    var gLen = ParseGridLength(maxVal);
+                    if (gLen.GridUnitType != GridUnitType.Auto)
+                    {
+                        double minPx;
+                        if (TryPx(minVal, out minPx))
+                            defs.Add(new ColumnDefinition { Width = gLen, MinWidth = minPx });
+                        else
+                            defs.Add(new ColumnDefinition { Width = gLen });
+                    }
+                    else
+                        defs.Add(new ColumnDefinition());
+                    continue;
+                }
+
+                // fr unit
+                var fr = Regex.Match(trimmed, @"^([0-9]*\.?[0-9]+)fr$", RegexOptions.IgnoreCase);
+                if (fr.Success)
+                {
+                    double val;
+                    double.TryParse(fr.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out val);
+                    if (val <= 0) val = 1;
+                    defs.Add(new ColumnDefinition { Width = new GridLength(val, GridUnitType.Star) });
+                    continue;
+                }
+
+                // px
+                double px;
+                if (TryPx(trimmed, out px))
+                {
+                    defs.Add(new ColumnDefinition { Width = new GridLength(px, GridUnitType.Pixel) });
+                    continue;
+                }
+
+                // percentage
+                double pct;
+                var pctMatch = Regex.Match(trimmed, @"^([0-9]*\.?[0-9]+)%$");
+                if (pctMatch.Success && double.TryParse(pctMatch.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out pct))
+                {
+                    defs.Add(new ColumnDefinition { Width = new GridLength(pct, GridUnitType.Star) });
+                    continue;
+                }
+
+                // auto
+                if (trimmed.Equals("auto", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("min-content", StringComparison.OrdinalIgnoreCase))
+                {
+                    defs.Add(new ColumnDefinition());
+                    continue;
+                }
+
+                // max-content / fit-content — treat as auto
+                if (trimmed.Equals("max-content", StringComparison.OrdinalIgnoreCase) || trimmed.StartsWith("fit-content", StringComparison.OrdinalIgnoreCase))
+                {
+                    defs.Add(new ColumnDefinition());
+                    continue;
+                }
+
+                // default: auto
+                defs.Add(new ColumnDefinition());
+            }
+
+            return defs;
+        }
+
+        private static List<string> SplitGridTrackValues(string value)
+        {
+            var parts = new List<string>();
+            int depth = 0;
+            int start = 0;
+            for (int i = 0; i < value.Length; i++)
+            {
+                char c = value[i];
+                if (c == '(') depth++;
+                else if (c == ')') depth--;
+                else if (c == ' ' && depth == 0)
+                {
+                    var part = value.Substring(start, i - start).Trim();
+                    if (part.Length > 0) parts.Add(part);
+                    start = i + 1;
+                }
+            }
+            var last = value.Substring(start).Trim();
+            if (last.Length > 0) parts.Add(last);
+            return parts;
+        }
+
+        private static GridLength ParseGridLength(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return new GridLength(1, GridUnitType.Star);
+
+            var trimmed = value.Trim();
+
+            // fr
+            var fr = Regex.Match(trimmed, @"^([0-9]*\.?[0-9]+)fr$", RegexOptions.IgnoreCase);
+            if (fr.Success)
+            {
+                double val;
+                double.TryParse(fr.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out val);
+                if (val <= 0) val = 1;
+                return new GridLength(val, GridUnitType.Star);
+            }
+
+            // px
+            double px;
+            if (TryPx(trimmed, out px))
+                return new GridLength(px, GridUnitType.Pixel);
+
+            // percentage treated as star
+            double pct;
+            var pctMatch = Regex.Match(trimmed, @"^([0-9]*\.?[0-9]+)%$");
+            if (pctMatch.Success && double.TryParse(pctMatch.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out pct))
+                return new GridLength(pct, GridUnitType.Star);
+
+            return new GridLength(1, GridUnitType.Star);
+        }
+
+        private static void ParseGridPlacement(CssComputed css, out int col, out int row, out int colSpan, out int rowSpan)
+        {
+            col = -1; row = -1; colSpan = 1; rowSpan = 1;
+
+            // Parse grid-area shorthand
+            if (!string.IsNullOrWhiteSpace(css.GridArea) && css.GridArea.IndexOf('/') < 0)
+            {
+                // Named grid area — skip explicit placement (would need grid-template-areas parsing)
+                return;
+            }
+
+            // Parse grid-column
+            if (!string.IsNullOrWhiteSpace(css.GridColumn))
+            {
+                ParseGridLine(css.GridColumn, out col, out colSpan);
+            }
+
+            // Parse grid-row
+            if (!string.IsNullOrWhiteSpace(css.GridRow))
+            {
+                ParseGridLine(css.GridRow, out row, out rowSpan);
+            }
+        }
+
+        private static void ParseGridLine(string value, out int start, out int span)
+        {
+            start = -1; span = 1;
+            if (string.IsNullOrWhiteSpace(value)) return;
+
+            var trimmed = value.Trim().ToLowerInvariant();
+
+            // "span N"
+            if (trimmed.StartsWith("span "))
+            {
+                int s;
+                if (int.TryParse(trimmed.Substring(5).Trim(), out s) && s > 0)
+                    span = s;
+                return;
+            }
+
+            // "N / span M" or "N / M"
+            var slash = trimmed.IndexOf('/');
+            if (slash >= 0)
+            {
+                var left = trimmed.Substring(0, slash).Trim();
+                var right = trimmed.Substring(slash + 1).Trim();
+
+                // left side
+                int c;
+                if (int.TryParse(left, out c) && c > 0)
+                    start = c - 1; // CSS grid lines are 1-based
+
+                // right side
+                if (right.StartsWith("span "))
+                {
+                    int s;
+                    if (int.TryParse(right.Substring(5).Trim(), out s) && s > 0)
+                        span = s;
+                }
+                else
+                {
+                    int end;
+                    if (int.TryParse(right, out end) && end > 0)
+                        span = end - (start >= 0 ? start : 0);
+                }
+                return;
+            }
+
+            // single number
+            int n;
+            if (int.TryParse(trimmed, out n) && n > 0)
+                start = n - 1;
+        }
+
+        private struct GridAreaInfo { public int col, row, colSpan, rowSpan; }
+
+        private static Dictionary<string, GridAreaInfo> ParseGridTemplateAreas(string areas)
+        {
+            var result = new Dictionary<string, GridAreaInfo>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(areas)) return result;
+
+            // Split into rows (each quoted string is a row)
+            var rows = new List<List<string>>();
+            int idx = 0;
+            while (idx < areas.Length)
+            {
+                // Find opening quote
+                int qStart = areas.IndexOf('"', idx);
+                if (qStart < 0) break;
+                qStart++;
+                int qEnd = areas.IndexOf('"', qStart);
+                if (qEnd < 0) break;
+                var rowStr = areas.Substring(qStart, qEnd - qStart).Trim();
+                idx = qEnd + 1;
+
+                if (string.IsNullOrEmpty(rowStr)) continue;
+                var cells = new List<string>();
+                int ci = 0;
+                while (ci < rowStr.Length)
+                {
+                    // skip whitespace
+                    while (ci < rowStr.Length && char.IsWhiteSpace(rowStr[ci])) ci++;
+                    if (ci >= rowStr.Length) break;
+                    // read token
+                    int tokStart = ci;
+                    while (ci < rowStr.Length && !char.IsWhiteSpace(rowStr[ci])) ci++;
+                    var token = rowStr.Substring(tokStart, ci - tokStart);
+                    if (token != ".") // "." = empty cell
+                        cells.Add(token);
+                    else
+                        cells.Add(null);
+                }
+                if (cells.Count > 0) rows.Add(cells);
+            }
+
+            if (rows.Count == 0) return result;
+
+            // Build contiguous area map: find bounding box for each named area
+            // First pass: collect all cells by name
+            var areaCells = new Dictionary<string, List<Tuple<int, int>>>(StringComparer.OrdinalIgnoreCase);
+            for (int r = 0; r < rows.Count; r++)
+            {
+                for (int c = 0; c < rows[r].Count; c++)
+                {
+                    var name = rows[r][c];
+                    if (name == null) continue;
+                    List<Tuple<int, int>> cells;
+                    if (!areaCells.TryGetValue(name, out cells))
+                        areaCells[name] = cells = new List<Tuple<int, int>>();
+                    cells.Add(Tuple.Create(c, r));
+                }
+            }
+
+            foreach (var kv in areaCells)
+            {
+                if (kv.Value.Count == 0) continue;
+                int minC = int.MaxValue, minR = int.MaxValue, maxC = int.MinValue, maxR = int.MinValue;
+                foreach (var cell in kv.Value)
+                {
+                    if (cell.Item1 < minC) minC = cell.Item1;
+                    if (cell.Item1 > maxC) maxC = cell.Item1;
+                    if (cell.Item2 < minR) minR = cell.Item2;
+                    if (cell.Item2 > maxR) maxR = cell.Item2;
+                }
+                result[kv.Key] = new GridAreaInfo
+                {
+                    col = minC, row = minR,
+                    colSpan = maxC - minC + 1,
+                    rowSpan = maxR - minR + 1
+                };
+            }
+
+            return result;
+        }
+
+        private static List<Tuple<LiteElement, CssComputed>> CollectAbsoluteChildren(LiteElement n)
+        {
+            var list = new List<Tuple<LiteElement, CssComputed>>();
+            if (n.Children == null) return list;
+            foreach (var child in n.Children)
+            {
+                var css = TryGetCssStatic(child);
+                if (css != null && (css.Position == "absolute" || css.Position == "fixed"))
+                    list.Add(Tuple.Create(child, css));
+            }
+            return list;
+        }
+
+        private static List<RowDefinition> ParseGridRowTrackList(string template)
+        {
+            var defs = new List<RowDefinition>();
+            if (string.IsNullOrWhiteSpace(template)) return defs;
+
+            var colDefs = ParseGridTrackList(template);
+            foreach (var cd in colDefs)
+            {
+                var rd = new RowDefinition { Height = cd.Width };
+                if (cd.MinWidth > 0) rd.MinHeight = cd.MinWidth;
+                defs.Add(rd);
+            }
+            return defs;
+        }
+
         // ---------- Flexbox (legacy subset) ----------
 
 
@@ -2038,6 +2545,7 @@ namespace BrowserCore.Engine
             _baseUriForResources = baseUri;
             // expose computed styles statically for helper lookups (list-style-type bullets)
             try { _computedStylesStatic = this.ComputedStyles; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            if (Js != null) Js._computedStyles = ComputedStyles;
 
             // Honor <base href>
             var baseTag = root.Descendants().FirstOrDefault(n => n.Tag == "base");

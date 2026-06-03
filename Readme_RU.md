@@ -1,4 +1,4 @@
-# MediaExplorer 0.40
+# MediaExplorer 0.41.2 - dev branch
 
 ![](/Images/logo.png)
 
@@ -10,9 +10,11 @@ MediaExplorer — это хобби-браузер для Windows 10 Mobile (W10
 
 ## Скриншоты
 
+![](/Images/sshot.png)
 ![](/Images/sshot01.png)
 ![](/Images/sshot02.png)
 ![](/Images/sshot03.png)
+![](/Images/sshot04.png)
 
 ## Возможности
 
@@ -28,7 +30,7 @@ MediaExplorer — это хобби-браузер для Windows 10 Mobile (W10
 
 ## Статус
 
-- **Пре-альфа.** Все функции сильно недопилены.
+- **Пре-альфа.** Не тестировался на реальных устройствах W10M. Appx-пакета пока нет. Все функции сильно недопилены.
 - **NiL.JS 2.6 (netstandard2.0 → 1.4)** | **✅ DONE** (успешно собрался для W10M 15063)
 
 Это самодельный браузерный движок — не для продакшена, не для замены Edge или Chrome. Он существует, чтобы доказать: для рендеринга веб-страницы не обязательно нужен Chromium.
@@ -70,6 +72,6 @@ MediaExplorer — это хобби-браузер для Windows 10 Mobile (W10
 
 Как есть. Без поддержки. Только RnD. DIY.
 
-[m][e] 03 июня 2026
+[m][e] 21 мая 2026
 
 ![](/Images/footer.png)

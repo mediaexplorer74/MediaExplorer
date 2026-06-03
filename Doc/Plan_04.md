@@ -1,12 +1,12 @@
 # MediaExplorer / WEBVIEW — Plan 04: Pragmatic Path to v1.0
 
-> **Project:** MediaExplorer 0.38.x (codename "WebView") — retro UWP museum browser for W10M
+> **Project:** MediaExplorer 0.41.x (codename "WebView") — retro UWP museum browser for W10M
 > **Hardware target:** Lumia 950/1020 (Snapdragon 810, 3 GB RAM, 5" 1440p)
 > **Test environment:** x86 emulator (primary) → ARM device (validation)
 > **Author note:** Plan 04 is the first plan written with explicit *honesty constraints* —
 > it distinguishes between what is achievable, what is a trap, and what the project
 > actually needs to feel finished. Read the Honest Assessment section before the phases.
-> **Last updated:** 2026-05-24
+> **Last updated:** 2026-06-03
 
 ---
 
@@ -14,7 +14,7 @@
 
 ### What has actually been built (remarkable)
 
-After 35+ sessions across three plan documents, MediaExplorer is not a toy. It is:
+After 38+ sessions across four plan documents, MediaExplorer is not a toy. It is:
 
 - A working custom HTML parser + CSS cascade engine with a selector index (O(candidates) not O(n×rules))
 - A XAML-based virtualizing renderer with element recycling and lazy image loading
@@ -23,10 +23,13 @@ After 35+ sessions across three plan documents, MediaExplorer is not a toy. It i
 
 That is, objectively, a remarkable solo achievement. Most people who start "let's build a browser engine" projects abandon them at the "renders Hello World" stage.
 
-### The current trap: the JS engine rabbit hole
+### The current trap: the JS engine rabbit hole (RESOLVED — Sessions 3.9–3.18)
 
-Sessions 3.9–3.17 were almost entirely NiL.JS surgery. Every fix revealed another issue:
+Sessions 3.9–3.17 were almost entirely NiL.JS surgery. Every fix revealed another issue.
+**Session 3.18 declared a JS Engine Freeze** — the `in` operator was fixed, `NilJS_Compat.md`
+written, and active NiL.JS patching stopped. Sessions 3.19+ shifted to CSS + stability.
 
+The pattern was an **infinite horizon**:
 ```
 3.9  → import.meta, console.warn
 3.10 → destructuring defaults, logical assignment (??=, ||=, &&=)
@@ -37,14 +40,8 @@ Sessions 3.9–3.17 were almost entirely NiL.JS surgery. Every fix revealed anot
 3.15 → querySelectorAll, navigation fixes, toast
 3.16 → new keyword, HostLocation
 3.17 → 50+ globals expansion
-3.18 → in operator ← CURRENTLY STUCK
+3.18 → in operator ← LAST NiL.JS PATCH (engine freeze declared)
 ```
-
-The pattern is an **infinite horizon**: after `in`, there will be private fields `#name`
-(12 occurrences), then `Symbol`, then `WeakRef`, then more missing DOM APIs, then more
-`InvalidOperationException` spam from NiL.JS internals. Each step is individually small,
-but collectively this path leads to "implementing a browser DOM from scratch," which is
-multi-year solo work.
 
 **The `in` operator issue is actually a 2-line fix.** The problem is in `NiL.JS/Expressions/In.cs:42`:
 ```csharp
@@ -66,12 +63,12 @@ The Nokia Design Archive uses D3.js v7. Making it render correctly needs:
 | Requirement | Status | Effort |
 |-------------|--------|--------|
 | Parser: full ES2022 syntax | ✅ DONE (3.14) | Done |
-| `in` operator fix | ❌ | 30 min |
-| Private class fields `#name` (12 uses) | ❌ NiL.JS unsupported | 3–5 days |
+| `in` operator fix | ✅ DONE (3.18) | Done |
+| Private class fields `#name` (12 uses) | ❌ NiL.JS unsupported | Not planned (JS freeze) |
 | Full DOM event system (addEventListener on SVG, input) | ❌ Stubs only | 5–10 days |
 | Canvas 2D API | ❌ Not started | 10–20 days |
 | SVG DOM manipulation via JS | ❌ Not started | 10–15 days |
-| CSS transitions driven by JS | ❌ Partial | 2–3 days |
+| CSS transitions driven by JS | ❌ Partial (C.6 planned) | 1 day |
 | D3 data binding (enter/exit/update) via DOM mutations | ❌ Untested | Unknown |
 
 **Total estimate for Nokia Archive to actually render:** 30–55 additional days of focused work.
@@ -84,16 +81,19 @@ a retro Lumia.
 
 | Requirement | Status | Effort |
 |-------------|--------|--------|
-| Fix `in` operator | ❌ | 30 min |
-| CSS: calc(), vw/vh | ❌ | 1–2 days |
-| CSS: grid-template-areas | ❌ | 2–3 days |
-| CSS: proper @media queries | ❌ | 1 day |
-| Robustness: NaN guards, JS timeout, DOM limit | ❌ | 1–2 days |
+| Fix `in` operator | ✅ DONE | Done |
+| CSS: calc(), vw/vh | ❌ | C.1 — 1–2 days |
+| CSS: grid-template-areas | ✅ DONE (3.21) | Done |
+| CSS: proper @media queries | ✅ DONE (3.22) | Done |
+| CSS: CSS Transitions | ❌ | C.6 — 1 day |
+| CSS: custom properties scope | ❌ | C.4 — 0.5 day |
+| CSS: clamp() | ❌ | C.5 — 0.5 day |
+| Robustness: NaN guards, JS timeout, DOM limit, cascade/layout guards | ❌ | S.1–S.6 — 1–2 days |
 | Test suite: all T-H and T-C pass | 🟡 partial | 1 day |
 | 5 target sites render acceptably | 🟡 some | Depends on CSS |
 | No crash in 10 min normal browsing | 🟡 | Depends on stability |
 
-**Total estimate for v1.0:** 8–12 additional days. This is absolutely achievable.
+**Total estimate for v1.0:** 5–9 additional days. This is absolutely achievable.
 
 ---
 
@@ -281,51 +281,30 @@ private double? EvalCalc(string expr, double vpW, double vpH, double parentW)
 **Test:** Add `T-C-011`: `<div style="width:calc(100% - 40px); background:pink">` inside
 a `200px` container → element should be `160px` wide.
 
-### C.2 — `@media` query improvements
+### C.2 — `@media` query improvements ✅ DONE (Session 3.22)
 
-Currently only `min-width` is supported. Add:
-- `max-width`
-- `min-height` / `max-height`
-- `orientation: portrait | landscape`
-- `prefers-color-scheme: dark | light` (always return `light` for retro browser feel)
+Implemented in Phase 16.7. Supports `min-width`, `max-width`, `min-height`, `max-height`,
+`orientation`, `dppx`, `prefers-color-scheme`, `scripting`, `not`/`and` combinators.
+Real DPR via `DisplayInformation.RawPixelsPerViewPixel`. `matchMedia()` rewritten.
 
-```csharp
-// CssLoader.cs — FlattenBasicMedia
-private bool EvaluateMediaQuery(string mediaText, double vpW, double vpH)
-{
-    // e.g. "screen and (min-width: 768px) and (max-width: 1200px)"
-    var conditions = ParseMediaConditions(mediaText);
-    return conditions.All(c => c switch {
-        ("min-width", var px) => vpW >= px,
-        ("max-width", var px) => vpW <= px,
-        ("min-height", var px) => vpH >= px,
-        ("max-height", var px) => vpH <= px,
-        ("orientation", "landscape") => vpW > vpH,
-        ("orientation", "portrait") => vpH >= vpW,
-        ("prefers-color-scheme", _) => true, // always match light
-        _ => true // unknown → don't filter out
-    });
-}
-```
+Original description below for reference:
 
-**Test:** Add `T-C-012`: stylesheet with `@media (max-width: 600px)` rule — on emulator
-(1024px wide) the rule should NOT apply; at 400px viewport it should.
+> Currently only `min-width` is supported. Add:
+> - `max-width`
+> - `min-height` / `max-height`
+> - `orientation: portrait | landscape`
+> - `prefers-color-scheme: dark | light` (always return `light` for retro browser feel)
+> 
+> **Test:** Add `T-C-012`: stylesheet with `@media (max-width: 600px)` rule — on emulator
+> (1024px wide) the rule should NOT apply; at 400px viewport it should.
 
-### C.3 — `grid-template-areas`
+### C.3 — `grid-template-areas` ✅ DONE (Session 3.21)
 
-Many modern layouts use named grid areas for hero/sidebar/footer patterns. This is the
-most impactful missing layout feature after flexbox.
+Implemented in Phase 16.6 (CSS Grid + Flexbox routing + grid-template-areas).
+Supports named areas, explicit placement with spans, auto-placement (row/column flow),
+`repeat()`, `minmax()`, `fr`/`px`/`auto` track sizing. Maps to UWP `Grid` panel.
 
-**Implementation:**
-
-```csharp
-// In FlexGridRenderer.cs or new GridAreaRenderer.cs
-// Parse: grid-template-areas: "header header" "nav main" "footer footer"
-// Returns 2D string[][]
-// Assign Grid.Row / Grid.Column / Grid.RowSpan / Grid.ColumnSpan via attached properties
-```
-
-**Test:** Add `T-C-014`:
+Original test (keep for regression):
 ```html
 <div style="display:grid;
   grid-template-columns:1fr 3fr;
@@ -351,6 +330,48 @@ font-size: clamp(14px, 2vw, 20px)
 ```
 
 One-liner: `return Math.Max(min, Math.Min(max, preferred))` after resolving each operand.
+
+### C.6 — Basic CSS Transitions (from Plan_03 Phase 16.4)
+
+CSS transitions make hover effects, dropdowns, and interactive feedback work.
+Full XAML storyboards are expensive; use a lightweight approach:
+
+- Parse `transition: property duration easing`
+- On CSS property change, check if the element is in `_visibleElements`
+- If yes, create a `DoubleAnimation` on the relevant XAML property with the specified duration
+- Only support: `opacity`, `transform` (via `RenderTransform`), background-color changes
+
+```csharp
+// DomBasicRenderer.cs or VirtualizingRenderer.cs
+if (!string.IsNullOrEmpty(css.Transition))
+{
+    var parts = css.Transition.Split(' ');
+    var prop = parts[0];               // "opacity"
+    var durationMs = ParseDuration(parts.Length > 1 ? parts[1] : "0s");
+    if (durationMs > 0 && _visibleElements.TryGetValue(element, out var xamlEl))
+    {
+        var anim = new DoubleAnimation
+        {
+            To = targetValue,
+            Duration = TimeSpan.FromMilliseconds(durationMs),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        Storyboard.SetTarget(anim, xamlEl);
+        Storyboard.SetTargetProperty(anim, prop == "opacity" ? "Opacity" : "(RenderTransform).(RotateTransform.Angle)");
+        var sb = new Storyboard();
+        sb.Children.Add(anim);
+        sb.Begin();
+    }
+}
+```
+
+This is a "good enough" approximation — true CSS transitions require per-frame interpolation
+which is handled by XAML's animation system anyway.
+
+**Test:** Add `T-C-015`: button with `transition: opacity 0.3s` and hover state
+(manual test — tap, observe fade).
+
+**Effort:** ~100 lines
 
 ### Testing
 
@@ -443,6 +464,37 @@ When `NavigateAsync` throws any unhandled exception, show the styled error page
 (from Phase 11) instead of crashing or showing blank. Ensure the try-catch in
 `NavigateAsync` always calls `ShowErrorPage(url, ex.Message)`.
 
+### S.6 — Cascade/Layout exception guards (from Plan_03 Phase 17.5)
+
+`OverflowException`/`ExecutionEngineException` were partially fixed in Plan_00 but may recur
+on new sites. Ensure every entry into `CascadeIntoComputedStyles` and `PerformLayout` has
+a top-level try/catch:
+
+```csharp
+// CustomHtmlEngine.cs — RenderAsync
+try
+{
+    await Task.Run(() => _cssLoader.CascadeIntoComputedStyles(_domRoot, viewportW));
+}
+catch (Exception ex)
+{
+    DevToolsLogger.Log($"[ERROR:CASCADE] {ex.GetType().Name}: {ex.Message}");
+    // Continue rendering with partial styles rather than crashing
+}
+
+try
+{
+    await Task.Run(() => _layoutEngine.PerformLayout(_domRoot, viewportW));
+}
+catch (Exception ex)
+{
+    DevToolsLogger.Log($"[ERROR:LAYOUT] {ex.GetType().Name}: {ex.Message}");
+    // Continue with partial layout rather than crashing
+}
+```
+
+**Effort:** ~30 lines
+
 ### Testing
 
 | ID | Test | Expected |
@@ -451,6 +503,7 @@ When `NavigateAsync` throws any unhandled exception, show the styled error page
 | T-R-002 | Run `while(true){}` in DevTools console | `[JS:TIMEOUT]` in log, UI responsive |
 | T-R-003 | Inject 11 000 DOM nodes via innerHTML | `[WARN] DOM cap hit`, partial render |
 | T-R-004 | `image.png` returns 404 | `[img]` placeholder, no crash |
+| T-R-005 | Inject CSS with `calc(100% / 0)` or NaN-producing values | `[DIAG:NaN]` logged, no crash |
 
 ---
 
@@ -675,35 +728,62 @@ Update once per major NiL.JS change session.
 
 ```
 Session 3.18: Phase R — in operator fix, InvalidOperationException suppression,
-              NilJS_Compat.md, JS engine freeze comment ← NEXT SESSION
+              NilJS_Compat.md, JS engine freeze comment ✅
 
-Session 3.19: Phase C.1 — calc() + vw/vh resolver
-              Add T-C-011, T-C-012 to test.html, verify pass
+Session 3.19: Phase 16.5 — CSS Stabilization (margin/padding, font-weight,
+              text-decoration); VirtualizingRenderer margin fix, HTTPS→HTTP
+              redirect, text.npr.org + example.com → iana.org working ✅
 
-Session 3.20: Phase C.2 — @media improvements (max-width, orientation)
-              Run T-S-002 (ya.ru) — check if mobile-first CSS now applies
+Session 3.20: Phase 20.1 — NiL.JS netstandard1.4 Migration (target switched
+              from netstandard2.0 → 1.4). ~120 compile errors fixed across 20+
+              files. Full solution 0 errors. ✅
 
-Session 3.21: Phase C.3 — grid-template-areas
-              Add T-C-014, run T-S-001 (DuckDuckGo) and T-S-002 (ya.ru)
+Session 3.21: Phase 16.6 — CSS Grid + Flexbox routing + grid-template-areas.
+              RenderCssGridAsync, repeat/minmax/fr/px/auto parsers, named area
+              resolution, auto-placement. ya.ru renders (132 nodes). ✅
 
-Session 3.22: Phase S — NaN guards + JS timeout + DOM cap + error recovery
-              Run T-R-001..004, all should pass
+Session 3.22: Phase 16.7 — getComputedStyle real CSS values, @media (dppx,
+              prefers-color-scheme, scripting), NiL.JS empty catch→logging,
+              feature stubs (Proxy, WeakMap, WeakSet, Reflect, Intl,
+              IntersectionObserver, ResizeObserver), ES polyfills, SafeEval
+              context recovery. ✅
 
-Session 3.23: Phase T+ — JS compat matrix Section F, CSS coverage grid Section G
-              END of JS engine freeze — reassess NiL.JS work if needed
+Session 3.22b: Crash fix — dzen.ru/pogoda/ unhandled JSException at
+               Property.cs:88. RunGlobalScript wrapped in try/catch (missing
+               after SafeEval rethrow change). EvalToString changed from
+               _nil.Eval()→SafeEval() (was always throwing on GlobalContext).
+               All 12 SafeEval callers now protected. ✅
 
-Session 3.24: Phase V — AppBar animation + progress bar + omnibox improvements
+Session 3.23: Phase C.1 — calc() + vw/vh resolver
+               Add T-C-011 to test.html, verify pass
 
-Session 3.25: Phase V — Error recovery button + welcome page polish
+Session 3.24: Phase C.4 — CSS custom properties (--var) scope fix
+               Add T-C-013 to test.html, verify pass
 
-Session 3.26: Full regression run
-              T-H-001..008: all visual pass
-              T-C-001..014: target 10/14 pass
-              T-J-001..010: target 7/10 pass
-              T-S-001,004,005,007,008: all "acceptable" visually
-              → If criteria met: TAG v1.0-museum
+Session 3.25: Phase C.5 — clamp()
+               Add T-C-014
 
-Session 3.27+: Phase 7 (Service Worker) — optional, post-v1.0
+Session 3.26: Phase C.6 — Basic CSS Transitions
+               Add T-C-015 (manual test — tap, observe fade)
+
+Session 3.27: Phase S — NaN guards + JS timeout + DOM cap + error recovery +
+               cascade/layout exception guards
+               Run T-R-001..005, all should pass
+
+Session 3.28: Phase T+ — JS compat matrix Section F, CSS coverage grid Section G
+
+Session 3.29: Phase V — AppBar animation + progress bar + omnibox improvements
+
+Session 3.30: Phase V — Error recovery button + welcome page polish
+
+Session 3.31: Full regression run
+               T-H-001..008: all visual pass
+               T-C-001..015: target 11/15 pass
+               T-J-001..010: target 7/10 pass
+               T-S-001,004,005,007,008: all "acceptable" visually
+               → If criteria met: TAG v1.0-museum
+
+Session 3.32+: Phase 7 (Service Worker) — optional, post-v1.0
 ```
 
 ---
@@ -713,13 +793,13 @@ Session 3.27+: Phase 7 (Service Worker) — optional, post-v1.0
 | Phase | Title | Priority | Effort | Prerequisite | V1.0 blocker? |
 |-------|-------|----------|--------|--------------|--------------|
 | **R** | Rationalization & JS Freeze | 🔴 | 1 hour | — | ✅ Yes |
-| **C** | CSS Completion (calc, media, grid-areas) | 🔴 | 4–6 days | R | ✅ Yes |
-| **S** | Stability & Robustness | 🔴 | 2–3 days | R | ✅ Yes |
+| **C** | CSS Completion (calc, custom props, transitions) | 🔴 | 3–4 days | R | ✅ Yes |
+| **S** | Stability & Robustness (NaN guards, timeout, DOM cap, cascade/layout guards) | 🔴 | 2–3 days | R | ✅ Yes |
 | **T+** | Testing Expansion (compat matrix, perf) | 🟡 | 2 days | S | No |
 | **V** | Visual Polish | 🟡 | 2–3 days | S | No |
 | **7** | Service Worker | 🟢 | 3–5 days | C, S | No |
 
-**Minimum path to v1.0:** Phases R + C + S = **7–10 days of focused work**
+**Minimum path to v1.0:** Phases R + C + S = **6–8 days of focused work**
 
 ---
 
@@ -769,6 +849,6 @@ momentum from tangible releases.
 
 ---
 
-*Plan v4.0 — 2026-05-24*
-*Based on: Plan_01 (v1.0), Plan_02 (v2.2), Plan_03 (v3.5), sessions 2.01–3.17*
-*Next session: 3.18 — Phase R (JS engine freeze + in operator fix)*
+*Plan v4.0 — 2026-06-03*
+*Based on: Plan_01 (v1.0), Plan_02 (v2.2), Plan_03 (v3.5), sessions 2.01–3.22b*
+*Next session: 3.23 — Phase C.1 (calc)*

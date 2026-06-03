@@ -542,9 +542,16 @@ namespace BrowserCore.Engine
                 
                 CssParser.MediaViewportWidth = viewportWidth;
                 try { CssParser.MediaViewportHeight = vh; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
-                try { CssParser.MediaDppx = 1.0; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                try
+                {
+                    double dpr = 1.0;
+                    try { var di = Windows.Graphics.Display.DisplayInformation.GetForCurrentView(); dpr = di.RawPixelsPerViewPixel; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                    CssParser.MediaDppx = dpr;
+                }
+                catch { CssParser.MediaDppx = 1.0; }
                 try { CssParser.MediaPrefersColorScheme = ((Application.Current != null && Application.Current.RequestedTheme == ApplicationTheme.Dark) ? "dark" : "light"); }
                 catch { CssParser.MediaPrefersColorScheme = "light"; }
+                try { CssParser.MediaScripting = "enabled"; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
             }
             catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
         }

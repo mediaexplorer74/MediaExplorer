@@ -18,6 +18,7 @@ namespace BrowserCore.Engine
         public static double? MediaViewportHeight { get; set; }
         public static double? MediaDppx { get; set; }
         public static string MediaPrefersColorScheme { get; set; }
+        public static string MediaScripting { get; set; } // "enabled", "none", "initial-only"
 
         private static readonly Dictionary<string, Windows.UI.Color> _namedColors 
             = new Dictionary<string, Windows.UI.Color>(StringComparer.OrdinalIgnoreCase);

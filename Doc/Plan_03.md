@@ -1,6 +1,6 @@
 # MediaExplorer / WEBVIEW — Plan 03: Testing-First Stabilization & Completion
 
-> **Project:** MediaExplorer 0.40 (codename "WebView") — retro UWP browser for Windows 10 Mobile
+> **Project:** MediaExplorer 0.41 (codename "WebView") — retro UWP browser for Windows 10 Mobile
 > **Hardware target:** Lumia 950/1020 (Snapdragon 810, 3 GB RAM, 5" 1440p)
 > **Test environment:** x86 emulator (primary) → ARM device (validation)
 > **Engine:** Custom HTML parser + CSS cascade + NiL.JS + XAML renderer (~35 files, ~20 000 lines)
@@ -33,11 +33,15 @@
 | **20** | **NiL.JS 2.6 Integration (netstandard2.0 → 1.4)** | **✅ DONE** (fully builds for W10M 15063) |
 | **16.5** | **CSS Stabilization (margin/padding, font-weight, text-decoration)** | **✅ DONE** (Session 3.19) |
 | **20.1** | **NiL.JS netstandard1.4 Migration** | **✅ DONE** (Session 3.20 — ~120 compile errors fixed) |
+| **16.6** | **CSS Grid + Flexbox routing + grid-template-areas** | **✅ DONE** (Session 3.21) |
+| **16.7** | **getComputedStyle real values + @media improvements + JS exception reduction** | **✅ DONE** (Session 3.22 — gCS ✅, @media ✅, feature stubs ✅, context recovery ✅) |
 
 **Known active issues:**
 - **ES Modules Vite Compatibility**: ✅ **PARSER FIXED (Session 3.14)** — full 568KB bundle parses without syntax errors.
 - **NiL.JS migrated to `netstandard1.4`**: Now compatible with UWP 15063 (W10M). Source in `Src/NiL.JS`, `ProjectReference` in `MediaExplorer.csproj`.
-- **White screen on dzen.ru / ya.ru**: May still manifest.
+- **White screen on dzen.ru**: Partially mitigated — content now renders (per user test). NiL.JS ~100 `InvalidOperationException` per page load caused by context corruption; mitigated via `SafeEval` context recovery (auto-reinit) + 8 missing feature stubs (Proxy, WeakMap, WeakSet, Reflect, Intl, IntersectionObserver, ResizeObserver) + ES polyfills (Object.assign, flat/flatMap, fromEntries, matchAll).
+- **ya.ru partial render**: 132 nodes, 189 boxes — renders OK. NiL.JS `InvalidOperationException` count reduced via `SafeEval` recovery.
+- **dzen.ru/pogoda/ crash fixed** — unhandled `JSException` at `Property.cs:88` caused by `SafeEval` rethrow + `RunGlobalScript` missing try/catch. Fixed by wrapping `RunGlobalScript` in catch + changing `EvalToString` to use `SafeEval` (was calling `_nil.Eval()` on GlobalContext which always throws).
 
 **New Primary Target:**
 - **Nokia Design Archive** (`nokiadesignarchive.aalto.fi`) — The "Museum Build" benchmark.
@@ -956,8 +960,8 @@ Current project uses `NiL.JS 2.5.1294` as a NuGet package. Vite bundles fail wit
 
 1. **`in` operator fix** — NiL.JS `In.cs:42` throws TypeError when RHS is not Object; need to return `false` for non-objects (browser-compatible behavior)
 2. **Private fields `#name`** — 12 occurrences, lower priority
-3. **Continue fixing runtime errors** in the bundle (many `InvalidOperationException` in NiL.JS)
-4. **Log noise reduction** — 315 `empty catch` blocks spamming Visual Studio Output
+3. **Continue fixing runtime errors** in the bundle — `InvalidOperationException` partially mitigated via `SafeEval` context recovery + 8 feature stubs; further reduction may require NiL.JS engine patches
+4. **Log noise reduction** — 315 `empty catch` blocks spamming Visual Studio Output; `RunGlobalScript` ✅ + polyfill ✅ done; ~200 remaining in timers/events (acceptable)
 
 ---
 
@@ -1015,7 +1019,9 @@ Session 3.18: Phase 20 — **`in` operator fix** (In.cs returns `false` instead 
 Session 3.19: Phase 16.5 — **CSS Stabilization** — VirtualizingRenderer margin/padding fix, HTTPS→HTTP redirect handling, `text.npr.org` + `example.com` → `iana.org` working ✅
 
 Session 3.20: Phase 20.1 — **NiL.JS netstandard1.4 Migration** — target framework changed from `netstandard2.0` to `netstandard1.4` (UWP 15063 compat). ~120 compile errors fixed via `Backward.cs` polyfills, property→`GetTypeInfo()` call-site changes, type stubs, and `#if` guards across 20+ files. Full solution builds with **0 errors**. ✅
-Session 3.20: Phase 16.6 — CSS Grid/Flexbox for complex layouts (`iana.org`), CSS variables, `@media` queries ← NEXT
+Session 3.21: Phase 16.6 — **CSS Grid + Flexbox routing + grid-template-areas** — `RenderCssGridAsync` maps CSS Grid to UWP `Grid` panel; track parsers (repeat/minmax/fr/px/auto); named area resolution; explicit placement with spans; auto-placement (row/column flow); flex container routing fixed. Tested on ya.ru (132 nodes renders). ✅
+  Session 3.22: Phase 16.7 — `getComputedStyle` real CSS values ✅, `@media` improvements (dppx, prefers-color-scheme, scripting) ✅, NiL.JS empty catch → logging (RunGlobalScript, RunInline, ExecuteCachedInline, ExecuteScriptBlock) ✅, NiL.JS feature stubs (Proxy, WeakMap, WeakSet, Reflect, Intl, IntersectionObserver, ResizeObserver) ✅, ES polyfills (Object.assign, flat/flatMap, fromEntries, matchAll) ✅, `SafeEval` context recovery (auto-reinit on InvalidOperationException) ✅
+  **Session 3.22b: Crash fix — dzen.ru/pogoda/ unhandled JSException** — `RunGlobalScript` wrapped in try/catch (missing after `SafeEval` rethrow change), `EvalToString` changed from `_nil.Eval()`→`SafeEval()` (was always throwing `InvalidOperationException` on GlobalContext). All 12 `SafeEval` callers now protected.
 ```
 
 ---
@@ -1077,5 +1083,5 @@ Since this is a one-person retro project with no CI and no unit test framework:
 
 ---
 
-*Plan v3.7 — 2026-06-03*
+*Plan v3.9 — 2026-06-03*
 *Based on: Plan_01.md (v1.0), Plan_02.md (v2.2), sessions 2.01–3.20, GitHub repos mediaexplorer74/MediaExplorer + UDAIE-A/WEBVIEW*

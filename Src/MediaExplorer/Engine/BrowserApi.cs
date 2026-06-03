@@ -102,9 +102,13 @@ namespace BrowserCore.Api
                 delegate (string msg) { RaiseStatus(msg); },
                 null,
                 delegate (Action a) {
-                    var disp = UiThreadHelper.TryGetDispatcher();
-                    if (disp != null) UiThreadHelper.RunAsync(disp, Windows.UI.Core.CoreDispatcherPriority.Normal, () => a());
-                    else a();
+                    try
+                    {
+                        var disp = UiThreadHelper.TryGetDispatcher();
+                        if (disp != null) UiThreadHelper.RunAsync(disp, Windows.UI.Core.CoreDispatcherPriority.Normal, () => { try { a(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); } });
+                        else a();
+                    }
+                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
                 }))
             {
                 ExecuteInlineScriptsOnInnerHTML = true

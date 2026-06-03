@@ -146,5 +146,16 @@ namespace BrowserCore.Engine
 
         // Image fitting
         public string ObjectFit { get; set; }           // "fill", "contain", "cover", "none", "scale-down"
+
+        // CSS Grid
+        public string GridTemplateColumns { get; set; }
+        public string GridTemplateRows { get; set; }
+        public string GridTemplateAreas { get; set; }
+        public string GridAutoColumns { get; set; }
+        public string GridAutoRows { get; set; }
+        public string GridAutoFlow { get; set; }
+        public string GridColumn { get; set; }
+        public string GridRow { get; set; }
+        public string GridArea { get; set; }
     }
 }

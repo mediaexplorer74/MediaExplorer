@@ -20,6 +20,9 @@ using EcmaEngine.Runtime;
 #endif
 using NiL.JS.Core;
 using NiL.JS.BaseLibrary;
+using Windows.UI;
+using Windows.UI.Text;
+using Windows.UI.Xaml;
 
 namespace BrowserCore.Engine
 {
@@ -43,6 +46,8 @@ namespace BrowserCore.Engine
 #endif
 #if USE_NILJS
         private GlobalContext _nil;
+        private Context _evalContext;
+        private bool _niljsSafeEvalFailed;
 #endif
 #if USE_ECMA_EXPERIMENTAL
         private JsInterpreter _exp;
@@ -151,6 +156,9 @@ namespace BrowserCore.Engine
         // DOM root exposed to the engine
         private LiteElement _domRoot;
         private string _pageTitle = string.Empty;
+
+        // Computed CSS styles per element — set by DomBasicRenderer after cascade
+        internal Dictionary<LiteElement, CssComputed> _computedStyles;
 
         private readonly object _sandboxLogLock = new object();
         private readonly Queue<SandboxBlockRecord> _sandboxBlocks = new Queue<SandboxBlockRecord>();
@@ -2076,21 +2084,21 @@ if (mHrefSet.Success)
 
         private JSValue InternalRecordsToJSArray(List<InternalMutationRecord> records)
         {
-            var arr = _nil.Eval("[]");
+            var arr = SafeEval("[]");
             for (int i = 0; i < records.Count; i++)
             {
                 var r = records[i];
-                var rec = _nil.Eval("({})");
+                var rec = SafeEval("({})");
                 rec["type"] = JSValue.Marshal(r.Type ?? "");
                 rec["target"] = JSValue.Marshal(TargetDescriptor(r.Target));
                 if (r.Type == "childList")
                 {
-                    var added = _nil.Eval("[]");
+                    var added = SafeEval("[]");
                     if (r.Added != null)
                         for (int a = 0; a < r.Added.Count; a++)
                             added[(string)a.ToString()] = JSValue.Marshal(TargetDescriptor(r.Added[a]));
                     rec["addedNodes"] = added;
-                    var removed = _nil.Eval("[]");
+                    var removed = SafeEval("[]");
                     if (r.Removed != null)
                         for (int rm = 0; rm < r.Removed.Count; rm++)
                             removed[(string)rm.ToString()] = JSValue.Marshal(TargetDescriptor(r.Removed[rm]));
@@ -2232,7 +2240,47 @@ if (mHrefSet.Success)
             public void addEventListener(string type, JSValue callback) { }
             public void removeEventListener(string type, JSValue callback) { }
             public bool dispatchEvent(JSValue e) { return false; }
-            public JSValue getComputedStyle(JSValue el) { return JSValue.Marshal(new { }); }
+            public JSValue getComputedStyle(JSValue el)
+            {
+                try
+                {
+                    LiteElement node = null;
+                    if (el.Value is JsDomElement jde) node = jde._node;
+                    CssComputed css = null;
+                    if (node != null && _engine._computedStyles != null)
+                        _engine._computedStyles.TryGetValue(node, out css);
+                    var dict = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+                    if (css != null)
+                    {
+                        dict["display"] = css.Display ?? "block";
+                        dict["position"] = css.Position ?? "static";
+                        dict["visibility"] = css.Visibility ?? "visible";
+                        dict["opacity"] = css.Opacity?.ToString("0.##") ?? "1";
+                        dict["overflow"] = css.Overflow ?? "visible";
+                        dict["transform"] = css.Transform ?? "none";
+                        dict["z-index"] = css.ZIndex?.ToString() ?? "auto";
+                        dict["width"] = css.Width.HasValue ? css.Width.Value.ToString("0.##") + "px" : "auto";
+                        dict["height"] = css.Height.HasValue ? css.Height.Value.ToString("0.##") + "px" : "auto";
+                        dict["color"] = css.ForegroundColor.HasValue ? string.Format("#{0:X2}{1:X2}{2:X2}", css.ForegroundColor.Value.R, css.ForegroundColor.Value.G, css.ForegroundColor.Value.B) : "#000";
+                        dict["font-size"] = css.FontSize.HasValue ? css.FontSize.Value.ToString("0.##") + "px" : "16px";
+                        dict["margin-top"] = css.Margin.Top.ToString("0.##") + "px";
+                        dict["margin-right"] = css.Margin.Right.ToString("0.##") + "px";
+                        dict["margin-bottom"] = css.Margin.Bottom.ToString("0.##") + "px";
+                        dict["margin-left"] = css.Margin.Left.ToString("0.##") + "px";
+                        dict["padding-top"] = css.Padding.Top.ToString("0.##") + "px";
+                        dict["padding-right"] = css.Padding.Right.ToString("0.##") + "px";
+                        dict["padding-bottom"] = css.Padding.Bottom.ToString("0.##") + "px";
+                        dict["padding-left"] = css.Padding.Left.ToString("0.##") + "px";
+                        dict["border-top-width"] = css.BorderThickness.Top.ToString("0.##") + "px";
+                        dict["border-right-width"] = css.BorderThickness.Right.ToString("0.##") + "px";
+                        dict["border-bottom-width"] = css.BorderThickness.Bottom.ToString("0.##") + "px";
+                        dict["border-left-width"] = css.BorderThickness.Left.ToString("0.##") + "px";
+                        dict["background-color"] = css.BackgroundColor.HasValue ? string.Format("#{0:X2}{1:X2}{2:X2}", css.BackgroundColor.Value.R, css.BackgroundColor.Value.G, css.BackgroundColor.Value.B) : "transparent";
+                    }
+                    return JSValue.Marshal(dict);
+                }
+                catch { return JSValue.Marshal(new { }); }
+            }
             public void postMessage(string msg) { }
             public void setImmediate(JSValue cb) { }
             
@@ -2634,7 +2682,9 @@ if (mHrefSet.Success)
 
         private void _nilInit()
         {
+            _niljsSafeEvalFailed = false;
             _nil = new GlobalContext();
+            _evalContext = new Context(_nil);
 
             // Create host window once and reuse for all aliases
             var hostWindow = new HostWindow(this);
@@ -2657,7 +2707,7 @@ if (mHrefSet.Success)
             _nil.DefineVariable("sessionStorage").Assign(JSValue.Marshal(new HostLocalStorage(this, true)));
 
             // Window properties commonly checked via `in` operator
-            _nil.DefineVariable("devicePixelRatio").Assign(JSValue.Marshal(1.0));
+            _nil.DefineVariable("devicePixelRatio").Assign(JSValue.Marshal(DeviceDpr()));
             _nil.DefineVariable("innerWidth").Assign(JSValue.Marshal(1024));
             _nil.DefineVariable("innerHeight").Assign(JSValue.Marshal(768));
             _nil.DefineVariable("outerWidth").Assign(JSValue.Marshal(1024));
@@ -2827,7 +2877,7 @@ if (mHrefSet.Success)
                                         resp["text"] = JSValue.Marshal(new Func<Arguments, JSValue>(b => JSValue.Marshal(result ?? "")));
                                         resp["json"] = JSValue.Marshal(new Func<Arguments, JSValue>(b =>
                                         {
-                                            try { return _nil.Eval("JSON.parse(" + JsEscape(result ?? "{}", '\'') + ")"); }
+                                            try { return SafeEval("JSON.parse(" + JsEscape(result ?? "{}", '\'') + ")"); }
                                             catch { return JSValue.Null; }
                                         }));
                                         resp["headers"] = JSValue.Marshal(new { get = new Func<Arguments, JSValue>(h => JSValue.Marshal("text/plain")) });
@@ -2883,10 +2933,14 @@ if (mHrefSet.Success)
                     var id = Interlocked.Increment(ref _nextTimerId);
                     var t = new Timer(_ => 
                     {
-                        EnqueueMacroTask(() => 
+                        try
                         {
-                            try { (func as Function).Call(JSValue.Undefined, new Arguments()); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
-                        });
+                            EnqueueMacroTask(() => 
+                            {
+                                try { var fn = func as Function; if (fn != null) fn.Call(JSValue.Undefined, new Arguments()); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            });
+                        }
+                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
                     }, null, delay, Timeout.Infinite);
                     lock (_timers) _timers[id] = t;
                     return JSValue.Marshal(id);
@@ -2918,10 +2972,14 @@ if (mHrefSet.Success)
                     var id = Interlocked.Increment(ref _nextTimerId);
                     var t = new Timer(_ => 
                     {
-                        EnqueueMacroTask(() => 
+                        try
                         {
-                            try { (func as Function).Call(JSValue.Undefined, new Arguments()); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
-                        });
+                            EnqueueMacroTask(() => 
+                            {
+                                try { var fn = func as Function; if (fn != null) fn.Call(JSValue.Undefined, new Arguments()); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            });
+                        }
+                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
                     }, null, delay, delay);
                     lock (_timers) _timers[id] = t;
                     return JSValue.Marshal(id);
@@ -2931,7 +2989,7 @@ if (mHrefSet.Success)
                     return JSValue.Marshal(ScheduleInterval(func.ToString(), delay));
                 }
             })));
-
+            
             _nil.DefineVariable("clearInterval").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
             {
                 var id = 0;
@@ -2939,6 +2997,104 @@ if (mHrefSet.Success)
                 ClearTimeout(id);
                 return JSValue.Undefined;
             })));
+
+            // === Missing ES feature stubs (prevent InvalidOperationException on modern sites) ===
+
+            // WeakMap — simple dictionary-based implementation
+            _nil.DefineVariable("WeakMap").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
+            {
+                var store = new Dictionary<string, object>();
+                return JSValue.Marshal(new
+                {
+                    set = new Func<Arguments, JSValue>(a => { try { if (a.Length >= 2) store["v"] = a[1]; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JSValue.Undefined; }),
+                    get = new Func<Arguments, JSValue>(a => { try { if (a.Length >= 1 && store.TryGetValue("v", out var v)) return v as JSValue ?? JSValue.Undefined; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JSValue.Undefined; }),
+                    has = new Func<Arguments, JSValue>(a => { try { return JSValue.Marshal(store.ContainsKey("v")); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JSValue.Marshal(false); }),
+                    delete = new Func<Arguments, JSValue>(a => { try { return JSValue.Marshal(store.Remove("v")); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JSValue.Marshal(false); })
+                });
+            })));
+
+            // WeakSet
+            _nil.DefineVariable("WeakSet").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
+            {
+                var store = new HashSet<string>();
+                return JSValue.Marshal(new
+                {
+                    add = new Func<Arguments, JSValue>(a => { try { store.Add("v"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JSValue.Undefined; }),
+                    has = new Func<Arguments, JSValue>(a => { try { return JSValue.Marshal(store.Contains("v")); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JSValue.Marshal(false); }),
+                    delete = new Func<Arguments, JSValue>(a => { try { return JSValue.Marshal(store.Remove("v")); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JSValue.Marshal(false); })
+                });
+            })));
+
+            // Proxy — stub that returns the target (pass-through)
+            _nil.DefineVariable("Proxy").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
+            {
+                if (args.Length >= 1) return args[0];
+                return JSValue.Undefined;
+            })));
+
+            // Reflect — minimal stub with common methods
+            _nil.DefineVariable("Reflect").Assign(JSValue.Marshal(new Dictionary<string, object>
+            {
+                { "get", new Func<Arguments, JSValue>(a => { try { if (a.Length >= 2) return a[1]; } catch { } return JSValue.Undefined; }) },
+                { "set", new Func<Arguments, JSValue>(a => JSValue.Marshal(true)) },
+                { "has", new Func<Arguments, JSValue>(a => JSValue.Undefined) },
+                { "deleteProperty", new Func<Arguments, JSValue>(a => JSValue.Marshal(true)) },
+                { "getPrototypeOf", new Func<Arguments, JSValue>(a => { try { if (a.Length >= 1) return a[0]; } catch { } return JSValue.Undefined; }) },
+                { "setPrototypeOf", new Func<Arguments, JSValue>(a => JSValue.Marshal(true)) },
+                { "isExtensible", new Func<Arguments, JSValue>(a => JSValue.Marshal(true)) },
+                { "preventExtensions", new Func<Arguments, JSValue>(a => JSValue.Marshal(true)) },
+                { "ownKeys", new Func<Arguments, JSValue>(a => JSValue.Marshal(new object[0])) },
+                { "defineProperty", new Func<Arguments, JSValue>(a => JSValue.Marshal(true)) },
+                { "getOwnPropertyDescriptor", new Func<Arguments, JSValue>(a => JSValue.Undefined) },
+                { "construct", new Func<Arguments, JSValue>(a => { try { if (a.Length >= 1) return a[0]; } catch { } return JSValue.Undefined; }) },
+                { "apply", new Func<Arguments, JSValue>(a => { try { if (a.Length >= 1 && a[0].ValueType == JSValueType.Function) return (a[0] as Function).Call(JSValue.Undefined, a.Length >= 3 ? (a[2] as Arguments ?? new Arguments()) : new Arguments()); } catch { } return JSValue.Undefined; }) }
+            }));
+
+            // Intl — minimal stub (prevents "Intl is not defined" crashes)
+            _nil.DefineVariable("Intl").Assign(JSValue.Marshal(new Dictionary<string, object>
+            {
+                { "DateTimeFormat", new Func<Arguments, JSValue>(a => JSValue.Marshal(new Dictionary<string, object> { { "format", new Func<Arguments, JSValue>(a2 => JSValue.Marshal("")) }, { "resolvedOptions", new Func<Arguments, JSValue>(a2 => JSValue.Marshal(new Dictionary<string, object> { { "locale", "" }, { "timeZone", "" } })) } })) },
+                { "NumberFormat", new Func<Arguments, JSValue>(a => JSValue.Marshal(new Dictionary<string, object> { { "format", new Func<Arguments, JSValue>(a2 => JSValue.Marshal("0")) } })) },
+                { "Collator", new Func<Arguments, JSValue>(a => JSValue.Marshal(new Dictionary<string, object> { { "compare", new Func<Arguments, JSValue>(a2 => JSValue.Marshal(0)) } })) }
+            }));
+
+            // IntersectionObserver stub
+            _nil.DefineVariable("IntersectionObserver").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
+            {
+                return JSValue.Marshal(new
+                {
+                    observe = new Func<Arguments, JSValue>(a => JSValue.Undefined),
+                    unobserve = new Func<Arguments, JSValue>(a => JSValue.Undefined),
+                    disconnect = new Func<Arguments, JSValue>(a => JSValue.Undefined),
+                    root = JSValue.Null,
+                    rootMargin = "",
+                    thresholds = new object[0]
+                });
+            })));
+
+            // ResizeObserver stub
+            _nil.DefineVariable("ResizeObserver").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
+            {
+                return JSValue.Marshal(new
+                {
+                    observe = new Func<Arguments, JSValue>(a => JSValue.Undefined),
+                    unobserve = new Func<Arguments, JSValue>(a => JSValue.Undefined),
+                    disconnect = new Func<Arguments, JSValue>(a => JSValue.Undefined)
+                });
+            })));
+
+            // ===== ES polyfills via NiL.JS eval =====
+            try
+            {
+                SafeEval(@"
+if (!Object.assign) Object.assign = function(t){for(var i=1;i<arguments.length;i++){var s=arguments[i];if(s)for(var k in s)if(Object.prototype.hasOwnProperty.call(s,k))t[k]=s[k]}return t};
+if (!Object.fromEntries) Object.fromEntries = function(e){var r={};e.forEach(function(kv){r[kv[0]]=kv[1]});return r};
+if (!Array.prototype.flat) Array.prototype.flat = function(d){d=void 0===d?1:d;return this.reduce(function(a,v){return a.concat(Array.isArray(v)&&d>0?v.flat(d-1):[v])},[])};
+if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;return this.reduce(function(a,v,i){return a.concat(f.call(t,v,i,this))},[])};
+if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.global?r:new RegExp(r.source,'g'+r.flags.replace(/g/,''));return{g};
+");
+            }
+            catch { System.Diagnostics.Debug.WriteLine("[NiLJS] Polyfill injection failed"); }
         }
 
         private void _nilSyncDocument()
@@ -3133,19 +3289,44 @@ if (mHrefSet.Success)
 #endif
         }
 
-        private void RunGlobalScript(string js)
+        private JSValue SafeEval(string code)
         {
-            if (string.IsNullOrWhiteSpace(js)) return;
 #if USE_NILJS
             try
             {
-                if (_nil != null)
+                if (_evalContext != null)
                 {
-                    _nil.Eval(js);
+                    _niljsSafeEvalFailed = false;
+                    return _evalContext.Eval(code);
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch (InvalidOperationException)
+            {
+                // Context likely corrupted — recreate and retry
+                System.Diagnostics.Debug.WriteLine("[NiLJS] Context corrupt, reinitializing...");
+                _nilInit();
+                try
+                {
+                    if (_evalContext != null)
+                        return _evalContext.Eval(code);
+                }
+                catch (Exception ex2) { System.Diagnostics.Debug.WriteLine("[NiLJS] SafeEval retry failed: " + ex2.GetType().Name + ": " + ex2.Message); }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[NiLJS] SafeEval: " + ex.GetType().Name + ": " + ex.Message);
+                _niljsSafeEvalFailed = true;
+            }
+#else
+            System.Diagnostics.Debug.WriteLine("[JS] SafeEval skipped (USE_NILJS not defined)");
 #endif
+            return JSValue.Undefined;
+        }
+
+        private void RunGlobalScript(string js)
+        {
+            if (string.IsNullOrWhiteSpace(js)) return;
+            try { SafeEval(js); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
         }
 
         private static string CollectScriptText(LiteElement n)
@@ -3219,12 +3400,16 @@ if (mHrefSet.Success)
             Timer t = null;
             t = new Timer(state =>
             {
-                try { ClearTimeout(id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
-                EnqueueMacroTask(() =>
+                try
                 {
-                    try { ExecuteCachedInline(compiled); }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
-                });
+                    try { ClearTimeout(id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    EnqueueMacroTask(() =>
+                    {
+                        try { ExecuteCachedInline(compiled); }
+                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    });
+                }
+                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
             }, null, ms, Timeout.Infinite);
             lock (_timers) { _timers[id] = t; }
             return id;
@@ -3240,11 +3425,15 @@ if (mHrefSet.Success)
             Timer t = null;
             t = new Timer(state =>
             {
-                EnqueueMacroTask(() =>
+                try
                 {
-                    try { ExecuteCachedInline(compiled); }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
-                });
+                    EnqueueMacroTask(() =>
+                    {
+                        try { ExecuteCachedInline(compiled); }
+                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    });
+                }
+                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
             }, null, ms, ms);
             lock (_timers) { _timers[id] = t; }
             return id;
@@ -3254,7 +3443,7 @@ if (mHrefSet.Success)
         {
             if (def == null || string.IsNullOrWhiteSpace(def.Body)) return;
 #if USE_NILJS
-            try { _nilSyncDocument(); _nil.Eval(def.Body); } catch { }
+            try { _nilSyncDocument(); SafeEval(def.Body); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[NiLJS] ExecuteCachedInline: " + ex.GetType().Name + ": " + ex.Message); }
 #else
             var r = new JsMiniRunner(this);
             r._src = def.Body; r._pos = 0; r._len = r._src.Length; r.SkipWs();
@@ -3594,7 +3783,7 @@ if (mHrefSet.Success)
                 {
                     _nilSyncDocument();
                     var expr = "(function(){ var __r=(function(){" + js + "})(); return __r===false; })()";
-                    var val = _nil.Eval(expr);
+                    var val = SafeEval(expr);
                     if (val != null && string.Equals(val.ToString(), "true", StringComparison.OrdinalIgnoreCase)) return true;
                 }
             }
@@ -4918,8 +5107,8 @@ if (mHrefSet.Success)
                     if (_nil != null)
                     {
                         _nilSyncDocument();
-                        _nil.Eval(code);
-                        return;
+                        SafeEval(code);
+                        if (!_niljsSafeEvalFailed) return;
                     }
                     else
                     {
@@ -4996,11 +5185,11 @@ if (mHrefSet.Success)
                     if (_nil != null)
                     {
                         _nilSyncDocument();
-                        var v = _nil.Eval(expr);
+                        var v = SafeEval(expr);
                         return v != null ? v.ToString() : string.Empty;
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[NiLJS] EvalToString: " + ex.GetType().Name + ": " + ex.Message); }
 #endif
 #if USE_JINT && !WINDOWS_PHONE_APP
                 try
@@ -5077,6 +5266,92 @@ if (mHrefSet.Success)
                 _compiledFunctions[body] = def;
             }
             return def;
+        }
+
+        internal static double DeviceDpr()
+        {
+            try { var dpr = CssParser.MediaDppx; if (dpr.HasValue) return dpr.Value; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            try { var di = Windows.Graphics.Display.DisplayInformation.GetForCurrentView(); return di.RawPixelsPerViewPixel; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            return 1.0;
+        }
+
+        /// <summary>
+        /// Evaluate a CSS media query string for JS matchMedia().
+        /// Mirrors CssLoader.EvaluateMediaQuery logic but usable from JS engine.
+        /// </summary>
+        public bool EvaluateMediaQueryString(string query)
+        {
+            if (string.IsNullOrWhiteSpace(query)) return true;
+            var q = query.ToLowerInvariant().Trim();
+            bool negate = q.StartsWith("not ", StringComparison.Ordinal);
+            if (negate) q = q.Substring(4).Trim();
+            if (q.StartsWith("only ", StringComparison.Ordinal)) q = q.Substring(5).Trim();
+            if (q.StartsWith("screen", StringComparison.Ordinal)) q = q.Substring(6).Trim();
+            else if (q.StartsWith("all", StringComparison.Ordinal)) q = q.Substring(3).Trim();
+            if (string.IsNullOrWhiteSpace(q)) return !negate;
+
+            try
+            {
+                double w = 0, h = 0;
+                try { var b = Windows.UI.Xaml.Window.Current.Bounds; w = b.Width; h = b.Height; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                double dpr = DeviceDpr();
+                var scheme = CssParser.MediaPrefersColorScheme ?? "light";
+                var scripting = CssParser.MediaScripting ?? "enabled";
+
+                var parts = q.Split(new[] { " and " }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var part in parts)
+                {
+                    var p = part.Trim().Trim('(', ')').Trim();
+                    if (string.IsNullOrWhiteSpace(p)) continue;
+
+                    bool condition = true;
+                    if (p.StartsWith("min-width"))
+                    {
+                        var m = System.Text.RegularExpressions.Regex.Match(p, @"(\d+(?:\.\d+)?)\s*px");
+                        if (m.Success) { double v; if (double.TryParse(m.Groups[1].Value, out v)) condition = w >= v; }
+                    }
+                    else if (p.StartsWith("max-width"))
+                    {
+                        var m = System.Text.RegularExpressions.Regex.Match(p, @"(\d+(?:\.\d+)?)\s*px");
+                        if (m.Success) { double v; if (double.TryParse(m.Groups[1].Value, out v)) condition = w <= v; }
+                    }
+                    else if (p.Contains("prefers-color-scheme"))
+                    {
+                        condition = (p.Contains("dark") && scheme == "dark") || (p.Contains("light") && scheme == "light");
+                    }
+                    else if (p.Contains("scripting"))
+                    {
+                        if (p.Contains("none")) condition = scripting == "none";
+                        else if (p.Contains("initial-only")) condition = scripting == "initial-only";
+                        else condition = scripting == "enabled";
+                    }
+                    else if (p.Contains("resolution") || p.Contains("device-pixel-ratio"))
+                    {
+                        var m = System.Text.RegularExpressions.Regex.Match(p, @"(?<v>\d+(?:\.\d+)?)\s*(?<u>dppx|x|dpi|dpcm)?");
+                        if (m.Success)
+                        {
+                            double v; if (!double.TryParse(m.Groups["v"].Value, out v)) continue;
+                            var unit = m.Groups["u"].Value.ToLowerInvariant();
+                            if (unit == "dpi") v /= 96.0;
+                            else if (unit == "dpcm") v /= 37.8;
+                            if (p.StartsWith("min")) condition = dpr >= v;
+                            else if (p.StartsWith("max")) condition = dpr <= v;
+                            else condition = Math.Abs(dpr - v) < 0.01;
+                        }
+                    }
+                    else if (p.Contains("orientation"))
+                    {
+                        bool isLandscape = w > h;
+                        condition = (p.Contains("landscape") && isLandscape) || (p.Contains("portrait") && !isLandscape);
+                    }
+                    // unknown features: condition stays true (permissive)
+
+                    if (!condition) return negate ? true : false;
+                }
+            }
+            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+
+            return !negate;
         }
 
         private sealed class JsMiniRunner
@@ -5288,26 +5563,23 @@ if (mHrefSet.Success)
                 _globals["atob"] = new JsVal { Obj = new HostFunc(args => { try { var s = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); var bytes = Convert.FromBase64String(s ?? ""); var txt = Encoding.UTF8.GetString(bytes, 0, bytes.Length); return JsVal.FromStr(txt); } catch { return JsVal.FromStr(""); } }) };
                     _globals["btoa"] = new JsVal { Obj = new HostFunc(args => { try { var s = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); var bytes = Encoding.UTF8.GetBytes(s ?? ""); var b64 = Convert.ToBase64String(bytes); return JsVal.FromStr(b64); } catch { return JsVal.FromStr(""); } }) };
 
-                    // Minimal getComputedStyle shim (global)
+                    // getComputedStyle — populates from _computedStyles if available, else raw defaults
                     _globals["getComputedStyle"] = new JsVal { Obj = new HostFunc(args =>
                     {
                         try
                         {
                             var styleMap = new Dictionary<string, JsVal>(StringComparer.OrdinalIgnoreCase);
-                            Func<string,string,string> pick = (style, prop) =>
+                            LiteElement node = null;
+                            CssComputed css = null;
+                            if (args.Count > 0)
                             {
-                                try
-                                {
-                                    foreach (var part in (style ?? "").Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
-                                    {
-                                        var kv = part.Split(new[] { ':' }, 2);
-                                        if (kv.Length == 2 && kv[0].Trim().Equals(prop, StringComparison.OrdinalIgnoreCase)) return kv[1].Trim();
-                                    }
-                                }
-                                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
-                                return null;
-                            };
-                            // defaults
+                                var a0 = args[0];
+                                var jde = a0.Obj as JsDomElement; if (jde != null) node = jde._node;
+                                var hel = a0.Obj as HostElement; if (hel != null) node = hel.Node;
+                                if (node != null && _e._computedStyles != null)
+                                    _e._computedStyles.TryGetValue(node, out css);
+                            }
+                            // defaults (used as fallback if no computed style)
                             styleMap["display"] = JsVal.FromStr("block");
                             styleMap["position"] = JsVal.FromStr("static");
                             styleMap["visibility"] = JsVal.FromStr("visible");
@@ -5319,7 +5591,6 @@ if (mHrefSet.Success)
                             styleMap["text-align"] = JsVal.FromStr("start");
                             styleMap["font-size"] = JsVal.FromStr("16px");
                             styleMap["line-height"] = JsVal.FromStr("1.5");
-                            // extras commonly probed by sites
                             styleMap["background-color"] = JsVal.FromStr("transparent");
                             styleMap["border-color"] = JsVal.FromStr("transparent");
                             styleMap["background-repeat"] = JsVal.FromStr("repeat");
@@ -5330,39 +5601,27 @@ if (mHrefSet.Success)
                             styleMap["border-bottom-width"] = JsVal.FromStr("0px");
                             styleMap["border-left-width"] = JsVal.FromStr("0px");
 
-                            if (args.Count > 0)
+                            // overwrite defaults with real computed values
+                            if (css != null) PopulateStyleMap(styleMap, css);
+
+                            // still apply inline style attribute on top (highest priority for the JS view)
+                            if (node != null && node.Attr != null)
                             {
-                                var a0 = args[0];
-                                LiteElement node = null;
-                                var jde = a0.Obj as JsDomElement; if (jde != null) node = jde._node;
-                                var hel = a0.Obj as HostElement; if (hel != null) node = hel.Node;
-                                if (node != null && node.Attr != null)
+                                Func<string,string,string> pick = (style, prop) =>
                                 {
-                                    string style; if (node.Attr.TryGetValue("style", out style))
-                                    {
-                                    var ov = pick(style, "overflow"); if (!string.IsNullOrEmpty(ov)) styleMap["overflow"] = JsVal.FromStr(ov);
-                                    var tr = pick(style, "transform"); if (!string.IsNullOrEmpty(tr)) styleMap["transform"] = JsVal.FromStr(tr);
-                                    var zi = pick(style, "z-index"); if (!string.IsNullOrEmpty(zi)) styleMap["z-index"] = JsVal.FromStr(zi);
-                                    var ww = pick(style, "width"); if (!string.IsNullOrEmpty(ww)) styleMap["width"] = JsVal.FromStr(ww);
-                                    var hh = pick(style, "height"); if (!string.IsNullOrEmpty(hh)) styleMap["height"] = JsVal.FromStr(hh);
-                                    var col = pick(style, "color"); if (!string.IsNullOrEmpty(col)) styleMap["color"] = JsVal.FromStr(col);
-                                    var ta = pick(style, "text-align"); if (!string.IsNullOrEmpty(ta)) styleMap["text-align"] = JsVal.FromStr(ta);
-                                    var fs = pick(style, "font-size"); if (!string.IsNullOrEmpty(fs)) styleMap["font-size"] = JsVal.FromStr(fs);
-                                    var lh = pick(style, "line-height"); if (!string.IsNullOrEmpty(lh)) styleMap["line-height"] = JsVal.FromStr(lh);
-                                    var bgr = pick(style, "background-repeat"); if (!string.IsNullOrEmpty(bgr)) styleMap["background-repeat"] = JsVal.FromStr(bgr);
-                                    var bgs = pick(style, "background-size"); if (!string.IsNullOrEmpty(bgs)) styleMap["background-size"] = JsVal.FromStr(bgs);
-                                    var bgp = pick(style, "background-position"); if (!string.IsNullOrEmpty(bgp)) styleMap["background-position"] = JsVal.FromStr(bgp);
-                                    var btw = pick(style, "border-top-width"); if (!string.IsNullOrEmpty(btw)) styleMap["border-top-width"] = JsVal.FromStr(btw);
-                                    var brw = pick(style, "border-right-width"); if (!string.IsNullOrEmpty(brw)) styleMap["border-right-width"] = JsVal.FromStr(brw);
-                                    var bbw = pick(style, "border-bottom-width"); if (!string.IsNullOrEmpty(bbw)) styleMap["border-bottom-width"] = JsVal.FromStr(bbw);
-                                    var blw = pick(style, "border-left-width"); if (!string.IsNullOrEmpty(blw)) styleMap["border-left-width"] = JsVal.FromStr(blw);
-                                    var bgc = pick(style, "background-color"); if (!string.IsNullOrEmpty(bgc)) styleMap["background-color"] = JsVal.FromStr(bgc);
-                                    var bdc = pick(style, "border-color"); if (!string.IsNullOrEmpty(bdc)) styleMap["border-color"] = JsVal.FromStr(bdc);
-                                    var fw = pick(style, "font-weight"); if (!string.IsNullOrEmpty(fw)) styleMap["font-weight"] = JsVal.FromStr(fw);
+                                    try { foreach (var part in (style ?? "").Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)) { var kv = part.Split(new[] { ':' }, 2); if (kv.Length == 2 && kv[0].Trim().Equals(prop, StringComparison.OrdinalIgnoreCase)) return kv[1].Trim(); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return null;
+                                };
+                                string styleAttr; if (node.Attr.TryGetValue("style", out styleAttr))
+                                {
+                                    Action<string,string> apply = (prop, key) => { var v = pick(styleAttr, prop); if (!string.IsNullOrEmpty(v)) styleMap[key ?? prop] = JsVal.FromStr(v); };
+                                    apply("overflow", null); apply("transform", null); apply("z-index", null); apply("width", null); apply("height", null);
+                                    apply("color", null); apply("text-align", null); apply("font-size", null); apply("line-height", null);
+                                    apply("background-repeat", null); apply("background-size", null); apply("background-position", null);
+                                    apply("border-top-width", null); apply("border-right-width", null); apply("border-bottom-width", null); apply("border-left-width", null);
+                                    apply("background-color", null); apply("border-color", null); apply("font-weight", null);
                                 }
                                 string w; if (node.Attr.TryGetValue("width", out w) && !styleMap.ContainsKey("width")) styleMap["width"] = JsVal.FromStr(w.EndsWith("px")?w:(w+"px"));
                                 string h; if (node.Attr.TryGetValue("height", out h) && !styleMap.ContainsKey("height")) styleMap["height"] = JsVal.FromStr(h.EndsWith("px")?h:(h+"px"));
-                            }
                             }
 
                             styleMap["getPropertyValue"] = new JsVal { Obj = new HostFunc(a => { try { var p = ToStr(a.Count > 0 ? a[0] : JsVal.Null()).ToLowerInvariant(); JsVal v; if (styleMap.TryGetValue(p, out v)) return v; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.FromStr(""); }) };
@@ -5372,8 +5631,128 @@ if (mHrefSet.Success)
                     }) };
                 }
 
-            
-        
+        private static void PopulateStyleMap(Dictionary<string, JsVal> map, CssComputed css)
+        {
+            if (css == null) return;
+            void SetStr(string key, string val) { if (val != null) map[key] = JsVal.FromStr(val); }
+            void SetDbl(string key, double? val, string unit = "px") { if (val.HasValue) map[key] = JsVal.FromStr(val.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + unit); }
+
+            SetStr("display", css.Display);
+            SetStr("position", css.Position);
+            SetStr("visibility", css.Visibility);
+            if (css.Opacity.HasValue) map["opacity"] = JsVal.FromStr(css.Opacity.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+            SetStr("overflow", css.Overflow ?? css.OverflowX);
+            SetStr("overflow-x", css.OverflowX);
+            SetStr("overflow-y", css.OverflowY);
+            SetStr("transform", css.Transform);
+            SetStr("transform-origin", css.TransformOrigin);
+            if (css.ZIndex.HasValue) map["z-index"] = JsVal.FromStr(css.ZIndex.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            else map["z-index"] = JsVal.FromStr("auto");
+            SetStr("box-sizing", css.BoxSizing);
+            SetStr("float", css.Float);
+            SetStr("clear", css.Clear);
+
+            SetDbl("width", css.Width);
+            SetDbl("height", css.Height);
+            SetDbl("min-width", css.MinWidth);
+            SetDbl("min-height", css.MinHeight);
+            SetDbl("max-width", css.MaxWidth);
+            SetDbl("max-height", css.MaxHeight);
+            SetDbl("left", css.Left);
+            SetDbl("top", css.Top);
+            SetDbl("right", css.Right);
+            SetDbl("bottom", css.Bottom);
+
+            SetDbl("margin-top", css.Margin.Top);
+            SetDbl("margin-right", css.Margin.Right);
+            SetDbl("margin-bottom", css.Margin.Bottom);
+            SetDbl("margin-left", css.Margin.Left);
+            SetDbl("padding-top", css.Padding.Top);
+            SetDbl("padding-right", css.Padding.Right);
+            SetDbl("padding-bottom", css.Padding.Bottom);
+            SetDbl("padding-left", css.Padding.Left);
+            SetDbl("border-top-width", css.BorderThickness.Top);
+            SetDbl("border-right-width", css.BorderThickness.Right);
+            SetDbl("border-bottom-width", css.BorderThickness.Bottom);
+            SetDbl("border-left-width", css.BorderThickness.Left);
+
+            SetStr("border-style", css.BorderStyle);
+            if (css.BorderBrushColor.HasValue)
+                map["border-color"] = JsVal.FromStr(ColorToCss(css.BorderBrushColor.Value));
+            else if (css.BorderBrush != null)
+                map["border-color"] = JsVal.FromStr(css.BorderBrush.ToString());
+
+            SetDbl("outline-width", css.OutlineWidth);
+            SetStr("outline-style", css.OutlineStyle);
+            if (css.OutlineColor.HasValue) map["outline-color"] = JsVal.FromStr(ColorToCss(css.OutlineColor.Value));
+
+            SetDbl("font-size", css.FontSize);
+            SetStr("font-family", css.FontFamilyName);
+            if (css.FontWeight.HasValue) map["font-weight"] = JsVal.FromStr(css.FontWeight.Value.Weight.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            if (css.FontStyle.HasValue) map["font-style"] = JsVal.FromStr(css.FontStyle.Value == Windows.UI.Text.FontStyle.Italic ? "italic" : css.FontStyle.Value == Windows.UI.Text.FontStyle.Oblique ? "oblique" : "normal");
+            SetDbl("line-height", css.LineHeight);
+            SetDbl("letter-spacing", css.LetterSpacing);
+            SetDbl("word-spacing", css.WordSpacing);
+            SetDbl("text-indent", css.TextIndent);
+            SetStr("text-align", css.TextAlign.HasValue ? css.TextAlign.Value.ToString().ToLowerInvariant() : null);
+            SetStr("text-transform", css.TextTransform);
+            SetStr("text-decoration", css.TextDecoration);
+            SetStr("vertical-align", css.VerticalAlign);
+            SetStr("white-space", css.WhiteSpace);
+            SetStr("text-overflow", css.TextOverflow);
+            SetStr("hyphens", css.Hyphens);
+
+            SetStr("color", css.ForegroundColor.HasValue ? ColorToCss(css.ForegroundColor.Value) : (css.Foreground != null ? css.Foreground.ToString() : null));
+            SetStr("background-color", css.BackgroundColor.HasValue ? ColorToCss(css.BackgroundColor.Value) : (css.Background != null ? css.Background.ToString() : null));
+            SetStr("background-repeat", css.BackgroundRepeat);
+            SetStr("background-position", css.BackgroundPosition);
+            SetStr("background-size", css.BackgroundSize);
+            if (!string.IsNullOrEmpty(css.BackgroundImageUrl)) map["background-image"] = JsVal.FromStr("url(" + css.BackgroundImageUrl + ")");
+
+            SetStr("list-style-type", css.ListStyleType);
+            SetStr("list-style-position", css.ListStylePosition);
+            SetStr("list-style-image", css.ListStyleImage);
+
+            SetStr("object-fit", css.ObjectFit);
+            SetStr("pointer-events", css.PointerEvents);
+            SetStr("cursor", css.Cursor);
+            SetStr("text-shadow", css.TextShadow);
+            SetStr("box-shadow", css.BoxShadow);
+
+            SetStr("flex-direction", css.FlexDirection);
+            SetStr("flex-wrap", css.FlexWrap);
+            SetStr("justify-content", css.JustifyContent);
+            SetStr("align-items", css.AlignItems);
+            SetStr("align-content", css.AlignContent);
+            SetDbl("flex-grow", css.FlexGrow, "");
+            SetDbl("flex-shrink", css.FlexShrink, "");
+            SetDbl("flex-basis", css.FlexBasis);
+
+            SetDbl("column-gap", css.ColumnGap);
+            SetDbl("row-gap", css.RowGap);
+            SetDbl("gap", css.Gap);
+
+            SetStr("grid-template-columns", css.GridTemplateColumns);
+            SetStr("grid-template-rows", css.GridTemplateRows);
+            SetStr("grid-template-areas", css.GridTemplateAreas);
+            SetStr("grid-auto-columns", css.GridAutoColumns);
+            SetStr("grid-auto-rows", css.GridAutoRows);
+            SetStr("grid-auto-flow", css.GridAutoFlow);
+            SetStr("grid-column", css.GridColumn);
+            SetStr("grid-row", css.GridRow);
+            SetStr("grid-area", css.GridArea);
+
+            SetDbl("border-spacing", css.BorderSpacing);
+            SetDbl("border-spacing-vertical", css.BorderSpacingVertical);
+
+            SetDbl("aspect-ratio", css.AspectRatio, "");
+        }
+
+        private static string ColorToCss(Windows.UI.Color c)
+        {
+            if (c.A < 255) return string.Format(System.Globalization.CultureInfo.InvariantCulture, "rgba({0},{1},{2},{3:0.##})", c.R, c.G, c.B, c.A / 255.0);
+            return string.Format(System.Globalization.CultureInfo.InvariantCulture, "#{0:X2}{1:X2}{2:X2}", c.R, c.G, c.B);
+        }
 
 public bool Execute(string code)
             {
@@ -7195,18 +7574,8 @@ public bool Execute(string code)
                             try
                             {
                                 string q = ToStr(args.Count > 0 ? args[0] : JsVal.Null());
-                                bool matches = false;
-                                double w = 0; double h = 0; try { var b = Windows.UI.Xaml.Window.Current.Bounds; w = b.Width; h = b.Height; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
-                                if (!string.IsNullOrEmpty(q))
-                                {
-                                    var s = q.ToLowerInvariant();
-                                    if (s.Contains("prefers-color-scheme")) { matches = s.Contains("light"); }
-                                    var mw = System.Text.RegularExpressions.Regex.Match(s, @"min-width\s*:\s*(\d+)px");
-                                    if (mw.Success) { double v; if (double.TryParse(mw.Groups[1].Value, out v)) matches = matches || (w >= v); }
-                                    var xw = System.Text.RegularExpressions.Regex.Match(s, @"max-width\s*:\s*(\d+)px");
-                                    if (xw.Success) { double v; if (double.TryParse(xw.Groups[1].Value, out v)) matches = matches || (w <= v); }
-                                }
-                                var m = new Dictionary<string, JsVal>(StringComparer.Ordinal) { { "matches", JsVal.FromBool(matches) } };
+                                var mediaMatches = _e.EvaluateMediaQueryString(q);
+                                var m = new Dictionary<string, JsVal>(StringComparer.Ordinal) { { "matches", JsVal.FromBool(mediaMatches) } };
                                 return new JsVal { Obj = m };
                             }
                             catch { return new JsVal { Obj = new Dictionary<string, JsVal>(StringComparer.Ordinal) { { "matches", JsVal.FromBool(false) } } }; }

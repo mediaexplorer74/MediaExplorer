@@ -21,8 +21,7 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" x:Name="BackButton" Content="Back" Background="Transparent" Foreground="#CCCCCC" BorderThickness="0" FontSize="14" Padding="8,4"/>
-                <TextBlock Grid.Column="1" Text="Settings" Foreground="White" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                <TextBlock Grid.Column="0" Text="Settings" Foreground="White" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
             </Grid>
         </Border>
 
@@ -89,7 +88,7 @@
                 <StackPanel Margin="16,20,16,0">
                     <TextBlock Text="MediaExplorer" FontSize="22" FontWeight="Bold" Foreground="White" Margin="0,0,0,8"/>
                     <TextBlock Text="Retro alternative browser for Windows 10 Mobile" Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,12"/>
-                    <TextBlock Text="Version: 0.40 (dev; pre-alpha)" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
+                    <TextBlock x:Name="VersionText" Text="Version: ..." Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
                     <TextBlock Text="Built for Lumia 950 / 1020" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
                     <TextBlock Text="Custom HTML/CSS/JS engine" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,4"/>
                     <TextBlock Text="Engine: NiL.JS + Jint" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,16"/>
