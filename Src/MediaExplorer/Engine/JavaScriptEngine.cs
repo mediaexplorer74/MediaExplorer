@@ -4357,6 +4357,8 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
         {
             if (domRoot == null) return;
             try { System.Diagnostics.Debug.WriteLine("[Diag] RunScriptsAsync start (Phase123) - Parallelized"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            try
+            {
 
             _domRoot = domRoot;
             // Reset per-page script budget at the start of a new run.
@@ -4480,9 +4482,29 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                         var repaint = _host as IJsHostRepaint;
                         if (repaint != null)
                         {
-                            repaint.InvokeOnUiThread(async () => 
-                            { 
-                                try { await Execute(s, res); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } 
+                            repaint.InvokeOnUiThread(() =>
+                            {
+                                try
+                                {
+                                    var t = Execute(s, res);
+                                    if (t.IsFaulted)
+                                    {
+                                        try { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] Execute faulted: " + t.Exception); }
+                                        catch { }
+                                    }
+                                    if (!t.IsCompleted)
+                                    {
+                                        t.ContinueWith(t2 =>
+                                        {
+                                            if (t2.IsFaulted)
+                                            {
+                                                try { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] Execute async fault: " + t2.Exception); }
+                                                catch { }
+                                            }
+                                        }, TaskContinuationOptions.OnlyOnFaulted);
+                                    }
+                                }
+                                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
                             });
                         }
                         else
@@ -4509,18 +4531,23 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
             if (!_domContentLoadedFired)
             {
                 _domContentLoadedFired = true;
-                FireDocumentEvent("DOMContentLoaded");
+                try { FireDocumentEvent("DOMContentLoaded"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
             }
 
             // 5) window.load (when asyncs done, or immediately if none)
             if (Volatile.Read(ref _pendingAsyncScripts) == 0 && !_windowLoadFired)
             {
                 _windowLoadFired = true;
-                FireWindowEvent("load");
+                try { FireWindowEvent("load"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
                 _readyState = "complete"; try { FireDocumentEvent("readystatechange"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
             }
             this.SanitizeForScriptingEnabled(_domRoot);
             RequestRepaint();
+            }
+            catch (Exception ex)
+            {
+                try { System.Diagnostics.Debug.WriteLine("[Diag] RunScriptsAsync top-level EXC: " + ex.GetType().Name + ": " + ex.Message); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            }
         }
 
         private void DecAndMaybeFireLoad()
@@ -4528,7 +4555,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
             if (Interlocked.Decrement(ref _pendingAsyncScripts) == 0 && _domContentLoadedFired && !_windowLoadFired)
             {
                 _windowLoadFired = true;
-                FireWindowEvent("load");
+                try { FireWindowEvent("load"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
             }
         }
 

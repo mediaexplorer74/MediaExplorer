@@ -14,6 +14,7 @@ using BrowserCore.Api;
 using BrowserCore.Engine.Core;
 using WEBVIEW.Engine;
 using Windows.Foundation;
+using NiL.JS.Core;
 
 namespace BrowserCore.Engine
 {
@@ -1415,9 +1416,13 @@ namespace BrowserCore.Engine
                                 {
                                     var _ = disp.RunAsync(CoreDispatcherPriority.Normal, () => { try { action(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); } });
                                 }
-                                else action();
+                                else
+                                {
+                                    try { action(); }
+                                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                                }
                             }
-                            catch { action(); }
+                            catch { try { action(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); } }
                         }))
                     {
                         Sandbox = allowJs ? SandboxPolicy.AllowAll : SandboxPolicy.NoScripts,
@@ -1489,7 +1494,21 @@ namespace BrowserCore.Engine
                     var msg = "[DIAG] RenderAsync Phase3 JS RunScriptsAsync start";
                     System.Diagnostics.Debug.WriteLine(msg);
                     DevToolsLogger.Log(msg);
-                    try { await js.RunScriptsAsync(dom, baseUri); var m2 = "[DIAG] RenderAsync Phase3 JS DONE"; System.Diagnostics.Debug.WriteLine(m2); DevToolsLogger.Log(m2); } catch (Exception ex) { var m3 = "[DIAG] RenderAsync Phase3 JS EXC " + ex.Message; System.Diagnostics.Debug.WriteLine(m3); DevToolsLogger.Log(m3); }
+                    try
+                    {
+                        var jsTask = js.RunScriptsAsync(dom, baseUri);
+                        if (await Task.WhenAny(jsTask, Task.Delay(15000)) == jsTask)
+                        {
+                            await jsTask;
+                            var m2 = "[DIAG] RenderAsync Phase3 JS DONE"; System.Diagnostics.Debug.WriteLine(m2); DevToolsLogger.Log(m2);
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase3 JS TIMEOUT (15s)");
+                            DevToolsLogger.Log("[DIAG] RenderAsync Phase3 JS TIMEOUT (15s)");
+                        }
+                    }
+                    catch (Exception ex) { var m3 = "[DIAG] RenderAsync Phase3 JS EXC " + ex.Message; System.Diagnostics.Debug.WriteLine(m3); DevToolsLogger.Log(m3); }
                 }
                 else if (richMode)
                 {
@@ -1504,7 +1523,21 @@ namespace BrowserCore.Engine
                 var msg4 = "[DIAG] RenderAsync Phase4 BuildVisualTreeAsync start";
                 System.Diagnostics.Debug.WriteLine(msg4);
                 DevToolsLogger.Log(msg4);
-                var element = await BuildVisualTreeAsync(dom, baseUri, cssFetcher, imageLoader, onNavigate, js, viewportWidth, onFixedBackground, includeDiagnosticsBanner: false).ConfigureAwait(false);
+                FrameworkElement element = null;
+                try
+                {
+                    element = await BuildVisualTreeAsync(dom, baseUri, cssFetcher, imageLoader, onNavigate, js, viewportWidth, onFixedBackground, includeDiagnosticsBanner: false).ConfigureAwait(false);
+                }
+                catch (JSException jex)
+                {
+                    System.Diagnostics.Debug.WriteLine("[RENDER] Phase4 JSException swallowed: " + jex.Message);
+                    element = null;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("[RENDER] Phase4 Exception swallowed: " + ex.GetType().Name + ": " + ex.Message);
+                    element = null;
+                }
                 var msg5 = "[DIAG] RenderAsync Phase4 BuildVisualTreeAsync DONE element=" + (element != null ? element.GetType().Name : "null");
                 System.Diagnostics.Debug.WriteLine(msg5);
                 DevToolsLogger.Log(msg5);

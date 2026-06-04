@@ -1,6 +1,6 @@
 # MediaExplorer / WEBVIEW — Plan 04: Pragmatic Path to v1.0
 
-> **Project:** MediaExplorer 0.41.x (codename "WebView") — retro UWP museum browser for W10M
+> **Project:** MediaExplorer 0.42.x (codename "WebView") — retro UWP museum browser for W10M
 > **Hardware target:** Lumia 950/1020 (Snapdragon 810, 3 GB RAM, 5" 1440p)
 > **Test environment:** x86 emulator (primary) → ARM device (validation)
 > **Author note:** Plan 04 is the first plan written with explicit *honesty constraints* —
