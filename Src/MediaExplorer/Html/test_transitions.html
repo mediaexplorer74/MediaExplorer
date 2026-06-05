@@ -89,9 +89,23 @@
   .t-delay { transition: opacity 0.2s ease 0.2s; }
   .t-delay:hover { opacity: 0.4; }
 
-  /* 10) card lifts up */
+  /* 10) card lifts up (comma-separated multi-property transition) */
   .t-lift { transition: transform 0.25s ease, opacity 0.25s ease; }
   .t-lift:hover { transform: translateY(-6px) scale(1.03); opacity: 0.9; }
+
+  /* 12) multi-property with different durations per property */
+  .t-multi-dur { transition: opacity 0.5s ease, background-color 0.3s linear, transform 0.2s ease-in; }
+  .t-multi-dur:hover { opacity: 0.4; background-color: #E81123; transform: scale(1.1) rotate(3deg); }
+
+  /* 13) smooth background from no base brush (no background → color) */
+  .t-nobase-bg { transition: background-color 0.4s ease; background: none; }
+  .t-nobase-bg:hover { background-color: #107C10; }
+
+  /* 14) percent translate (50% of element size) */
+  .t-pct { transition: transform 0.4s ease; }
+  .t-pct:hover { transform: translate(50%, 50%); }
+  .t-pct-30 { transition: transform 0.3s ease; }
+  .t-pct-30:hover { transform: translate(30%, -30%); }
 </style>
 </head>
 <body>
@@ -157,6 +171,25 @@
     <span class="pill t-bg">bg</span>
     <span class="pill t-scale">scale</span>
     <span class="pill t-all">all</span>
+  </div>
+
+  <h2>12) multi-property with different durations per property</h2>
+  <p class="muted">opacity 0.5s, background-color 0.3s, transform 0.2s — each animates at its own speed.</p>
+  <div class="row">
+    <div class="box t-multi-dur">op+bg+xf</div>
+  </div>
+
+  <h2>13) smooth background from no base brush (no background → color)</h2>
+  <p class="muted">Base has no background; hover smoothly fades from transparent to green.</p>
+  <div class="row">
+    <div class="box t-nobase-bg">transparent→green</div>
+  </div>
+
+  <h2>14) percent translate (50% of element size)</h2>
+  <p class="muted">translate(50%, 50%) should move by half element width/height.</p>
+  <div class="row">
+    <div class="box t-pct">50%, 50%</div>
+    <div class="box t-pct-30">30%, -30%</div>
   </div>
 </body>
 </html>

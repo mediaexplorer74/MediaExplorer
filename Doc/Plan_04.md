@@ -1,12 +1,15 @@
 # MediaExplorer / WEBVIEW — Plan 04: Pragmatic Path to v1.0
 
-> **Project:** MediaExplorer 0.42.5 (codename "WebView") — retro UWP museum browser for W10M
+> **Project:** MediaExplorer 0.42.6 (codename "WebView") — retro UWP museum browser for W10M
 > **Hardware target:** Lumia 950/1020 (Snapdragon 810, 3 GB RAM, 5" 1440p)
 > **Test environment:** x86 emulator (primary) → ARM device (validation)
 > **Author note:** Plan 04 is the first plan written with explicit *honesty constraints* —
 > it distinguishes between what is achievable, what is a trap, and what the project
 > actually needs to feel finished. Read the Honest Assessment section before the phases.
-> **Last updated:** 2026-06-04 (post-session 3.24)
+> **Last updated:** 2026-06-05 (post-session 3.26)
+
+> **Recent changes (TL;DR):**
+> - 2026-06-04..05 — Phase C.6 (Basic CSS Transitions) implemented: `TransitionAnimator.cs`, hover overrides (`CssComputed.Hover`), `AttachHoverTransition` wiring in `DomBasicRenderer`, and test pages (`Html/test_transitions.html`, extended `Html/test.html`). See `Doc/Summary_4_05.md` for details.
 
 ---
 

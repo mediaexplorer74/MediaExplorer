@@ -18,6 +18,13 @@ class Program
         public int Count { get; set; }
         public DateTime FirstSeen { get; set; }
         public DateTime LastSeen { get; set; }
+        // Optional diagnostics: populated when a failure occurs so the store
+        // contains useful information for post-mortem analysis.
+        public string LastExceptionType { get; set; }
+        public string LastExceptionMessage { get; set; }
+        public string LastExceptionStack { get; set; }
+        public DateTime? LastExceptionTime { get; set; }
+        public string LastExceptionContext { get; set; }
     }
 
     private class TestExpectation
@@ -130,6 +137,15 @@ class Program
                         var rec = store.FirstOrDefault(x => x.Hash == h);
                         if (rec == null) { rec = new BadHashRecord { Hash = h, Preview = TrimPreview(code), Count = 0, FirstSeen = DateTime.UtcNow, LastSeen = DateTime.UtcNow }; store.Add(rec); }
                         rec.Count += fails; rec.LastSeen = DateTime.UtcNow;
+                        try
+                        {
+                            // populate diagnostics from the thrown exception if available via a simple pattern
+                            // For NilJsTest we only have the Exception.Message; include that as LastExceptionMessage
+                            // and timestamp.
+                            rec.LastExceptionMessage = Truncate("Run failed with exception during eval", 1024);
+                            rec.LastExceptionTime = DateTime.UtcNow;
+                        }
+                        catch { }
                         Console.WriteLine($"Observed fail for hash={h} totalCount={rec.Count}");
                         if (rec.Count >= threshold)
                         {
@@ -333,6 +349,16 @@ class Program
 
     static void Main(string[] args)
     {
+        // Global handlers: capture any unhandled exceptions and persist a small JSON for post-mortem.
+        AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+        {
+            try { var ex = e.ExceptionObject as Exception; SaveUnhandled(ex, args); } catch { }
+        };
+        TaskScheduler.UnobservedTaskException += (sender, e) =>
+        {
+            try { SaveUnhandled(e.Exception, args); } catch { }
+        };
+
         if (args == null || args.Length == 0) { PrintUsage(); return; }
 
         string file = null;
@@ -535,6 +561,25 @@ class Program
         }
 
         PrintUsage();
+        return;
+    }
+
+    static void SaveUnhandled(Exception ex, string[] args)
+    {
+        try
+        {
+            var outObj = new Dictionary<string, object>();
+            outObj["Time"] = DateTime.UtcNow;
+            try { outObj["Type"] = ex?.GetType().Name ?? "(null)"; } catch { outObj["Type"] = "(unknown)"; }
+            try { outObj["Message"] = ex?.Message ?? ""; } catch { outObj["Message"] = "(failed to get message)"; }
+            try { outObj["Stack"] = ex?.StackTrace ?? ""; } catch { outObj["Stack"] = "(failed to get stack)"; }
+            try { outObj["Inner"] = ex?.InnerException != null ? ex.InnerException.Message : null; } catch { }
+            try { outObj["Args"] = args ?? new string[0]; } catch { }
+            var json = JsonConvert.SerializeObject(outObj, Formatting.Indented);
+            var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "niljstest_unhandled.json");
+            File.WriteAllText(path, json);
+        }
+        catch { }
     }
 
     static string TrimPreview(string code)
@@ -543,5 +588,12 @@ class Program
         var p = code.Replace('\r', ' ').Replace('\n', ' ');
         if (p.Length > 160) return p.Substring(0, 160);
         return p;
+    }
+
+    static string Truncate(string s, int max)
+    {
+        if (s == null) return null;
+        if (s.Length <= max) return s;
+        try { return s.Substring(0, max); } catch { return s; }
     }
 }

@@ -4844,17 +4844,17 @@ namespace BrowserCore.Engine
         }
 
         // Phase C.6: wire PointerEntered/Exited to drive Storyboard animations
-        // between base and hover computed values for the property listed in
-        // CssComputed.TransitionProperty ("opacity" / "background-color" /
-        // "transform" / "all").
+        // between base and hover computed values. Supports multi-property
+        // comma-separated transitions via TransitionList.
         private void AttachHoverTransition(FrameworkElement fe, CssComputed baseCss)
         {
             if (fe == null || baseCss == null || baseCss.Hover == null) return;
             var hover = baseCss.Hover;
-            double dur = baseCss.TransitionDurationMs;
-            double delay = baseCss.TransitionDelayMs;
-            string timing = baseCss.TransitionTimingFunction ?? "ease";
-            string prop = baseCss.TransitionProperty ?? "all";
+
+            // Build transition spec list — use TransitionList if available,
+            // otherwise fall back to single-entry from old fields.
+            var specs = BuildTransitionSpecs(baseCss);
+            if (specs.Count == 0) return;
 
             // Capture base values BEFORE we attach any handlers, so we can
             // return to them on PointerExited.
@@ -4882,65 +4882,64 @@ namespace BrowserCore.Engine
             double? hoverRotate = null;
             double? hoverTx = null, hoverTy = null;
 
-            // opacity
-            if (prop == "opacity" || prop == "all")
-            {
-                var oStr = DictGet(hover.Map, "opacity");
-                double ov;
-                if (TryPxOrDouble(oStr, out ov)) hoverOpacity = Math.Max(0, Math.Min(1, ov));
-            }
-            // background-color / background
-            if (prop == "background-color" || prop == "background" || prop == "all")
-            {
-                var cStr = ExtractBackgroundColor(hover.Map);
-                if (!string.IsNullOrWhiteSpace(cStr))
-                {
-                    var brush = TryParseCssColorToBrush(cStr);
-                    if (brush != null) hoverColor = brush.Color;
-                }
-            }
-            // transform
-            if (prop == "transform" || prop == "all")
-            {
-                var tStr = DictGet(hover.Map, "transform");
-                if (!string.IsNullOrWhiteSpace(tStr))
-                {
-                    ParseTransformForHover(tStr,
-                        out double sx, out double sy, out double rot, out double tx, out double ty);
-                    hoverScaleX = sx; hoverScaleY = sy; hoverRotate = rot; hoverTx = tx; hoverTy = ty;
-                }
-            }
+            // Check what hover actually overrides
+            var oStr = DictGet(hover.Map, "opacity");
+            double ov = 0;
+            bool opacityChanges = !string.IsNullOrWhiteSpace(oStr) && TryPxOrDouble(oStr, out ov);
+
+            var cStr = ExtractBackgroundColor(hover.Map);
+            bool colorChanges = !string.IsNullOrWhiteSpace(cStr);
+            Windows.UI.Xaml.Media.SolidColorBrush hoverBrush = null;
+            if (colorChanges) hoverBrush = TryParseCssColorToBrush(cStr);
+
+            var tStr = DictGet(hover.Map, "transform");
+            bool transformChanges = !string.IsNullOrWhiteSpace(tStr);
 
             // Only attach if there's at least one thing to animate
-            if (hoverOpacity == null && hoverColor == null
-                && hoverScaleX == null && hoverRotate == null && hoverTx == null)
-                return;
+            if (!opacityChanges && !colorChanges && !transformChanges) return;
+
+            // Resolve which spec applies to each property
+            TransitionSpecForProp("opacity", specs, out double opacityDur, out double opacityDelay, out string opacityTiming);
+            TransitionSpecForProp("background-color", specs, out double bgDur, out double bgDelay, out string bgTiming);
+            TransitionSpecForProp("transform", specs, out double xfDur, out double xfDelay, out string xfTiming);
 
             fe.PointerEntered += (s, e) =>
             {
                 try
                 {
-                    if (hoverOpacity.HasValue)
-                        TransitionAnimator.AnimateOpacity(fe, hoverOpacity.Value, dur, delay, timing);
-                    if (hoverColor.HasValue)
+                    if (opacityChanges)
                     {
+                        hoverOpacity = Math.Max(0, Math.Min(1, ov));
+                        TransitionAnimator.AnimateOpacity(fe, hoverOpacity.Value, opacityDur, opacityDelay, opacityTiming);
+                    }
+                    if (colorChanges && hoverBrush != null)
+                    {
+                        hoverColor = hoverBrush.Color;
                         if (hasBaseBrush)
-                            TransitionAnimator.AnimateBackgroundColor(fe, hoverColor.Value, dur, delay, timing);
+                            TransitionAnimator.AnimateBackgroundColor(fe, hoverColor.Value, bgDur, bgDelay, bgTiming);
                         else
                         {
-                            // Element had no background brush in the base state —
-                            // assign one (jump to the color, then nothing to animate).
-                            try { SetBackgroundBrush(fe, new Windows.UI.Xaml.Media.SolidColorBrush(hoverColor.Value)); } catch { }
+                            // Smooth background: set Transparent base brush first, then animate
+                            SetBackgroundBrush(fe, new Windows.UI.Xaml.Media.SolidColorBrush(Windows.UI.Colors.Transparent));
+                            TransitionAnimator.AnimateBackgroundColor(fe, hoverColor.Value, bgDur, bgDelay, bgTiming);
                         }
                     }
-                    if (hoverScaleX.HasValue || hoverScaleY.HasValue)
-                        TransitionAnimator.AnimateTransformScale(fe,
-                            hoverScaleX ?? baseScaleX, hoverScaleY ?? baseScaleY, dur, delay, timing);
-                    if (hoverRotate.HasValue)
-                        TransitionAnimator.AnimateTransformRotate(fe, hoverRotate.Value, dur, delay, timing);
-                    if (hoverTx.HasValue || hoverTy.HasValue)
-                        TransitionAnimator.AnimateTransformTranslate(fe,
-                            hoverTx ?? baseTx, hoverTy ?? baseTy, dur, delay, timing);
+                    if (transformChanges)
+                    {
+                        // Parse with actual element dimensions (supports % in translate)
+                        double elemW = 0, elemH = 0;
+                        try { elemW = fe.ActualWidth; elemH = fe.ActualHeight; } catch { }
+                        ParseTransformForHover(tStr, out double hSx, out double hSy, out double hRot, out double hTx, out double hTy, elemW, elemH);
+                        hoverScaleX = hSx; hoverScaleY = hSy; hoverRotate = hRot; hoverTx = hTx; hoverTy = hTy;
+                        if (hoverScaleX.HasValue || hoverScaleY.HasValue)
+                            TransitionAnimator.AnimateTransformScale(fe,
+                                hoverScaleX ?? baseScaleX, hoverScaleY ?? baseScaleY, xfDur, xfDelay, xfTiming);
+                        if (hoverRotate.HasValue)
+                            TransitionAnimator.AnimateTransformRotate(fe, hoverRotate.Value, xfDur, xfDelay, xfTiming);
+                        if (hoverTx.HasValue || hoverTy.HasValue)
+                            TransitionAnimator.AnimateTransformTranslate(fe,
+                                hoverTx ?? baseTx, hoverTy ?? baseTy, xfDur, xfDelay, xfTiming);
+                    }
                 }
                 catch { }
             };
@@ -4949,19 +4948,82 @@ namespace BrowserCore.Engine
             {
                 try
                 {
-                    if (hoverOpacity.HasValue)
-                        TransitionAnimator.AnimateOpacity(fe, baseOpacity, dur, delay, timing);
-                    if (hoverColor.HasValue && hasBaseBrush)
-                        TransitionAnimator.AnimateBackgroundColor(fe, baseColor, dur, delay, timing);
-                    if (hoverScaleX.HasValue || hoverScaleY.HasValue)
-                        TransitionAnimator.AnimateTransformScale(fe, baseScaleX, baseScaleY, dur, delay, timing);
-                    if (hoverRotate.HasValue)
-                        TransitionAnimator.AnimateTransformRotate(fe, baseRotate, dur, delay, timing);
-                    if (hoverTx.HasValue || hoverTy.HasValue)
-                        TransitionAnimator.AnimateTransformTranslate(fe, baseTx, baseTy, dur, delay, timing);
+                    if (opacityChanges)
+                        TransitionAnimator.AnimateOpacity(fe, baseOpacity, opacityDur, opacityDelay, opacityTiming);
+                    if (colorChanges && hoverBrush != null)
+                    {
+                        if (hasBaseBrush)
+                            TransitionAnimator.AnimateBackgroundColor(fe, baseColor, bgDur, bgDelay, bgTiming);
+                        else
+                            TransitionAnimator.AnimateBackgroundColor(fe, Windows.UI.Colors.Transparent, bgDur, bgDelay, bgTiming);
+                    }
+                    if (transformChanges)
+                    {
+                        if (hoverScaleX.HasValue || hoverScaleY.HasValue)
+                            TransitionAnimator.AnimateTransformScale(fe, baseScaleX, baseScaleY, xfDur, xfDelay, xfTiming);
+                        if (hoverRotate.HasValue)
+                            TransitionAnimator.AnimateTransformRotate(fe, baseRotate, xfDur, xfDelay, xfTiming);
+                        if (hoverTx.HasValue || hoverTy.HasValue)
+                            TransitionAnimator.AnimateTransformTranslate(fe, baseTx, baseTy, xfDur, xfDelay, xfTiming);
+                    }
                 }
                 catch { }
             };
+        }
+
+        // Build flat transition spec list from CssComputed (TransitionList or fallback).
+        private static List<TransitionSpecForAnim> BuildTransitionSpecs(CssComputed css)
+        {
+            var result = new List<TransitionSpecForAnim>();
+            if (css.TransitionList != null && css.TransitionList.Count > 0)
+            {
+                foreach (var s in css.TransitionList)
+                    result.Add(new TransitionSpecForAnim(s.Property, s.DurationMs, s.TimingFunction, s.DelayMs));
+            }
+            else if (css.TransitionDurationMs > 0)
+            {
+                result.Add(new TransitionSpecForAnim(
+                    css.TransitionProperty ?? "all",
+                    css.TransitionDurationMs,
+                    css.TransitionTimingFunction ?? "ease",
+                    css.TransitionDelayMs));
+            }
+            return result;
+        }
+
+        // For a given CSS property name, find the first matching transition spec
+        // (exact match, or "all" catch-all). Sets out parameters; if no match,
+        // duration stays 0 (no animation).
+        private static void TransitionSpecForProp(string cssProp, List<TransitionSpecForAnim> specs,
+            out double durMs, out double delayMs, out string timing)
+        {
+            durMs = 0; delayMs = 0; timing = "ease";
+            if (specs == null) return;
+            // First exact match
+            for (int i = 0; i < specs.Count; i++)
+            {
+                var s = specs[i];
+                if (string.Equals(s.Prop, cssProp, StringComparison.OrdinalIgnoreCase))
+                { durMs = s.DurationMs; delayMs = s.DelayMs; timing = s.Timing; return; }
+            }
+            // Fallback to "all"
+            for (int i = 0; i < specs.Count; i++)
+            {
+                var s = specs[i];
+                if (string.Equals(s.Prop, "all", StringComparison.OrdinalIgnoreCase))
+                { durMs = s.DurationMs; delayMs = s.DelayMs; timing = s.Timing; return; }
+            }
+        }
+
+        // Lightweight struct for transition spec data
+        private sealed class TransitionSpecForAnim
+        {
+            public string Prop;
+            public double DurationMs;
+            public string Timing;
+            public double DelayMs;
+            public TransitionSpecForAnim(string p, double d, string t, double dl)
+            { Prop = p; DurationMs = d; Timing = t; DelayMs = dl; }
         }
 
         // Phase C.6: small set of helpers to read/write the Background property
@@ -5057,7 +5119,8 @@ namespace BrowserCore.Engine
 
         // Parse a transform list like "scale(1.1) rotate(15deg) translate(10px,20px)"
         // and pull out the values used by TransitionAnimator.
-        private static void ParseTransformForHover(string t, out double sx, out double sy, out double rot, out double tx, out double ty)
+        private static void ParseTransformForHover(string t, out double sx, out double sy, out double rot, out double tx, out double ty,
+            double elemW = 0, double elemH = 0)
         {
             sx = 1; sy = 1; rot = 0; tx = 0; ty = 0;
             if (string.IsNullOrWhiteSpace(t)) return;
@@ -5087,14 +5150,30 @@ namespace BrowserCore.Engine
                     if (parts.Length >= 1)
                     {
                         var a = parts[0].Trim();
-                        if (a.EndsWith("px", StringComparison.OrdinalIgnoreCase)) a = a.Substring(0, a.Length - 2);
-                        double.TryParse(a, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out tx);
+                        if (a.EndsWith("%", StringComparison.Ordinal) && elemW > 0)
+                        {
+                            double p; if (double.TryParse(a.TrimEnd('%'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out p))
+                                tx = (p / 100.0) * elemW;
+                        }
+                        else
+                        {
+                            if (a.EndsWith("px", StringComparison.OrdinalIgnoreCase)) a = a.Substring(0, a.Length - 2);
+                            double.TryParse(a, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out tx);
+                        }
                     }
                     if (parts.Length >= 2)
                     {
                         var b = parts[1].Trim();
-                        if (b.EndsWith("px", StringComparison.OrdinalIgnoreCase)) b = b.Substring(0, b.Length - 2);
-                        double.TryParse(b, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out ty);
+                        if (b.EndsWith("%", StringComparison.Ordinal) && elemH > 0)
+                        {
+                            double p; if (double.TryParse(b.TrimEnd('%'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out p))
+                                ty = (p / 100.0) * elemH;
+                        }
+                        else
+                        {
+                            if (b.EndsWith("px", StringComparison.OrdinalIgnoreCase)) b = b.Substring(0, b.Length - 2);
+                            double.TryParse(b, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out ty);
+                        }
                     }
                 }
             }

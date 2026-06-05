@@ -1,6 +1,6 @@
 # Summary 4.05 — Phase C.6: Basic CSS Transitions (Storyboard + DoubleAnimation)
 
-**Session date:** 2026-06-04
+**Session date:** 2026-06-04 — 2026-06-05 (follow-up)
 **Build:** `msbuild MediaExplorer.sln /p:Configuration=Debug /p:Platform=x86` — ✅ **0 errors**
 **Mode:** autopilot (no emulator/device available — only droid in hand)
 
@@ -225,7 +225,8 @@ translate / all / fast (0.1s) / slow (1s) / с delay (0.2s) / card lift
 | `MediaExplorer.csproj` | `<Compile Include="Engine\TransitionAnimator.cs" />`, `<Content Include="Html\test_transitions.html" />` |
 | `Html/test.html` | T-C-015 расширен (4 бокса side-by-side) |
 | `Html/test_transitions.html` | **новый** — 11-кейсовая демо-страница |
-| `Doc/Plan_04.md` | C.6 помечен ✅, запись сессии 3.26 |
+| `Doc/Plan_04.md` | C.6 помечен ✅, записаны краткие примечания о завершении и TL;DR |
+| `Doc/Summary_4_05.md` | **THIS** — обновлённая сводка с пометкой follow-up |
 | `Doc/Summary_4_05.md` | **этот файл** |
 
 ---

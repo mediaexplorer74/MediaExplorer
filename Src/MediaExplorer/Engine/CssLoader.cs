@@ -2023,45 +2023,67 @@ namespace WEBVIEW.Engine
             if (string.IsNullOrWhiteSpace(raw)) return;
             css.Transition = raw.Trim();
 
-            // Take only the first comma-separated entry
-            var first = raw;
-            int comma = first.IndexOf(',');
-            if (comma >= 0) first = first.Substring(0, comma);
-            first = first.Trim();
-            if (string.IsNullOrEmpty(first)) return;
+            // Phase C.6 follow-up: support comma-separated multi-property transitions.
+            // Split on top-level commas (not inside parens).
+            var entries = SplitTopLevelCommas(raw);
+            var list = new List<CssComputed.TransitionSpec>();
 
-            var tokens = first.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-            if (tokens.Length == 0) return;
-
-            string property = null;
-            string timing = null;
-
-            foreach (var tk in tokens)
+            for (int ei = 0; ei < entries.Count; ei++)
             {
-                if (property == null && !IsTimingFunctionToken(tk) && !IsDurationToken(tk, out _))
+                var entry = entries[ei].Trim();
+                if (string.IsNullOrEmpty(entry)) continue;
+
+                var tokens = entry.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                if (tokens.Length == 0) continue;
+
+                string property = null;
+                string timing = null;
+                double duration = 0;
+                double delay = 0;
+
+                foreach (var tk in tokens)
                 {
-                    property = tk.ToLowerInvariant();
-                    continue;
+                    if (property == null && !IsTimingFunctionToken(tk) && !IsDurationToken(tk, out _))
+                    {
+                        property = tk.ToLowerInvariant();
+                        continue;
+                    }
+                    double d;
+                    if (IsDurationToken(tk, out d))
+                    {
+                        if (duration == 0)
+                            duration = d;
+                        else
+                            delay = d;
+                        continue;
+                    }
+                    if (IsTimingFunctionToken(tk))
+                    {
+                        timing = tk.ToLowerInvariant();
+                        continue;
+                    }
                 }
-                double d;
-                if (IsDurationToken(tk, out d))
+
+                list.Add(new CssComputed.TransitionSpec
                 {
-                    // First duration → duration, second → delay
-                    if (css.TransitionDurationMs == 0)
-                        css.TransitionDurationMs = d;
-                    else
-                        css.TransitionDelayMs = d;
-                    continue;
-                }
-                if (IsTimingFunctionToken(tk))
-                {
-                    timing = tk.ToLowerInvariant();
-                    continue;
-                }
+                    Property = property ?? "all",
+                    DurationMs = duration,
+                    TimingFunction = timing ?? "ease",
+                    DelayMs = delay,
+                    Raw = entry
+                });
             }
 
-            if (property != null) css.TransitionProperty = property;
-            if (timing != null) css.TransitionTimingFunction = timing;
+            css.TransitionList = list;
+
+            // Backward-compat: first entry populates old single-property fields
+            if (list.Count > 0)
+            {
+                css.TransitionProperty = list[0].Property;
+                css.TransitionDurationMs = list[0].DurationMs;
+                css.TransitionTimingFunction = list[0].TimingFunction;
+                css.TransitionDelayMs = list[0].DelayMs;
+            }
         }
 
         private static bool IsDurationToken(string s, out double ms)
@@ -2149,7 +2171,9 @@ namespace WEBVIEW.Engine
 
                     // Only build hover override if a transition is configured.
                     // (Hover without transition = no observable change.)
-                    if (baseCss.TransitionDurationMs <= 0) continue;
+                    bool hasTransition = (baseCss.TransitionList != null && baseCss.TransitionList.Count > 0)
+                                        || baseCss.TransitionDurationMs > 0;
+                    if (!hasTransition) continue;
 
                     var hoverByProp = new Dictionary<string, List<Tuple<CssDecl, Uri, int>>>(StringComparer.OrdinalIgnoreCase);
                     int matchedCount = 0;

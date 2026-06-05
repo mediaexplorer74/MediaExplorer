@@ -177,5 +177,19 @@ namespace BrowserCore.Engine
         // PointerEntered and reverts to base on PointerExited, animating
         // any property listed in TransitionProperty via TransitionAnimator.
         public CssComputed Hover { get; set; }
+
+        // Parsed transition list (supports comma-separated multiple transitions).
+        // Each entry corresponds to one comma-separated transition() entry.
+        public sealed class TransitionSpec
+        {
+            public string Property { get; set; }
+            public double DurationMs { get; set; }
+            public string TimingFunction { get; set; }
+            public double DelayMs { get; set; }
+            public string Raw { get; set; }
+        }
+
+        // If non-empty, contains parsed transitions (in source order).
+        public System.Collections.Generic.List<TransitionSpec> TransitionList { get; set; }
     }
 }

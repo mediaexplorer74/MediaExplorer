@@ -24,7 +24,7 @@ namespace BrowserCore.Engine
     ///   <c>ScaleTransform</c>, angle on <c>RotateTransform</c>, x/y on
     ///   <c>TranslateTransform</c>. The animation target is chosen from the
     ///   hover value's transform function name.
-    /// - <c>all</c> → currently treated as <c>transform</c> (most common case)
+    /// - <c>all</c> → animates opacity + background-color + transform
     ///
     /// Easing functions map 1:1 onto XAML's <see cref="EasingFunctionBase"/>
     /// (ease → CubicEase EaseInOut, linear → null, ease-in/out → CubicEase).

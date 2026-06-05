@@ -61,6 +61,14 @@ namespace BrowserCore.Engine
             public int Count { get; set; }          // сколько раз пойман
             public DateTime FirstSeen { get; set; }
             public DateTime LastSeen { get; set; }
+            // Optional diagnostic fields: populated when a failure is observed.
+            // These are best-effort and may be truncated to avoid huge files.
+            public string LastExceptionType { get; set; }
+            public string LastExceptionMessage { get; set; }
+            public string LastExceptionStack { get; set; }
+            public DateTime? LastExceptionTime { get; set; }
+            // Source/context hint (e.g. page preview or URL) — optional
+            public string LastExceptionContext { get; set; }
         }
         // Коллекция актуальных bad-хэшей
         private readonly ConcurrentDictionary<string, BadHashRecord> _badHashRecords = new ConcurrentDictionary<string, BadHashRecord>(StringComparer.OrdinalIgnoreCase);
@@ -3358,11 +3366,13 @@ if (mHrefSet.Success)
             try
             {
                 SafeEval(@"
-if (!Object.assign) Object.assign = function(t){for(var i=1;i<arguments.length;i++){var s=arguments[i];if(s)for(var k in s)if(Object.prototype.hasOwnProperty.call(s,k))t[k]=s[k]}return t};
-if (!Object.fromEntries) Object.fromEntries = function(e){var r={};e.forEach(function(kv){r[kv[0]]=kv[1]});return r};
+// Defensive polyfills: avoid injecting malformed or unsafe code that may
+// trigger internal NiL.JS engine bugs (IndexOutOfRange, etc.). Keep them
+// minimal and defensive.
+if (!Object.assign) Object.assign = function(t){for(var i=1;i<arguments.length;i++){var s=arguments[i]; if (s && (typeof s === 'object' || typeof s === 'function')) { for(var k in s) { if (Object.prototype.hasOwnProperty.call(s,k)) { try { t[k] = s[k]; } catch(e) { /* swallow */ } } } } } return t};
+if (!Object.fromEntries) Object.fromEntries = function(e){var r={}; try { e.forEach(function(kv){ r[kv[0]] = kv[1]; }); } catch(e) { } return r};
 if (!Array.prototype.flat) Array.prototype.flat = function(d){d=void 0===d?1:d;return this.reduce(function(a,v){return a.concat(Array.isArray(v)&&d>0?v.flat(d-1):[v])},[])};
 if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;return this.reduce(function(a,v,i){return a.concat(f.call(t,v,i,this))},[])};
-if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.global?r:new RegExp(r.source,'g'+r.flags.replace(/g/,''));return{g};
 ");
             }
             catch { System.Diagnostics.Debug.WriteLine("[NiLJS] Polyfill injection failed"); }
@@ -3679,6 +3689,20 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine("[NiLJS] SafeEval: " + ex.GetType().Name + ": " + ex.Message + " (hash=" + _diagCodeHash + " preview=\"" + _diagCodePreview + "\")");
+                // Log full exception details and a managed stack trace to help post-mortem
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine("[NiLJS] SafeEval Exception.ToString(): " + ex.ToString());
+                    System.Diagnostics.Debug.WriteLine("[NiLJS] SafeEval Environment.StackTrace:\n" + System.Environment.StackTrace);
+                    try
+                    {
+                        //var st = new System.Diagnostics.StackTrace(ex, true);
+                        System.Diagnostics.Debug.WriteLine(
+                            "[NiLJS] SafeEval Exception StackTrace (detailed):\n" + ex.StackTrace.ToString());
+                    }
+                    catch { /* swallow */ }
+                }
+                catch { /* swallow logging errors */ }
                 _niljsSafeEvalFailed = true;
                 _diagSafeEvalFails++;
                 if (ex.GetType().Name == "JSException") _diagJSException++;
@@ -3714,6 +3738,24 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                                 if (string.IsNullOrWhiteSpace(rec.Preview) && !string.IsNullOrWhiteSpace(_diagCodePreview)) rec.Preview = (_diagCodePreview.Length > 160) ? _diagCodePreview.Substring(0, 160) : _diagCodePreview;
                                 _badHashRecords[hk] = rec;
                             }
+
+                            // Populate diagnostic fields for this failure (best-effort, truncated)
+                            try
+                            {
+                                var etype = ex.GetType().Name;
+                                var emsg = ex.Message ?? "";
+                                var estr = ex.ToString() ?? "";
+                                if (rec != null)
+                                {
+                                    rec.LastExceptionType = etype;
+                                    rec.LastExceptionMessage = emsg.Length > 1024 ? emsg.Substring(0, 1024) : emsg;
+                                    rec.LastExceptionStack = estr.Length > 8192 ? estr.Substring(0, 8192) : estr;
+                                    rec.LastExceptionTime = DateTime.UtcNow;
+                                    try { rec.LastExceptionContext = "";/*(_diagPageUri ?? "") + "";*/ } catch { }
+                                    _badHashRecords[hk] = rec;
+                                }
+                            }
+                            catch { }
 
                             if (rec != null && rec.Count >= BadHashRecordThreshold)
                             {
