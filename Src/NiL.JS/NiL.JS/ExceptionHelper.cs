@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -26,7 +26,7 @@ internal static class ExceptionHelper
         typeof(ExceptionHelper),
         typeof(ConstructorInfo),
         typeof(RuntimeMethodHandle),
-        typeof(AsyncFunction.Сontinuator),
+        typeof(AsyncFunction.�ontinuator),
     ];
 
     internal sealed class StackTraceState
@@ -337,9 +337,7 @@ internal static class ExceptionHelper
 
     /// <exception cref="NiL.JS.Core.JSException">
     /// </exception>
-#if !NET40
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-#endif
     [DebuggerStepThrough]
     internal static T ThrowIfNotExists<T>(T obj, object name) where T : JSValue
     {

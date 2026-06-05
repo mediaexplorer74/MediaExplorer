@@ -1,13 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using NiL.JS.Core;
 using NiL.JS.Expressions;
 
 namespace NiL.JS.Statements;
 
-#if !NETCORE
 [Serializable]
-#endif
 public sealed class With : CodeNode
 {
     private CodeNode _scope;

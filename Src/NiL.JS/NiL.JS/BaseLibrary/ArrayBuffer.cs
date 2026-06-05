@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using NiL.JS.Core;
@@ -6,14 +6,10 @@ using NiL.JS.Core.Interop;
 
 namespace NiL.JS.BaseLibrary;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class ArrayBuffer : CustomType
 {
-#if !(PORTABLE || NETCORE)
     [Serializable]
-#endif
     private sealed class Element : JSValue
     {
         private int index;

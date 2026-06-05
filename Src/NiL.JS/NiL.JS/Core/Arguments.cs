@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,9 +8,7 @@ using NiL.JS.Extensions;
 
 namespace NiL.JS.Core;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [Prototype(typeof(JSObject), true)]
 public sealed class Arguments : JSObject, IEnumerable, IIterable
 {

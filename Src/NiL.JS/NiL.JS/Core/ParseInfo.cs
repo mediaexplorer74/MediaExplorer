@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace NiL.JS.Core;
@@ -141,9 +141,7 @@ public sealed class ParseInfo
     }
 }
 
-#if !NETCORE
 [Serializable]
-#endif
 public sealed class FunctionInfo
 {
     public bool UseGetMember;

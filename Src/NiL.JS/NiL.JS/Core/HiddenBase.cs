@@ -1,4 +1,4 @@
-﻿using NiL.JS.Core.Interop;
+using NiL.JS.Core.Interop;
 
 namespace NiL.JS.Core;
 

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -119,7 +119,7 @@ namespace BrowserCore.Engine
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private void SaveHsts()
@@ -132,7 +132,7 @@ namespace BrowserCore.Engine
                         sb.Append(kv.Key).Append('|').Append(kv.Value.Expiry.ToString("o")).Append('|').Append(kv.Value.IncludeSub ? "true" : "false").Append('\n');
                 ApplicationData.Current.LocalSettings.Values[HstsStoreKey] = sb.ToString();
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private static bool LooksTextual(string contentType)
@@ -143,7 +143,7 @@ namespace BrowserCore.Engine
         }
 
         private static void AddHeaderSafe(HttpRequestMessage req, string name, string value)
-        { try { if (!string.IsNullOrWhiteSpace(value)) req.Headers.TryAppendWithoutValidation(name, value); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); } }
+        { try { if (!string.IsNullOrWhiteSpace(value)) req.Headers.TryAppendWithoutValidation(name, value); } catch { /* swallow */ } }
 
         private static string SafePartition(string origin)
         {
@@ -210,7 +210,7 @@ namespace BrowserCore.Engine
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return u;
         }
 
@@ -229,7 +229,7 @@ namespace BrowserCore.Engine
                 _hsts[finalUri.Host ?? ""] = new HstsEntry { Expiry = DateTimeOffset.UtcNow.AddSeconds(sec), IncludeSub = include };
                 SaveHsts();
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         // Text with redirect + small disk cache (5m TTL)
@@ -299,10 +299,10 @@ namespace BrowserCore.Engine
                             return await FileIO.ReadTextAsync(item);
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             var refererOriginal = referer;
             Uri previousRequest = null;
@@ -344,7 +344,7 @@ namespace BrowserCore.Engine
                         if (d == "document" || d == "iframe") sec = 12;
                         cts.CancelAfter(System.TimeSpan.FromSeconds(sec));
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                     try { resp = await _http.SendRequestAsync(req).AsTask(cts.Token); }
                     catch (Exception sendEx)
                     {
@@ -360,7 +360,7 @@ namespace BrowserCore.Engine
                             current = httpUri;
                             continue;
                         }
-                        try { System.Diagnostics.Debug.WriteLine("[FetchTextError] send failed " + current + " ex=" + sendEx.Message); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                        try { System.Diagnostics.Debug.WriteLine("[FetchTextError] send failed " + current + " ex=" + sendEx.Message); } catch { /* swallow */ }
                         resp = null;
                     }
                     if (resp == null) break;
@@ -384,7 +384,7 @@ namespace BrowserCore.Engine
                 {
                     var elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
                     LogNetwork($"[FAIL] {url} ({elapsed:F0}ms) status={(resp != null ? (int)resp.StatusCode : 0)}");
-                    try { System.Diagnostics.Debug.WriteLine("[FetchTextFail] url=" + url + " hops=" + hops + " status=" + (resp!=null?(int)resp.StatusCode:0)); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                    try { System.Diagnostics.Debug.WriteLine("[FetchTextFail] url=" + url + " hops=" + hops + " status=" + (resp!=null?(int)resp.StatusCode:0)); } catch { /* swallow */ }
                     return null;
                 }
                 var finalUri = resp?.RequestMessage?.RequestUri ?? current ?? url;
@@ -396,10 +396,10 @@ namespace BrowserCore.Engine
                 try { text = await resp.Content.ReadAsStringAsync(); }
                 catch (Exception bodyEx)
                 {
-                    try { System.Diagnostics.Debug.WriteLine("[FetchTextError] body read failed url=" + url + " ex=" + bodyEx.Message); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                    try { System.Diagnostics.Debug.WriteLine("[FetchTextError] body read failed url=" + url + " ex=" + bodyEx.Message); } catch { /* swallow */ }
                     text = null;
                 }
-                try { var _elapsed = DateTimeOffset.UtcNow - _startFetch; var _msg = "[FetchText] " + url + " in " + (int)_elapsed.TotalMilliseconds + "ms"; System.Diagnostics.Debug.WriteLine(_msg); if (LogSink != null) LogSink(_msg); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                try { var _elapsed = DateTimeOffset.UtcNow - _startFetch; var _msg = "[FetchText] " + url + " in " + (int)_elapsed.TotalMilliseconds + "ms"; System.Diagnostics.Debug.WriteLine(_msg); if (LogSink != null) LogSink(_msg); } catch { /* swallow */ }
                 LogNetwork($"[OK] {url} ({(DateTimeOffset.UtcNow - startTime).TotalMilliseconds:F0}ms) {(text?.Length ?? 0)} bytes");
 
                 if (LooksTextual(ct))
@@ -424,11 +424,11 @@ namespace BrowserCore.Engine
                         var metaPayload = DateTimeOffset.UtcNow.ToString("o") + "|" + (finalUri != null ? finalUri.AbsoluteUri : string.Empty);
                         await FileIO.WriteTextAsync(mfile, metaPayload);
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
                 if (string.IsNullOrEmpty(text))
                 {
-                    try { System.Diagnostics.Debug.WriteLine("[FetchTextEmpty] url=" + url); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                    try { System.Diagnostics.Debug.WriteLine("[FetchTextEmpty] url=" + url); } catch { /* swallow */ }
                 }
                 return text;
             }
@@ -437,7 +437,7 @@ namespace BrowserCore.Engine
                     var msg = $"[FetchTextException] url={url} ex={ex.Message}";
                     System.Diagnostics.Debug.WriteLine(msg);
                     LogSink?.Invoke(msg);
-                } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                } catch { /* swallow */ }
                 // Return a styled error page
                 var eUrl = System.Net.WebUtility.HtmlEncode(url?.ToString() ?? "(null)");
                 var eMsg = System.Net.WebUtility.HtmlEncode(ex.Message);
@@ -466,14 +466,14 @@ namespace BrowserCore.Engine
                 if (referer != null) AddHeaderSafe(req, "Referer", referer.AbsoluteUri);
                 AddHeaderSafe(req, "Sec-Fetch-Site", DetermineSecFetchSite(referer, url));
                 var cts = new System.Threading.CancellationTokenSource();
-                try { cts.CancelAfter(TimeSpan.FromSeconds(12)); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                try { cts.CancelAfter(TimeSpan.FromSeconds(12)); } catch { /* swallow */ }
                 HttpResponseMessage resp = null;
-                try { resp = await _http.SendRequestAsync(req).AsTask(cts.Token); } catch (Exception sendEx) { try { System.Diagnostics.Debug.WriteLine("[FetchTextOptError] send " + url + " ex=" + sendEx.Message); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); } }
+                try { resp = await _http.SendRequestAsync(req).AsTask(cts.Token); } catch (Exception sendEx) { try { System.Diagnostics.Debug.WriteLine("[FetchTextOptError] send " + url + " ex=" + sendEx.Message); } catch { /* swallow */ } }
                 if (resp == null || !resp.IsSuccessStatusCode)
-                { try { System.Diagnostics.Debug.WriteLine("[FetchTextOptFail] url=" + url + " status=" + (resp!=null?(int)resp.StatusCode:0)); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); } return null; }
+                { try { System.Diagnostics.Debug.WriteLine("[FetchTextOptFail] url=" + url + " status=" + (resp!=null?(int)resp.StatusCode:0)); } catch { /* swallow */ } return null; }
                 LastTextResponseUri = resp.RequestMessage != null ? resp.RequestMessage.RequestUri : url;
-                string text = null; try { text = await resp.Content.ReadAsStringAsync(); } catch (Exception bodyEx) { try { System.Diagnostics.Debug.WriteLine("[FetchTextOptError] body " + url + " ex=" + bodyEx.Message); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); } }
-                if (string.IsNullOrEmpty(text)) { try { System.Diagnostics.Debug.WriteLine("[FetchTextOptEmpty] url=" + url); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); } }
+                string text = null; try { text = await resp.Content.ReadAsStringAsync(); } catch (Exception bodyEx) { try { System.Diagnostics.Debug.WriteLine("[FetchTextOptError] body " + url + " ex=" + bodyEx.Message); } catch { /* swallow */ } }
+                if (string.IsNullOrEmpty(text)) { try { System.Diagnostics.Debug.WriteLine("[FetchTextOptEmpty] url=" + url); } catch { /* swallow */ } }
                 return text;
             }
             catch { return null; }
@@ -584,7 +584,7 @@ namespace BrowserCore.Engine
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 // --- Low-priority gate ---
                 if (priority == ResourcePriority.Low)
@@ -605,7 +605,7 @@ namespace BrowserCore.Engine
                         if (referer != null) AddHeaderSafe(req, "Referer", referer.AbsoluteUri);
                         AddHeaderSafe(req, "Sec-Fetch-Site", DetermineSecFetchSite(referer, current));
                         var cts = new System.Threading.CancellationTokenSource();
-                        try { cts.CancelAfter(System.TimeSpan.FromSeconds(8)); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                        try { cts.CancelAfter(System.TimeSpan.FromSeconds(8)); } catch { /* swallow */ }
                         try { resp = await _http.SendRequestAsync(req).AsTask(cts.Token); }
                         catch { resp = null; }
                         if (resp == null) break;
@@ -621,8 +621,8 @@ namespace BrowserCore.Engine
                     }
                     if (resp == null || !resp.IsSuccessStatusCode)
                     {
-                        try { System.Diagnostics.Debug.WriteLine("[FetchImageFail] status=" + (resp != null ? ((int)resp.StatusCode).ToString() : "0") + " url=" + url); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
-                        try { var fallback = await StorageFile.GetFileFromApplicationUriAsync(new Uri("ms-appx:///Assets/Logo.scale-240.png")); return await fallback.OpenReadAsync(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                        try { System.Diagnostics.Debug.WriteLine("[FetchImageFail] status=" + (resp != null ? ((int)resp.StatusCode).ToString() : "0") + " url=" + url); } catch { /* swallow */ }
+                        try { var fallback = await StorageFile.GetFileFromApplicationUriAsync(new Uri("ms-appx:///Assets/Logo.scale-240.png")); return await fallback.OpenReadAsync(); } catch { /* swallow */ }
                         return null;
                     }
                     NoteHsts(resp, url);
@@ -648,7 +648,7 @@ namespace BrowserCore.Engine
                         var metaFile = await folder.CreateFileAsync(mname, CreationCollisionOption.ReplaceExisting);
                         await FileIO.WriteTextAsync(metaFile, DateTimeOffset.UtcNow.ToString("o"));
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
 
                     // Try Skia for modern formats and SVGs
                     try
@@ -657,9 +657,9 @@ namespace BrowserCore.Engine
                         var sk = await DecodeWithSkiaAsync(bytes, entry.ContentType, url);
                         if (sk != null) return sk;
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
 
-                    try { System.Diagnostics.Debug.WriteLine("[FetchImage] " + url + " in " + (int)(DateTimeOffset.UtcNow - _startImg).TotalMilliseconds + "ms"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                    try { System.Diagnostics.Debug.WriteLine("[FetchImage] " + url + " in " + (int)(DateTimeOffset.UtcNow - _startImg).TotalMilliseconds + "ms"); } catch { /* swallow */ }
                     return buf.AsStream().AsRandomAccessStream();
                 }
                 finally
@@ -670,8 +670,8 @@ namespace BrowserCore.Engine
             }
             catch (Exception ex)
             {
-                try { System.Diagnostics.Debug.WriteLine("[FetchImageException] url=" + url + " ex=" + ex.Message); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
-                try { var fallback = await StorageFile.GetFileFromApplicationUriAsync(new Uri("ms-appx:///Assets/Logo.scale-240.png")); return await fallback.OpenReadAsync(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                try { System.Diagnostics.Debug.WriteLine("[FetchImageException] url=" + url + " ex=" + ex.Message); } catch { /* swallow */ }
+                try { var fallback = await StorageFile.GetFileFromApplicationUriAsync(new Uri("ms-appx:///Assets/Logo.scale-240.png")); return await fallback.OpenReadAsync(); } catch { /* swallow */ }
                 var transparentPng = new byte[] { 137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,31,21,196,137,0,0,0,13,73,68,65,84,120,156,99,0,1,0,0,5,0,1,13,10,26,10,0,0,0,0,73,69,78,68,174,66,96,130 };
                 return transparentPng.AsBuffer().AsStream().AsRandomAccessStream();
             }
@@ -782,7 +782,7 @@ namespace BrowserCore.Engine
                             }
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
 
                 if (IsLikelyModernFormat(contentType, url) && _skiaTypeData != null && _skiaTypeImage != null && _skiaTypeEncFmt != null)
@@ -809,10 +809,10 @@ namespace BrowserCore.Engine
                             }
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return null;
         }
 
@@ -824,9 +824,9 @@ namespace BrowserCore.Engine
                 var ti = t.GetTypeInfo();
                 var p = ti.GetDeclaredProperty(name);
                 if (p != null) return p;
-                try { return t.GetRuntimeProperty(name); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                try { return t.GetRuntimeProperty(name); } catch { /* swallow */ }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return null;
         }
 
@@ -838,9 +838,9 @@ namespace BrowserCore.Engine
                 var ti = t.GetTypeInfo();
                 var m = ti.GetDeclaredMethod(name);
                 if (m != null) return m;
-                try { return t.GetRuntimeMethod(name, args); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                try { return t.GetRuntimeMethod(name, args); } catch { /* swallow */ }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return null;
         }
 
@@ -867,7 +867,7 @@ namespace BrowserCore.Engine
                         if (d == "font") sec = 12; // fonts can be larger
                         cts.CancelAfter(System.TimeSpan.FromSeconds(sec));
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/ResourceManager.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                     try { resp = await _http.SendRequestAsync(req).AsTask(cts.Token); }
                     catch { resp = null; }
                     if (resp == null) break;

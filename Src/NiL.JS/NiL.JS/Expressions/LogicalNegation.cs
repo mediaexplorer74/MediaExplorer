@@ -1,11 +1,9 @@
-﻿using System;
+using System;
 using NiL.JS.Core;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class LogicalNegation : Expression
 {
     protected internal override PredictedType ResultType

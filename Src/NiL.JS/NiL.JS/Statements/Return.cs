@@ -1,18 +1,14 @@
-п»їusing System;
+using System;
 using System.Collections.Generic;
 using NiL.JS.Core;
 using NiL.JS.BaseLibrary;
 using NiL.JS.Expressions;
 
-#if !PORTABLE
 using NiL.JS.Core.JIT;
-#endif
 
 namespace NiL.JS.Statements;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Return : CodeNode
 {
     private Expression value;
@@ -79,7 +75,7 @@ public sealed class Return : CodeNode
     {
         Parser.Build(ref value, expressionDepth + 1, scopeLevel, variables, codeContext | CodeContext.InExpression, message, stats, opts);
 
-        // РЈР»СѓС‡С€Р°РµС‚ СЂР°Р±РѕС‚Сѓ РѕРїС‚РёРјРёР·Р°С‚РѕСЂР° С…РІРѕСЃС‚РѕРІРѕР№ СЂРµРєСѓСЂСЃРёРё
+        // Улучшает работу оптимизатора хвостовой рекурсии
         if (message == null && value is Conditional)
         {
             var bat = value as NiL.JS.Expressions.Conditional;
@@ -116,7 +112,6 @@ public sealed class Return : CodeNode
             value.Decompose(ref value);
     }
 
-#if !NETCORE
     internal override System.Linq.Expressions.Expression TryCompile(bool selfCompile, bool forAssign, Type expectedType, List<CodeNode> dynamicValues)
     {
         var b = value.TryCompile(false, false, null, dynamicValues);
@@ -124,7 +119,6 @@ public sealed class Return : CodeNode
             value = new CompiledNode(value, b, JITHelpers._items.GetValue(dynamicValues) as CodeNode[]);
         return null;
     }
-#endif
     public override T Visit<T>(Visitor<T> visitor)
     {
         return visitor.Visit(this);

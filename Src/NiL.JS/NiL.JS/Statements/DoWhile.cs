@@ -1,4 +1,4 @@
-п»їusing System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using NiL.JS.Core;
@@ -7,9 +7,7 @@ using NiL.JS.Expressions;
 
 namespace NiL.JS.Statements;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class DoWhile : CodeNode
 {
     private bool _allowRemove;
@@ -48,8 +46,8 @@ public sealed class DoWhile : CodeNode
         {
             if (state.Message != null)
                 state.Message(MessageLevel.CriticalWarning, body.Position, body.Length, Strings.DoNotDeclareFunctionInNestedBlocks);
-            body = new CodeBlock([body]); // РґР»СЏ С‚РѕРіРѕ, С‡С‚РѕР±С‹ РЅРµ РґСѓР±Р»РёСЂРѕРІР°С‚СЊ РєРѕРґ РїРѕ РґРµРєР»Р°СЂР°С†РёРё С„СѓРЅРєС†РёРё, 
-            // РѕРЅР° РѕР±РѕСЂР°С‡РёРІР°РµС‚СЃСЏ РІ Р±Р»РѕРє, РєРѕС‚РѕСЂС‹Р№ СЃРґРµР»Р°РµС‚ СЃР°РјРѕРІС‹РїРёР» РЅР° РІС‚РѕСЂРѕРј СЌС‚Р°РїРµ, РЅРѕ РїРµСЂРµРґ СЌС‚РёРј РєРѕСЂСЂРµРєС‚РЅРѕ РѕР±СЉСЏРІРёС‚ С„СѓРЅРєС†РёСЋ.
+            body = new CodeBlock([body]); // для того, чтобы не дублировать код по декларации функции, 
+            // она оборачивается в блок, который сделает самовыпил на втором этапе, но перед этим корректно объявит функцию.
         }
         state.AllowBreak.Pop();
         state.AllowContinue.Pop();
@@ -167,14 +165,9 @@ public sealed class DoWhile : CodeNode
             }
         }
 
-#if (PORTABLE || NETCORE)
-        catch
-        {
-#else
         catch (Exception e)
         {
             System.Diagnostics.DebuggerPolyfill.Log(10, "Error", e.Message);
-#endif
         }
         if (_this == this && _body == null)
             _body = new Empty();

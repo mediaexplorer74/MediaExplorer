@@ -1,4 +1,4 @@
-﻿namespace NiL.JS.Core;
+namespace NiL.JS.Core;
 
 public sealed class StringSlice
 {

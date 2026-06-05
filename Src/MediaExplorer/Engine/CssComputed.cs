@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Windows.UI.Text;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Media;
@@ -86,7 +86,7 @@ namespace BrowserCore.Engine
             {
                 if (_fontFamily == null && !string.IsNullOrEmpty(FontFamilyName))
                 {
-                    try { _fontFamily = new FontFamily(FontFamilyName); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CssComputed.cs] empty catch empty catch"); }
+                    try { _fontFamily = new FontFamily(FontFamilyName); } catch { /* swallow */ }
                 }
                 return _fontFamily;
             }
@@ -157,5 +157,25 @@ namespace BrowserCore.Engine
         public string GridColumn { get; set; }
         public string GridRow { get; set; }
         public string GridArea { get; set; }
+
+        // CSS Transitions (Phase C.6, Session 3.26)
+        // Raw shorthand value as authored in CSS (e.g. "opacity 0.3s ease")
+        public string Transition { get; set; }
+        // Parsed duration in milliseconds. 0 means "no animation" (instant).
+        public double TransitionDurationMs { get; set; }
+        // Property name to animate. One of:
+        //   "opacity" | "background-color" | "transform" | "all"
+        // Empty means the shorthand couldn't be parsed.
+        public string TransitionProperty { get; set; }
+        // Easing function. One of: "ease" | "linear" | "ease-in" |
+        //   "ease-out" | "ease-in-out". Defaults to "ease".
+        public string TransitionTimingFunction { get; set; }
+        // Optional delay before the animation starts. 0 = immediate.
+        public double TransitionDelayMs { get; set; }
+        // :hover override. Null if no :hover rules apply to this element.
+        // When non-null, the renderer swaps in these computed values on
+        // PointerEntered and reverts to base on PointerExited, animating
+        // any property listed in TransitionProperty via TransitionAnimator.
+        public CssComputed Hover { get; set; }
     }
 }

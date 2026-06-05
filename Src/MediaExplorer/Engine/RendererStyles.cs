@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Media;
@@ -84,7 +84,7 @@ namespace BrowserCore.Engine
                             if (brush != null) return brush;
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
 
                 // Try named colors via reflection
@@ -97,7 +97,7 @@ namespace BrowserCore.Engine
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return null;
         }
         // Wrap content with margin/padding/border/background from computed css
@@ -138,7 +138,7 @@ namespace BrowserCore.Engine
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             // If properties were not present in the declaration map, avoid forcing them
             bool mapHasBorder = css.Map != null && (css.Map.ContainsKey("border") || css.Map.ContainsKey("border-width") || css.Map.ContainsKey("border-color") || css.Map.ContainsKey("border-radius") || css.Map.ContainsKey("border-style"));
@@ -295,7 +295,7 @@ namespace BrowserCore.Engine
                     returned.HorizontalAlignment = HorizontalAlignment.Center;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             // Apply width/height honoring box-sizing (+ basic % support)
             try
@@ -309,21 +309,21 @@ namespace BrowserCore.Engine
                 if (css.Width.HasValue) { if (borderBox) returned.Width = css.Width.Value; else content.Width = css.Width.Value; }
                 else if (!string.IsNullOrWhiteSpace(wRaw) && wRaw.Trim().EndsWith("%"))
                 {
-                    returned.Loaded += (s, e) => { try { ApplyPercentSize(returned, true, wRaw); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); } };
-                    returned.SizeChanged += (s, e) => { try { ApplyPercentSize(returned, true, wRaw); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); } };
+                    returned.Loaded += (s, e) => { try { ApplyPercentSize(returned, true, wRaw); } catch { /* swallow */ } };
+                    returned.SizeChanged += (s, e) => { try { ApplyPercentSize(returned, true, wRaw); } catch { /* swallow */ } };
                 }
                 if (css.Height.HasValue) { if (borderBox) returned.Height = css.Height.Value; else content.Height = css.Height.Value; }
                 else if (!string.IsNullOrWhiteSpace(hRaw) && hRaw.Trim().EndsWith("%"))
                 {
-                    returned.Loaded += (s, e) => { try { ApplyPercentSize(returned, false, hRaw); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); } };
-                    returned.SizeChanged += (s, e) => { try { ApplyPercentSize(returned, false, hRaw); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); } };
+                    returned.Loaded += (s, e) => { try { ApplyPercentSize(returned, false, hRaw); } catch { /* swallow */ } };
+                    returned.SizeChanged += (s, e) => { try { ApplyPercentSize(returned, false, hRaw); } catch { /* swallow */ } };
                 }
                 if (css.MinWidth.HasValue) returned.MinWidth = css.MinWidth.Value;
                 if (css.MinHeight.HasValue) returned.MinHeight = css.MinHeight.Value;
                 if (css.MaxWidth.HasValue) returned.MaxWidth = css.MaxWidth.Value;
                 if (css.MaxHeight.HasValue) returned.MaxHeight = css.MaxHeight.Value;
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             // position:relative offset approximation via margin shift
             try
@@ -341,14 +341,14 @@ namespace BrowserCore.Engine
                     returned.Margin = m;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             // overflow (axis-aware best-effort)
             try
             {
                 string ov = css.Overflow ?? (css.Map != null && css.Map.ContainsKey("overflow") ? css.Map["overflow"] : null);
                 string ovx = null, ovy = null;
-                try { if (css.Map != null) { css.Map.TryGetValue("overflow-x", out ovx); css.Map.TryGetValue("overflow-y", out ovy); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                try { if (css.Map != null) { css.Map.TryGetValue("overflow-x", out ovx); css.Map.TryGetValue("overflow-y", out ovy); } } catch { /* swallow */ }
                 ov = (ov ?? string.Empty).Trim().ToLowerInvariant();
                 ovx = (ovx ?? string.Empty).Trim().ToLowerInvariant();
                 ovy = (ovy ?? string.Empty).Trim().ToLowerInvariant();
@@ -365,7 +365,7 @@ namespace BrowserCore.Engine
                             var r = new Windows.Foundation.Rect(0, 0, returned.ActualWidth, returned.ActualHeight);
                             returned.Clip = new RectangleGeometry { Rect = r };
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     };
                 }
                 else if (ov == "auto" || ov == "scroll" || anyAxisScroll)
@@ -391,7 +391,7 @@ namespace BrowserCore.Engine
                     returned = scroller;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
                         // Generic visibility/opacity/pointer-events
             try
@@ -402,18 +402,18 @@ namespace BrowserCore.Engine
                     if (!string.IsNullOrWhiteSpace(vis) && vis.Trim().Equals("hidden", StringComparison.OrdinalIgnoreCase))
                     {
                         // Keep layout but hide visuals and hit-testing
-                        try { returned.Opacity = 0.0; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
-                        try { returned.IsHitTestVisible = false; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                        try { returned.Opacity = 0.0; } catch { /* swallow */ }
+                        try { returned.IsHitTestVisible = false; } catch { /* swallow */ }
                     }
                 }
                 string op;
                 if (css.Map != null && css.Map.TryGetValue("opacity", out op))
                 {
-                    double v; if (double.TryParse(op, out v)) { try { returned.Opacity = Math.Max(0, Math.Min(1, v)); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); } }
+                    double v; if (double.TryParse(op, out v)) { try { returned.Opacity = Math.Max(0, Math.Min(1, v)); } catch { /* swallow */ } }
                 }
                 // Intentionally ignore pointer-events:none to keep UI interactive in no-JS path
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 // transforms
             ApplyTransformOrigin(returned, css);
             ApplyTransform(returned, css);
@@ -447,7 +447,7 @@ namespace BrowserCore.Engine
                     if (col.Count > 0) returned.Transitions = col;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             // outline (rendered as overlay Grid so it doesn't affect layout)
             try
@@ -470,7 +470,7 @@ namespace BrowserCore.Engine
                     returned = grid;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             return returned;
         }
@@ -507,7 +507,7 @@ namespace BrowserCore.Engine
                             if (px > 0) tb.FontSize = px;
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
 
                 if (css.FontWeight.HasValue)
@@ -534,7 +534,7 @@ namespace BrowserCore.Engine
                             }
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
 
                 if (css.FontStyle.HasValue)
@@ -582,7 +582,7 @@ namespace BrowserCore.Engine
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 if (css.Foreground != null)
                     tb.Foreground = css.Foreground;
@@ -602,7 +602,7 @@ namespace BrowserCore.Engine
                         if (v.Contains("break-word")) tb.TextWrapping = TextWrapping.Wrap;
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
 
                 // letter-spacing -> CharacterSpacing (in 1/1000 of em); supports px or em/number
@@ -628,7 +628,7 @@ namespace BrowserCore.Engine
                         tb.CharacterSpacing = (int)Math.Round(em * 1000.0);
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 // text-shadow approximation (headings/large text only)
                 try
@@ -693,7 +693,7 @@ namespace BrowserCore.Engine
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 // text-decoration: underline/line-through (best-effort)
                 try
@@ -714,7 +714,7 @@ namespace BrowserCore.Engine
                                     prop.SetValue(tb, val);
                                 }
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                         }
                         if (v.Contains("underline"))
                         {
@@ -726,7 +726,7 @@ namespace BrowserCore.Engine
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 // text-transform: uppercase/lowercase/capitalize (apply at load)
                 try
@@ -748,11 +748,11 @@ namespace BrowserCore.Engine
                                     tb.Text = string.Join(" ", parts);
                                 }
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                         };
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 // text-indent (best-effort): use TextIndent when available, fallback to left margin
                 try
@@ -770,7 +770,7 @@ namespace BrowserCore.Engine
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 // line-clamp (e.g. -webkit-line-clamp)
                 try
@@ -785,7 +785,7 @@ namespace BrowserCore.Engine
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }
             else if (rtb != null)
             {
@@ -802,7 +802,7 @@ namespace BrowserCore.Engine
                             if (px > 0) rtb.FontSize = px;
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
 
                 if (css.FontWeight.HasValue)
@@ -854,7 +854,7 @@ namespace BrowserCore.Engine
                         rtb.CharacterSpacing = (int)Math.Round(em * 1000.0);
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 // text-indent via TextIndent when available
                 try
@@ -865,10 +865,10 @@ namespace BrowserCore.Engine
                         if (s.EndsWith("px")) { double.TryParse(s.Substring(0, s.Length - 2), out px); }
                         else if (s.EndsWith("em")) { double v; if (double.TryParse(s.Substring(0, s.Length - 2), out v)) px = v * (rtb.FontSize > 0 ? rtb.FontSize : 16); }
                         else double.TryParse(s, out px);
-                        try { var pi = rtb.GetType().GetRuntimeProperty("TextIndent"); if (pi != null && pi.CanWrite) pi.SetValue(rtb, px); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                        try { var pi = rtb.GetType().GetRuntimeProperty("TextIndent"); if (pi != null && pi.CanWrite) pi.SetValue(rtb, px); } catch { /* swallow */ }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 // line-clamp for RichTextBlock via MaxLines
                 try
@@ -877,11 +877,11 @@ namespace BrowserCore.Engine
                     {
                         int n; if (int.TryParse((lc ?? "").Trim(), out n) && n > 0)
                         {
-                            try { var prop = rtb.GetType().GetRuntimeProperty("MaxLines"); if (prop != null && prop.CanWrite) prop.SetValue(rtb, n); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                            try { var prop = rtb.GetType().GetRuntimeProperty("MaxLines"); if (prop != null && prop.CanWrite) prop.SetValue(rtb, n); } catch { /* swallow */ }
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }
             else
             {
@@ -901,7 +901,7 @@ namespace BrowserCore.Engine
                                 if (px > 0) ctrl.FontSize = px;
                             }
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     }
 
                     if (css.FontWeight.HasValue)
@@ -927,8 +927,8 @@ namespace BrowserCore.Engine
                             var s = wRaw.Trim().ToLowerInvariant();
                             if (s.EndsWith("%"))
                             {
-                                fe.Loaded += (s_, e_) => { try { ApplyPercentSize(fe, true, wRaw); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); } };
-                                fe.SizeChanged += (s_, e_) => { try { ApplyPercentSize(fe, true, wRaw); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); } };
+                                fe.Loaded += (s_, e_) => { try { ApplyPercentSize(fe, true, wRaw); } catch { /* swallow */ } };
+                                fe.SizeChanged += (s_, e_) => { try { ApplyPercentSize(fe, true, wRaw); } catch { /* swallow */ } };
                             }
                             else if (double.TryParse(s.Replace("px",""), out px) && px > 0) fe.Width = px;
                         }
@@ -937,8 +937,8 @@ namespace BrowserCore.Engine
                             var s = hRaw.Trim().ToLowerInvariant();
                             if (s.EndsWith("%"))
                             {
-                                fe.Loaded += (s_, e_) => { try { ApplyPercentSize(fe, false, hRaw); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); } };
-                                fe.SizeChanged += (s_, e_) => { try { ApplyPercentSize(fe, false, hRaw); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); } };
+                                fe.Loaded += (s_, e_) => { try { ApplyPercentSize(fe, false, hRaw); } catch { /* swallow */ } };
+                                fe.SizeChanged += (s_, e_) => { try { ApplyPercentSize(fe, false, hRaw); } catch { /* swallow */ } };
                             }
                             else if (double.TryParse(s.Replace("px",""), out px) && px > 0) fe.Height = px;
                         }
@@ -950,7 +950,7 @@ namespace BrowserCore.Engine
                         if (css.Map != null && css.Map.TryGetValue("max-width", out xw) && double.TryParse((xw ?? "").Replace("px",""), out px) && px > 0) fe.MaxWidth = px;
                         if (css.Map != null && css.Map.TryGetValue("max-height", out xh) && double.TryParse((xh ?? "").Replace("px",""), out px) && px > 0) fe.MaxHeight = px;
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
             }
 
@@ -987,7 +987,7 @@ namespace BrowserCore.Engine
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             // white-space, text-overflow (best-effort)
             try
@@ -1008,7 +1008,7 @@ namespace BrowserCore.Engine
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private static bool IsZero(Thickness t)
@@ -1091,7 +1091,7 @@ namespace BrowserCore.Engine
                 }
                 if (group.Children.Count > 0) fe.RenderTransform = group;
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private static void ApplyPercentSize(FrameworkElement element, bool isWidth, string raw)
@@ -1166,7 +1166,7 @@ namespace BrowserCore.Engine
                         u = System.Text.RegularExpressions.Regex.Replace(u, @"\.(webp|avif)(\?.*)?$", ".jpg$2", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                     imageUrl = u;
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 var uri = new Uri(imageUrl, UriKind.RelativeOrAbsolute);
                 if (!uri.IsAbsoluteUri) return null; // need absolute URL for BitmapImage
@@ -1184,7 +1184,7 @@ namespace BrowserCore.Engine
                         else if (rv.Contains("repeat")) brush.Stretch = Stretch.Fill; // full repeat approx via fill
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 // background-size
                 string bs; if (css != null && css.Map != null && css.Map.TryGetValue("background-size", out bs) && !string.IsNullOrWhiteSpace(bs))
                 {
@@ -1327,7 +1327,7 @@ namespace BrowserCore.Engine
                 }
                 fe.RenderTransformOrigin = new Windows.Foundation.Point(ox, oy);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/RendererStyles.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private static double TryParseFontSize(string raw, double currentPx)

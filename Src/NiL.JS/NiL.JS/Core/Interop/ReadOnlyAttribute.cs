@@ -1,13 +1,11 @@
-п»їusing System;
+using System;
 
 namespace NiL.JS.Core.Interop;
 
 /// <summary>
-/// Р—РЅР°С‡РµРЅРёРµ РїРѕР»СЏ, РїРѕРјРµС‡РµРЅРЅРѕРіРѕ РґР°РЅРЅС‹Рј Р°С‚С‚СЂРёР±СѓС‚РѕРј, Р±СѓРґРµС‚ РЅРµРёР·РјРµРЅСЏРµРјРѕ РґР»СЏ СЃРєСЂРёРїС‚Р°.
+/// Значение поля, помеченного данным аттрибутом, будет неизменяемо для скрипта.
 /// </summary>
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Method | AttributeTargets.Field, AllowMultiple = false, Inherited = false)]
 public sealed class ReadOnlyAttribute : Attribute
 {

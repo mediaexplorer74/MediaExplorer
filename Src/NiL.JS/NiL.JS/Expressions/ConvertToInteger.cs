@@ -1,17 +1,12 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 using NiL.JS.Core;
 
-#if NET40
-using NiL.JS.Backward;
-#endif
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class ConvertToInteger : Expression
 {
     protected internal override PredictedType ResultType
@@ -43,7 +38,6 @@ public sealed class ConvertToInteger : Expression
         _tempContainer._valueType = JSValueType.Integer;
         return _tempContainer;
     }
-#if !PORTABLE
     internal override System.Linq.Expressions.Expression TryCompile(bool selfCompile, bool forAssign, Type expectedType, List<CodeNode> dynamicValues)
     {
         var st = _left.TryCompile(false, false, typeof(int), dynamicValues);
@@ -57,7 +51,6 @@ public sealed class ConvertToInteger : Expression
             return System.Linq.Expressions.Expression.Convert(st, typeof(double));
         return System.Linq.Expressions.Expression.Call(new Func<object, int>(Convert.ToInt32).GetMethodInfo(), st);
     }
-#endif
     public override T Visit<T>(Visitor<T> visitor)
     {
         return visitor.Visit(this);

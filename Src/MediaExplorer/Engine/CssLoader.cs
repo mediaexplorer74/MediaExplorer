@@ -26,6 +26,14 @@ namespace WEBVIEW.Engine
     /// </summary>
     public static class CssLoader
     {
+        // Phase S.4: hard cap on CSS rules per ParseRules call.
+        public const int MaxCssRules = 5000;
+        // Per-call log dedup flag (resets each ParseRules invocation).
+        // Implemented as a static because ParseRules is static; on multithreaded
+        // use this would need to be a [ThreadStatic], but CssLoader isn't called
+        // concurrently today (caller is CustomHtmlEngine under a UI lock).
+        private static bool ruleCapLogged = false;
+
         // Cached parsed rules from last ComputeAsync call (for incremental re-cascade)
         private static List<CssRule> _cachedRules = new List<CssRule>();
 
@@ -208,10 +216,12 @@ namespace WEBVIEW.Engine
             }
             if (parseTasks.Count > 0) { try { await Task.WhenAll(parseTasks).ConfigureAwait(false); } catch { /* Ignore parse errors */ } }
 
-            // 4.5) Resolve CSS variables
-            ResolveVariables(allRules);
-
             // Cache rules for incremental re-cascade
+            // Note: CSS variable resolution (var(--name)) is handled per-element
+            // in CascadeIntoComputedStyles via ResolveCustomPropertyReferences,
+            // which walks the inherited CustomProperties chain. Global pre-resolution
+            // via ResolveVariables was removed because it uses only :root values,
+            // breaking per-element overrides.
             lock (_cachedRules)
             {
                 _cachedRules.Clear();
@@ -226,7 +236,7 @@ namespace WEBVIEW.Engine
             }
             catch (Exception ex)
             {
-                try { System.Diagnostics.Debug.WriteLine("[CSS] Cascade failed: " + ex.Message); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CssLoader.cs] empty catch empty catch"); }
+                try { DevToolsLogger.Log("[CSS] Cascade failed: " + ex.Message); } catch { }
                 return new Dictionary<LiteElement, CssComputed>();
             }
         }
@@ -447,6 +457,7 @@ namespace WEBVIEW.Engine
 
         private static List<CssRule> ParseRules(string css, int sourceOrder, Uri baseForUrls, double? viewportWidth, Action<string> log)
         {
+            ruleCapLogged = false; // reset per call
             var rules = new List<CssRule>();
             if (string.IsNullOrWhiteSpace(css)) return rules;
 
@@ -484,6 +495,17 @@ namespace WEBVIEW.Engine
                 {
                     // last declaration wins inside the same block
                     rule.Declarations[d.Name] = d;
+                }
+                // Phase S.4: hard cap on CSS rules per stylesheet. A single
+                // page with 50 000 rules would dominate the cascade time.
+                if (rules.Count >= MaxCssRules)
+                {
+                    if (!ruleCapLogged)
+                    {
+                        try { DevToolsLogger.Log("[WARN] CSS rule cap hit at " + MaxCssRules + " — further rules ignored"); } catch { }
+                        ruleCapLogged = true;
+                    }
+                    continue;
                 }
                 rules.Add(rule);
             }
@@ -1444,7 +1466,19 @@ namespace WEBVIEW.Engine
 
                 List<Tuple<CssDecl, SelectorChain, int>> items;
                 if (!perNode.TryGetValue(n, out items) || items == null || items.Count == 0)
+                {
+                    // No rules match — still inherit from parent so children can find us in result
+                    CssComputed skipParent = null;
+                    if (n.Parent != null)
+                        result.TryGetValue(n.Parent, out skipParent);
+                    if (skipParent != null)
+                    {
+                        var inherited = new CssComputed();
+                        InheritFrom(skipParent, inherited);
+                        result[n] = inherited;
+                    }
                     continue;
+                }
 
                 // group by property name (manual to avoid LINQ overhead)
                 var byProp = new Dictionary<string, List<Tuple<CssDecl, SelectorChain, int>>>(StringComparer.OrdinalIgnoreCase);
@@ -1512,6 +1546,11 @@ namespace WEBVIEW.Engine
                     css.Map[d.Name] = val;
                 }
 
+                // Phase C.6: parse the transition shorthand (e.g. "opacity 0.3s ease")
+                // and stash the parsed parts on the computed style. Renderer uses
+                // these to drive Storyboard animations on hover/tap state changes.
+                ParseTransition(css);
+
                 double posVal;
                 if (TryPx(DictGet(css.Map, "left"), out posVal)) css.Left = posVal;
                 if (TryPx(DictGet(css.Map, "top"), out posVal)) css.Top = posVal;
@@ -1576,7 +1615,8 @@ namespace WEBVIEW.Engine
                 if (fgColor.HasValue) css.ForegroundColor = fgColor;
 
                 // background-color / background
-                var bgColor = TryColor(ExtractBackgroundColor(css.Map));
+                var bgColorRaw = ExtractBackgroundColor(css.Map);
+                var bgColor = TryColor(bgColorRaw);
                 if (bgColor.HasValue) css.BackgroundColor = bgColor;
 
                 // font-family (first concrete family)
@@ -1587,7 +1627,7 @@ namespace WEBVIEW.Engine
                     if (!string.IsNullOrEmpty(resolved))
                         css.FontFamilyName = resolved;
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/CssLoader.cs] empty catch empty catch"); }
+                catch { }
 
                 // font-size
                 double px;
@@ -1957,7 +1997,365 @@ namespace WEBVIEW.Engine
                 result[n] = css;
             }
 
+            // Phase C.6: build :hover overrides (only for elements with hover rules
+            // in the stylesheet). Skipped for elements without transitions since
+            // there's no animation to play and no observable behavior change.
+            ComputeHoverOverrides(root, rules, result);
+
             return result;
+        }
+
+        // ===========================
+        // Phase C.6: CSS Transitions
+        // ===========================
+
+        // Parse the "transition" shorthand into typed fields on CssComputed.
+        // Supports the common forms:
+        //   "<property> <duration> [timing-function] [delay]"
+        //   "all 0.3s"
+        //   "opacity 200ms ease-in 0.1s"
+        // For comma-separated lists ("a 0.3s, b 0.5s") only the first entry
+        // is consumed — the "good enough" approximation from Plan_04 §C.6.
+        private static void ParseTransition(CssComputed css)
+        {
+            if (css == null || css.Map == null) return;
+            var raw = DictGet(css.Map, "transition");
+            if (string.IsNullOrWhiteSpace(raw)) return;
+            css.Transition = raw.Trim();
+
+            // Take only the first comma-separated entry
+            var first = raw;
+            int comma = first.IndexOf(',');
+            if (comma >= 0) first = first.Substring(0, comma);
+            first = first.Trim();
+            if (string.IsNullOrEmpty(first)) return;
+
+            var tokens = first.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (tokens.Length == 0) return;
+
+            string property = null;
+            string timing = null;
+
+            foreach (var tk in tokens)
+            {
+                if (property == null && !IsTimingFunctionToken(tk) && !IsDurationToken(tk, out _))
+                {
+                    property = tk.ToLowerInvariant();
+                    continue;
+                }
+                double d;
+                if (IsDurationToken(tk, out d))
+                {
+                    // First duration → duration, second → delay
+                    if (css.TransitionDurationMs == 0)
+                        css.TransitionDurationMs = d;
+                    else
+                        css.TransitionDelayMs = d;
+                    continue;
+                }
+                if (IsTimingFunctionToken(tk))
+                {
+                    timing = tk.ToLowerInvariant();
+                    continue;
+                }
+            }
+
+            if (property != null) css.TransitionProperty = property;
+            if (timing != null) css.TransitionTimingFunction = timing;
+        }
+
+        private static bool IsDurationToken(string s, out double ms)
+        {
+            ms = 0;
+            if (string.IsNullOrEmpty(s)) return false;
+            // "ms" → milliseconds
+            if (s.Length > 2 && s.EndsWith("ms", StringComparison.OrdinalIgnoreCase))
+            {
+                double v;
+                if (double.TryParse(s.Substring(0, s.Length - 2),
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out v))
+                { ms = v; return true; }
+            }
+            // "s" → seconds (but watch for "ms" above, handled first)
+            if (s.Length > 1 && s[s.Length - 1] == 's' && (s.Length < 3 || s[s.Length - 2] != 'm'))
+            {
+                double v;
+                if (double.TryParse(s.Substring(0, s.Length - 1),
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out v))
+                { ms = v * 1000.0; return true; }
+            }
+            return false;
+        }
+
+        private static bool IsTimingFunctionToken(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return false;
+            var t = s.ToLowerInvariant();
+            return t == "ease" || t == "linear" || t == "ease-in" || t == "ease-out"
+                || t == "ease-in-out" || t == "step-start" || t == "step-end";
+        }
+
+        // Walk all rules; for each :hover rule, strip the :hover pseudo and
+        // try to match the (now plain) selector against every element. If it
+        // matches, build a Hover CssComputed by re-cascading just the hover
+        // declarations on top of the element's base CssComputed.
+        //
+        // Only sets css.Hover when a transition is configured — there's no
+        // observable behavior change without an animation.
+        private static void ComputeHoverOverrides(LiteElement root, List<CssRule> rules, Dictionary<LiteElement, CssComputed> result)
+        {
+            if (root == null || rules == null || rules.Count == 0 || result == null || result.Count == 0)
+                return;
+
+            // Flatten DOM for matching
+            var nodes = new List<LiteElement>();
+            var stack = new Stack<LiteElement>();
+            stack.Push(root);
+            while (stack.Count > 0)
+            {
+                var n = stack.Pop();
+                nodes.Add(n);
+                for (int i = n.Children.Count - 1; i >= 0; i--)
+                    stack.Push(n.Children[i]);
+            }
+
+                // Collect rules that have at least one :hover selector variant
+                // (we treat :focus and :active as hover for the museum browser —
+                // exact focus styling would need keyboard-input plumbing).
+                var hoverRules = new List<Tuple<CssRule, SelectorChain>>();
+                for (int ri = 0; ri < rules.Count; ri++)
+                {
+                    var rule = rules[ri];
+                    if (rule.Selectors == null) continue;
+                    for (int si = 0; si < rule.Selectors.Count; si++)
+                    {
+                        var chain = rule.Selectors[si];
+                        if (ChainHasInteractivePseudo(chain))
+                            hoverRules.Add(Tuple.Create(rule, chain));
+                    }
+                }
+                if (hoverRules.Count == 0) return;
+
+                // For each element, collect matching hover declarations and
+                // build a hover override CssComputed.
+                for (int ni = 0; ni < nodes.Count; ni++)
+                {
+                    var n = nodes[ni];
+                    if (n == null || n.IsText) continue;
+                    CssComputed baseCss;
+                    if (!result.TryGetValue(n, out baseCss) || baseCss == null) continue;
+
+                    // Only build hover override if a transition is configured.
+                    // (Hover without transition = no observable change.)
+                    if (baseCss.TransitionDurationMs <= 0) continue;
+
+                    var hoverByProp = new Dictionary<string, List<Tuple<CssDecl, Uri, int>>>(StringComparer.OrdinalIgnoreCase);
+                    int matchedCount = 0;
+                    for (int hi = 0; hi < hoverRules.Count; hi++)
+                    {
+                        var rule = hoverRules[hi].Item1;
+                        var chain = hoverRules[hi].Item2;
+                        // Re-match the chain with interactive pseudos stripped.
+                        // The match would have failed in the base cascade because
+                        // MatchesSingle returns false for :hover/:focus/:active.
+                        if (MatchesIgnoringInteractivePseudos(n, chain))
+                        {
+                            matchedCount++;
+                            foreach (var kv in rule.Declarations)
+                            {
+                                var decl = kv.Value;
+                                // Skip "transition" itself — it's a base concept
+                                if (string.Equals(decl.Name, "transition", StringComparison.OrdinalIgnoreCase))
+                                    continue;
+                                List<Tuple<CssDecl, Uri, int>> grp;
+                                if (!hoverByProp.TryGetValue(decl.Name, out grp))
+                                {
+                                    grp = new List<Tuple<CssDecl, Uri, int>>();
+                                    hoverByProp[decl.Name] = grp;
+                                }
+                                grp.Add(Tuple.Create(decl, rule.BaseUri, rule.SourceOrder));
+                            }
+                        }
+                    }
+                    if (matchedCount == 0) continue;
+
+                    // Pick winning hover decl per property (cascade sort:
+                    // sourceOrder desc, specificity desc — but hover rules rarely
+                    // collide, so sourceOrder alone is fine for v1).
+                    var hoverMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var kv in hoverByProp)
+                    {
+                        var grp = kv.Value;
+                        grp.Sort((a, b) =>
+                        {
+                            int c = b.Item1.Important.CompareTo(a.Item1.Important);
+                            if (c != 0) return c;
+                            c = b.Item1.Specificity.CompareTo(a.Item1.Specificity);
+                            if (c != 0) return c;
+                            return b.Item3.CompareTo(a.Item3);
+                        });
+                        hoverMap[kv.Key] = ResolveUrlIfNeeded(grp[0].Item1.Value, grp[0].Item2);
+                    }
+
+                    // Build a CssComputed copy that shadows only the overridden
+                    // properties. We keep it lightweight: only the property values
+                    // the renderer needs to swap (Opacity, BackgroundColor,
+                    // transform-related). For everything else we fall back to base.
+                    var hover = new CssComputed
+                    {
+                        Transition = baseCss.Transition,
+                        TransitionDurationMs = baseCss.TransitionDurationMs,
+                        TransitionProperty = baseCss.TransitionProperty,
+                        TransitionTimingFunction = baseCss.TransitionTimingFunction,
+                        TransitionDelayMs = baseCss.TransitionDelayMs,
+                    };
+                    // Seed the hover Map with base values, then override.
+                    if (baseCss.Map != null)
+                    {
+                        foreach (var bk in baseCss.Map)
+                            hover.Map[bk.Key] = bk.Value;
+                    }
+                    foreach (var kv in hoverMap)
+                        hover.Map[kv.Key] = kv.Value;
+
+                    baseCss.Hover = hover;
+                }
+            }
+
+        // Does the chain have any of :hover / :focus / :active?
+        private static bool ChainHasInteractivePseudo(SelectorChain chain)
+        {
+            if (chain == null || chain.Segments == null) return false;
+            for (int i = 0; i < chain.Segments.Count; i++)
+            {
+                var seg = chain.Segments[i];
+                if (seg.PseudoClasses == null) continue;
+                for (int j = 0; j < seg.PseudoClasses.Count; j++)
+                {
+                    var p = seg.PseudoClasses[j];
+                    if (string.Equals(p, "hover", StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(p, "focus", StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(p, "active", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        // Like MatchesSingle, but treats :hover/:focus/:active as non-existent
+        // (i.e. ignores them). Lets us evaluate a .box:hover chain against an
+        // element as if it were just .box.
+        private static bool MatchesIgnoringInteractivePseudos(LiteElement n, SelectorChain chain)
+        {
+            if (chain == null || chain.Segments == null || chain.Segments.Count == 0) return false;
+
+            // Walk the chain right-to-left, tracking the current node
+            LiteElement cur = n;
+            // Rightmost segment must match `n` itself
+            var right = chain.Segments[chain.Segments.Count - 1];
+            if (!SegmentMatchesNoInteractive(cur, right)) return false;
+
+            // Walk left through the rest
+            for (int i = chain.Segments.Count - 2; i >= 0; i--)
+            {
+                var seg = chain.Segments[i];
+                var nextCombinator = chain.Segments[i + 1].Next;
+                if (nextCombinator == Combinator.Child)
+                {
+                    if (cur.Parent == null) return false;
+                    if (!SegmentMatchesNoInteractive(cur.Parent, seg)) return false;
+                    cur = cur.Parent;
+                }
+                else // Descendant
+                {
+                    bool found = false;
+                    var p = cur.Parent;
+                    while (p != null)
+                    {
+                        if (SegmentMatchesNoInteractive(p, seg)) { found = true; cur = p; break; }
+                        p = p.Parent;
+                    }
+                    if (!found) return false;
+                }
+            }
+            return true;
+        }
+
+        // Mirror of MatchesSingle's per-segment check, with interactive
+        // pseudo-classes treated as "no constraint" (skipped). All other
+        // checks (tag, id, class, attribute, structural pseudos) are reused.
+        private static bool SegmentMatchesNoInteractive(LiteElement n, SelectorSegment seg)
+        {
+            if (n == null || seg == null) return false;
+            if (!string.IsNullOrEmpty(seg.Tag)
+                && !string.Equals(n.Tag, seg.Tag, StringComparison.OrdinalIgnoreCase)) return false;
+            if (!string.IsNullOrEmpty(seg.Id))
+            {
+                string nid = null; n.Attr?.TryGetValue("id", out nid);
+                if (!string.Equals(nid, seg.Id, StringComparison.OrdinalIgnoreCase)) return false;
+            }
+            if (seg.Classes != null && seg.Classes.Count > 0)
+            {
+                string ncls = null; n.Attr?.TryGetValue("class", out ncls);
+                if (string.IsNullOrEmpty(ncls)) return false;
+                var haveParts = ncls.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                for (int i = 0; i < seg.Classes.Count; i++)
+                {
+                    bool ok = false;
+                    for (int j = 0; j < haveParts.Length; j++)
+                        if (string.Equals(haveParts[j], seg.Classes[i], StringComparison.OrdinalIgnoreCase)) { ok = true; break; }
+                    if (!ok) return false;
+                }
+            }
+            if (seg.PseudoClasses != null)
+            {
+                for (int pi = 0; pi < seg.PseudoClasses.Count; pi++)
+                {
+                    var ps = seg.PseudoClasses[pi];
+                    if (string.Equals(ps, "hover", StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(ps, "focus", StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(ps, "active", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Skip — treat as no constraint
+                        continue;
+                    }
+                    // For other pseudos, defer to the same logic as MatchesSingle
+                    // by reusing the public Matches() entry (slightly wasteful
+                    // but correct; v2 can refactor).
+                    if (!SegmentMatchesIncludingAllPseudos(n, seg, ps)) return false;
+                }
+            }
+            if (seg.Attributes != null)
+            {
+                for (int ai = 0; ai < seg.Attributes.Count; ai++)
+                {
+                    var attr = seg.Attributes[ai];
+                    string v = null; n.Attr?.TryGetValue(attr.Item1, out v);
+                    if (v == null) return false;
+                    if (!string.Equals(v ?? "", attr.Item3, StringComparison.OrdinalIgnoreCase)) return false;
+                }
+            }
+            return true;
+        }
+
+        // Re-dispatches a single non-interactive pseudo check through
+        // MatchesSingle's logic by constructing a synthetic segment with the
+        // single pseudo. Kept tiny so we don't duplicate all the nth-* code.
+        private static bool SegmentMatchesIncludingAllPseudos(LiteElement n, SelectorSegment original, string pseudo)
+        {
+            var probe = new SelectorSegment
+            {
+                Tag = original.Tag,
+                Id = original.Id,
+                Classes = original.Classes,
+                PseudoClasses = new List<string> { pseudo },
+                Attributes = original.Attributes,
+            };
+            var chain = new SelectorChain();
+            chain.Segments.Add(probe);
+            return Matches(n, chain);
         }
 
         private static FontWeight MakeFontWeight(int openTypeWeight)
@@ -2323,7 +2721,7 @@ namespace WEBVIEW.Engine
                     else if (string.Equals(ps, "only-of-type", StringComparison.OrdinalIgnoreCase))
                     {
                         if (n == null || n.Parent == null || n.Parent.Children == null || string.IsNullOrEmpty(n.Tag)) return false;
-                        
+
                         int typeCount = 0;
                         foreach (var child in n.Parent.Children)
                         {
@@ -2331,6 +2729,15 @@ namespace WEBVIEW.Engine
                                 typeCount++;
                         }
                         if (typeCount != 1) return false;
+                    }
+                    // Interactive pseudo-classes (Phase C.6, Session 3.26):
+                    // never match the base cascade — handled separately in
+                    // CssLoader.ComputeHoverOverrides() to build CssComputed.Hover.
+                    else if (string.Equals(ps, "hover", StringComparison.OrdinalIgnoreCase)
+                          || string.Equals(ps, "focus", StringComparison.OrdinalIgnoreCase)
+                          || string.Equals(ps, "active", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
                     }
                 }
             }
@@ -2422,7 +2829,9 @@ namespace WEBVIEW.Engine
             }
 
             if (current != null && current.CustomProperties != null && current.CustomProperties.TryGetValue(name, out resolved))
+            {
                 return resolved;
+            }
 
             return ResolveFallback(fallback, current, rawCurrent, seen);
         }
@@ -2863,6 +3272,14 @@ namespace WEBVIEW.Engine
             s = s.Trim();
             var sl = s.ToLowerInvariant();
 
+            // Handle clamp() expressions: clamp(MIN, PREFERRED, MAX)
+            // Must be tried before calc() so nested calc() inside clamp() works
+            // (TryPxClamp itself calls TryPx on each operand, which handles calc()).
+            if (sl.StartsWith("clamp("))
+            {
+                return TryPxClamp(s, out px);
+            }
+
             // Handle calc() expressions
             if (sl.StartsWith("calc("))
             {
@@ -2878,6 +3295,24 @@ namespace WEBVIEW.Engine
                 var num = s.Substring(0, s.Length - 2).Trim();
                 double v;
                 if (TryDouble(num, out v)) { px = v; return true; }
+                return false;
+            }
+
+            // dvw (dynamic viewport width)
+            if (sl.EndsWith("dvw"))
+            {
+                var num = s.Substring(0, s.Length - 3).Trim();
+                double v;
+                if (TryDouble(num, out v)) { px = v * _viewportWidth / 100.0; return true; }
+                return false;
+            }
+
+            // dvh (dynamic viewport height)
+            if (sl.EndsWith("dvh"))
+            {
+                var num = s.Substring(0, s.Length - 3).Trim();
+                double v;
+                if (TryDouble(num, out v)) { px = v * _viewportHeight / 100.0; return true; }
                 return false;
             }
 
@@ -2925,6 +3360,138 @@ namespace WEBVIEW.Engine
             return false;
         }
 
+        // Resolve a clamp(MIN, PREFERRED, MAX) expression.
+        // Each operand is itself any value TryPx can resolve (px, vw, vh, rem, em, %, calc()).
+        // Returns max(MIN, min(PREFERRED, MAX)).
+        private static bool TryPxClamp(string s, out double px)
+        {
+            px = 0;
+            if (string.IsNullOrWhiteSpace(s)) return false;
+            s = s.Trim();
+            // Outer "clamp(" and ")" must both be present
+            if (s.Length < 8) return false;
+            if (!s.StartsWith("clamp(", StringComparison.OrdinalIgnoreCase)) return false;
+            if (s[s.Length - 1] != ')') return false;
+
+            var inner = s.Substring(6, s.Length - 7).Trim();
+            var parts = SplitTopLevelCommas(inner);
+            if (parts.Count != 3) return false;
+
+            double mn, pref, mx;
+            // Try each operand. If a single operand can't resolve (e.g. exotic unit),
+            // fall back to viewport-relative evaluation via EvaluateCalc so the test
+            // cases like clamp(14px, 2vw, 20px) succeed.
+            if (!TryPx(parts[0].Trim(), out mn))
+            {
+                var r = EvaluateCalc("calc(" + parts[0].Trim() + ")");
+                if (double.IsNaN(r)) return false;
+                mn = r;
+            }
+            if (!TryPx(parts[1].Trim(), out pref))
+            {
+                var r = EvaluateCalc("calc(" + parts[1].Trim() + ")");
+                if (double.IsNaN(r)) return false;
+                pref = r;
+            }
+            if (!TryPx(parts[2].Trim(), out mx))
+            {
+                var r = EvaluateCalc("calc(" + parts[2].Trim() + ")");
+                if (double.IsNaN(r)) return false;
+                mx = r;
+            }
+
+            if (double.IsNaN(mn) || double.IsNaN(pref) || double.IsNaN(mx)) return false;
+
+            // Sanitize non-finite results (defensive — shouldn't happen, but safer than NaN)
+            if (double.IsInfinity(mn) || double.IsInfinity(pref) || double.IsInfinity(mx)) return false;
+
+            px = Math.Max(mn, Math.Min(mx, pref));
+            return true;
+        }
+
+        // Split a string on top-level commas (commas inside nested parens don't count).
+        // Used by clamp() and any other multi-arg CSS function.
+        private static List<string> SplitTopLevelCommas(string s)
+        {
+            var result = new List<string>(3);
+            if (string.IsNullOrEmpty(s)) return result;
+
+            int depth = 0;
+            int start = 0;
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c == '(') depth++;
+                else if (c == ')') { if (depth > 0) depth--; }
+                else if (c == ',' && depth == 0)
+                {
+                    result.Add(s.Substring(start, i - start));
+                    start = i + 1;
+                }
+            }
+            result.Add(s.Substring(start));
+            return result;
+        }
+
+        // Find top-level clamp(MIN, PREF, MAX) expressions in a calc() body and
+        // replace each with its evaluated px value. Operates only on top-level
+        // matches (parens-aware) so nested clamp() inside an outer clamp() or
+        // calc() is handled correctly. Idempotent — once all clamps are resolved
+        // the second pass is a no-op.
+        private static string ResolveNestedClamps(string s)
+        {
+            if (string.IsNullOrEmpty(s) || s.IndexOf("clamp(", StringComparison.OrdinalIgnoreCase) < 0)
+                return s;
+
+            var sb = new System.Text.StringBuilder(s.Length);
+            int i = 0;
+            while (i < s.Length)
+            {
+                // Match "clamp(" case-insensitively
+                if (i + 6 <= s.Length &&
+                    s.Substring(i, 6).Equals("clamp(", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Find matching closing paren with depth counting
+                    int depth = 1;
+                    int j = i + 6;
+                    while (j < s.Length && depth > 0)
+                    {
+                        char c = s[j];
+                        if (c == '(') depth++;
+                        else if (c == ')') depth--;
+                        if (depth == 0) break;
+                        j++;
+                    }
+                    if (depth != 0)
+                    {
+                        // Unbalanced — copy the rest verbatim and stop
+                        sb.Append(s.Substring(i));
+                        return sb.ToString();
+                    }
+                    // i..j inclusive is "clamp(... )"
+                    string clampExpr = s.Substring(i, j - i + 1);
+                    double resolved;
+                    if (TryPxClamp(clampExpr, out resolved))
+                    {
+                        sb.Append(resolved.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    }
+                    else
+                    {
+                        // Couldn't resolve — keep the original expression; EvaluateMathExpression
+                        // will fail and the caller will get NaN, which TryPx translates to "skip".
+                        sb.Append(clampExpr);
+                    }
+                    i = j + 1;
+                }
+                else
+                {
+                    sb.Append(s[i]);
+                    i++;
+                }
+            }
+            return sb.ToString();
+        }
+
         private static double EvaluateCalc(string expr)
         {
             // Strip calc( and )
@@ -2935,7 +3502,24 @@ namespace WEBVIEW.Engine
                 inner = inner.Substring(0, inner.Length - 1);
             inner = inner.Trim();
 
+            // Pre-resolve any top-level clamp(MIN, PREF, MAX) expressions to plain px numbers.
+            // This lets nested clamp() inside calc() (e.g. `calc(2 * clamp(1rem, 5vw, 3rem))`)
+            // be reduced to a number before the math evaluator runs.
+            inner = ResolveNestedClamps(inner);
+
             // Replace CSS units with pixel values
+            inner = System.Text.RegularExpressions.Regex.Replace(inner, @"([\d.]+)\s*dvw", m =>
+            {
+                double v;
+                TryDouble(m.Groups[1].Value, out v);
+                return (v * _viewportWidth / 100.0).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            });
+            inner = System.Text.RegularExpressions.Regex.Replace(inner, @"([\d.]+)\s*dvh", m =>
+            {
+                double v;
+                TryDouble(m.Groups[1].Value, out v);
+                return (v * _viewportHeight / 100.0).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            });
             inner = System.Text.RegularExpressions.Regex.Replace(inner, @"([\d.]+)\s*vw", m =>
             {
                 double v;
@@ -3237,7 +3821,7 @@ namespace WEBVIEW.Engine
 
         private static void Log(Action<string> log, string msg)
         {
-            try { if (log != null) log(msg); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CssLoader.cs] empty catch empty catch"); }
+            try { if (log != null) log(msg); } catch { }
         }
 
         private static void ResolveVariables(List<CssRule> rules)

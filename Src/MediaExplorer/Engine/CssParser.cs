@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.Reflection;
 using System.Collections.Generic;
@@ -62,11 +62,11 @@ namespace BrowserCore.Engine
                             var c = (Windows.UI.Color)p.GetValue(null);
                             _namedColors[p.Name] = c;
                         } 
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/CssParser.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CssParser.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         /// <summary>

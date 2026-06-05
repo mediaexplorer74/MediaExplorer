@@ -1,13 +1,11 @@
-﻿using System;
+using System;
 using System.Text;
 using NiL.JS.Core;
 using NiL.JS.Core.Interop;
 
 namespace NiL.JS.BaseLibrary;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Number : JSObject
 {
     [ReadOnly]
@@ -392,7 +390,6 @@ public sealed class Number : JSObject
     {
         return _valueType == JSValueType.Integer ? _iValue.GetHashCode() : _dValue.GetHashCode();
     }
-#if !WRC
     [Hidden]
     public static implicit operator Number(int value)
     {
@@ -416,7 +413,6 @@ public sealed class Number : JSObject
     {
         return value == null ? 0 : value._valueType == JSValueType.Integer ? value._iValue : (int)value._dValue;
     }
-#endif
     [DoNotEnumerate]
     public static JSValue isNaN(JSValue x)
     {

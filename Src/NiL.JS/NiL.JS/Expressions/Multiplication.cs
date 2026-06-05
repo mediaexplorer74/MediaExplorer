@@ -1,5 +1,4 @@
-﻿
-#define TYPE_SAFE
+
 
 using System;
 using System.Collections.Generic;
@@ -7,9 +6,7 @@ using NiL.JS.Core;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Multiplication : Expression
 {
     protected internal override PredictedType ResultType
@@ -44,7 +41,6 @@ public sealed class Multiplication : Expression
 
     public override JSValue Evaluate(Context context)
     {
-#if TYPE_SAFE
         double da = 0.0;
         JSValue f = _left.Evaluate(context);
         JSValue s = null;
@@ -89,11 +85,6 @@ public sealed class Multiplication : Expression
         _tempContainer._dValue = da * Tools.JSObjectToDouble(s);
         _tempContainer._valueType = JSValueType.Double;
         return _tempContainer;
-#else
-        _tempContainer._dValue = Tools.JSObjectToDouble(_left.Evaluate(context)) * Tools.JSObjectToDouble(_right.Evaluate(context));
-        _tempContainer._valueType = JSValueType.Double;
-        return _tempContainer;
-#endif
     }
 
     public override bool Build(ref CodeNode _this, int expressionDepth, int scopeLevel, Dictionary<string, VariableDescriptor> variables, CodeContext codeContext, InternalCompilerMessageCallback message, FunctionInfo stats, Options opts)

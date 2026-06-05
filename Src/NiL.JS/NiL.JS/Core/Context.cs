@@ -1,4 +1,4 @@
-п»їusing System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -8,15 +8,10 @@ using NiL.JS.BaseLibrary;
 using NiL.JS.Core.Functions;
 using NiL.JS.Statements;
 
-#if NET40
-using NiL.JS.Backward;
-#endif
 
 namespace NiL.JS.Core;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public enum ExecutionMode
 {
     Regular = 0,
@@ -55,11 +50,9 @@ public sealed class ContextDebuggerProxy
 }
 
 /// <summary>
-/// РљРѕРЅС‚РµРєСЃС‚ РІС‹РїРѕР»РЅРµРЅРёСЏ СЃРєСЂРёРїС‚Р°. РҐСЂР°РЅРёС‚ СЃРѕСЃС‚РѕСЏРЅРёРµ РІС‹РїРѕР»РЅРµРЅРёСЏ СЃС†РµРЅР°СЂРёСЏ.
+/// Контекст выполнения скрипта. Хранит состояние выполнения сценария.
 /// </summary>
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [DebuggerTypeProxy(typeof(ContextDebuggerProxy))]
 public class Context : IEnumerable<string>
 {
@@ -354,21 +347,13 @@ public class Context : IEnumerable<string>
         Function jsGetter = null;
         if (getter != null)
         {
-#if NET40
-            jsGetter = new MethodProxy(this, getter.Method, getter.Target);
-#else
             jsGetter = new MethodProxy(this, getter.GetMethodInfo(), getter.Target);
-#endif
         }
 
         Function jsSetter = null;
         if (setter != null)
         {
-#if NET40
-            jsSetter = new MethodProxy(this, setter.Method, setter.Target);
-#else
             jsSetter = new MethodProxy(this, setter.GetMethodInfo(), setter.Target);
-#endif
         }
 
         property._oValue = new PropertyPair(jsGetter, jsSetter);
@@ -387,7 +372,7 @@ public class Context : IEnumerable<string>
         if (fromProto)
             res = _parent.GetVariable(name, forWrite);
 
-        if (res == null) // Р·РЅР°С‡РёС‚ РІС‹С€Р»Рё РёР· РіР»РѕР±Р°Р»СЊРЅРѕРіРѕ РєРѕРЅС‚РµРєСЃС‚Р°
+        if (res == null) // значит вышли из глобального контекста
         {
             if (_parent == null)
             {
@@ -498,20 +483,20 @@ public class Context : IEnumerable<string>
         if (string.IsNullOrEmpty(sourceCode))
             return JSValue.undefined;
 
-        // С‡РёСЃС‚РёС‚СЊ РєСЌС€ С‚СѓС‚ РЅРµ РґРѕСЃС‚Р°С‚РѕС‡РЅРѕ.
-        // РњС‹ РЅРµ Р·РЅР°РµРј, РіРґРµ РѕР±СЉСЏРІР»РµРЅР° РѕРґРЅРѕРёРјС‘РЅРЅР°СЏ РїРµСЂРµРјРµРЅРЅР°СЏ
-        // Рё РІ С‚РµС… СЃР»СѓС‡Р°СЏС…, РєРѕРіРґР° РѕРЅР° РїСЂРёС€Р»Р° РёР· С„СѓРЅРєС†РёРё РІС‹С€Рµ
-        // РёР»Рё РґР°Р¶Рµ РіР»РѕР±Р°Р»СЊРЅРѕРіРѕ РєРѕРЅС‚РµРєСЃС‚Р°, РµС‘ РєСЌС€ РјРѕР¶РµС‚ Р±С‹С‚СЊ
-        // РЅРµ СЃР±СЂРѕС€РµРЅ РІРѕРІСЂРµРјСЏ Рё Р·РЅР°С‡РµРЅРёРµ Р±СѓРґРµС‚ Р±СЂР°С‚СЊСЃСЏ РёР· РєРѕРЅС‚РµРєСЃС‚Р°
-        // eval'Р°, Р° РЅРµ С‚РѕРіРѕ РєРѕРЅС‚РµРєСЃС‚Р°, РІ РєРѕС‚РѕСЂРѕРј РµС‘ РїРѕР·РѕРІСѓС‚.
+        // чистить кэш тут не достаточно.
+        // Мы не знаем, где объявлена одноимённая переменная
+        // и в тех случаях, когда она пришла из функции выше
+        // или даже глобального контекста, её кэш может быть
+        // не сброшен вовремя и значение будет браться из контекста
+        // eval'а, а не того контекста, в котором её позовут.
         /*
          * function a(){
          *  var c = 1;
          *  function b(){
          *      eval("var c = 2");
-         *      // РїРµСЂРµРјРµРЅРЅР°СЏ РѕР±СЉСЏРІР»РµРЅР° РІ РєРѕРЅС‚РµРєСЃС‚Рµ b, Р·РЅР°С‡РёС‚ Рё Р·РЅР°С‡РµРЅРёРµ РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ РёР·
-         *      // РєРѕРЅС‚РµРєСЃС‚Р° b, РЅРѕ РµСЃР»Рё РїРѕ РІС‹С…РѕРґСѓ РёР· b РєСЌС€ СЌС‚РѕР№ РїРµСЂРµРјРµРЅРЅРѕР№ СЃР±СЂРѕС€РµРЅ РЅРµ Р±СѓРґРµС‚,
-         *      // С‚Рѕ РІ a РµС‘ Р·РЅР°С‡РµРЅРёРµ Р±СѓРґРµС‚ 2
+         *      // переменная объявлена в контексте b, значит и значение должно быть из
+         *      // контекста b, но если по выходу из b кэш этой переменной сброшен не будет,
+         *      // то в a её значение будет 2
          *  }
          * }
          */
@@ -576,10 +561,10 @@ public class Context : IEnumerable<string>
                         if (body._variables[i].initializer != null)
                             variable.Assign(body._variables[i].initializer.Evaluate(context));
 
-                        // Р±Р»РѕРєРёСЂСѓРµС‚ СЃРѕР·РґР°РЅРёРµ РїРµСЂРµРјРµРЅРЅРѕР№ РІ РєРѕРЅРєС‚РµРєСЃС‚Рµ eval
+                        // блокирует создание переменной в конктексте eval
                         body._variables[i].isLexicalScoped = true;
 
-                        // Р±Р»РѕРєРёСЂСѓРµС‚ РєРµС€РёСЂРѕРІР°РЅРёРµ
+                        // блокирует кеширование
                         body._variables[i].definitionScopeLevel = -1;
                     }
                 }
@@ -630,11 +615,7 @@ public class Context : IEnumerable<string>
 
     public IEnumerator<string> GetEnumerator()
     {
-#if NETCORE
-        return (_variables?.Keys ?? System.Array.Empty<string>()).GetEnumerator();
-#else
         return (_variables?.Keys ?? new string[0]).GetEnumerator();
-#endif
     }
 
     IEnumerator IEnumerable.GetEnumerator()

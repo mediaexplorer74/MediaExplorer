@@ -1,0 +1,16 @@
+[
+  {
+    "Hash": "-2136806764",
+    "Preview": "(function(){ var __r=(function(){         throw new Error('uwp-synthetic-bad'); ...",
+    "Count": 2,
+    "FirstSeen": "2026-06-04T19:15:43.9062173Z",
+    "LastSeen": "2026-06-04T19:15:44.0575959Z"
+  },
+  {
+    "Hash": "853236887",
+    "Preview": "  if (!Object.assign) Object.assign = function(t){for(var i=1;i<arguments.length...",
+    "Count": 1,
+    "FirstSeen": "2026-06-04T19:15:42.0183876Z",
+    "LastSeen": "2026-06-04T19:15:42.0183876Z"
+  }
+]

@@ -1,15 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using NiL.JS.Core;
-#if !PORTABLE
 using NiL.JS.Core.JIT;
-#endif
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class NumberAddition : Expression
 {
     protected internal override PredictedType ResultType
@@ -96,7 +92,6 @@ public sealed class NumberAddition : Expression
         }
         return _tempContainer;
     }
-#if !NETCORE
     internal override System.Linq.Expressions.Expression TryCompile(bool selfCompile, bool forAssign, Type expectedType, List<CodeNode> dynamicValues)
     {
         var ft = _left.TryCompile(false, false, null, dynamicValues);
@@ -119,7 +114,6 @@ public sealed class NumberAddition : Expression
             System.Linq.Expressions.Expression.Convert(ft, typeof(double)),
             System.Linq.Expressions.Expression.Convert(st, typeof(double)));
     }
-#endif
     public override T Visit<T>(Visitor<T> visitor)
     {
         return visitor.Visit(this);

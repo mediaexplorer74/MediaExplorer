@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -13,6 +13,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Reflection;
 using System.Globalization;
+using Newtonsoft.Json;
 using Math = System.Math;
 #if USE_ECMA_EXPERIMENTAL
 using EcmaEngine.Interpreter;
@@ -23,6 +24,7 @@ using NiL.JS.BaseLibrary;
 using Windows.UI;
 using Windows.UI.Text;
 using Windows.UI.Xaml;
+using Windows.Storage;
 
 namespace BrowserCore.Engine
 {
@@ -48,6 +50,42 @@ namespace BrowserCore.Engine
         private GlobalContext _nil;
         private Context _evalContext;
         private bool _niljsSafeEvalFailed;
+        // NiL.JS concurrency & failure guards
+        private readonly object _nilEvalLock = new object();
+
+        // ---- Новый формат: BadHashRecord ----
+        private class BadHashRecord
+        {
+            public string Hash { get; set; }        // base64 либо hex строки
+            public string Preview { get; set; }     // начало сорца скрипта
+            public int Count { get; set; }          // сколько раз пойман
+            public DateTime FirstSeen { get; set; }
+            public DateTime LastSeen { get; set; }
+        }
+        // Коллекция актуальных bad-хэшей
+        private readonly ConcurrentDictionary<string, BadHashRecord> _badHashRecords = new ConcurrentDictionary<string, BadHashRecord>(StringComparer.OrdinalIgnoreCase);
+        private int _safeEvalErrorCount = 0;
+        private const int SafeEvalErrorThreshold = 5; // per-page; above this we stop executing inline scripts
+        private volatile bool _skipInlineScriptsForPage = false;
+        // Phase DIAG (issue D): counters for SafeEval/JSException per SetDom call.
+        // Reset in SetDom right before scripts are executed, dumped at the end
+        // of RunScriptsAsync / SetDom block. Use long-lived statics to survive
+        // across multiple engine instances (the engine is a single instance per app).
+        private static int _diagSafeEvalCalls;
+        private static int _diagSafeEvalFails;
+        private static int _diagJSException;
+        // Per-page diagnostic: number of inline scripts skipped due to pre-skip or threshold
+        private static int _diagSkippedInlineScripts;
+        // Per-hash failure debounce counter: record failures per script hash and only
+        // mark as "bad" after reaching BadHashRecordThreshold to avoid false positives.
+        private const int BadHashRecordThreshold = 2;
+        // Persist observed bad hashes between runs (теперь json!):
+        private const string BadHashStoreFile = "js_bad_hashes.json";
+        private readonly SemaphoreSlim _badHashStoreLock = new SemaphoreSlim(1, 1);
+        // Debounce timer + lock for coalescing saves to disk
+        private readonly object _badHashSaveTimerLock = new object();
+        private System.Threading.Timer _badHashSaveTimer;
+        private const int BadHashSaveDebounceMs = 2000; // 2s debounce
 #endif
 #if USE_ECMA_EXPERIMENTAL
         private JsInterpreter _exp;
@@ -104,7 +142,7 @@ namespace BrowserCore.Engine
         private void RecordSandboxBlock(SandboxFeature feature, string detail)
         {
             var messageDetail = detail ?? string.Empty;
-            try { TraceFeatureGap("Sandbox", feature.ToString(), messageDetail); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            try { TraceFeatureGap("Sandbox", feature.ToString(), messageDetail); } catch { /* swallow */ }
             try
             {
                 var status = string.IsNullOrWhiteSpace(messageDetail)
@@ -112,7 +150,7 @@ namespace BrowserCore.Engine
                     : "[Sandbox] Blocked " + feature + " : " + messageDetail;
                 _host?.SetStatus(status);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             lock (_sandboxLogLock)
             {
@@ -251,7 +289,7 @@ namespace BrowserCore.Engine
         public static void RegisterDomVisual(LiteElement node, Windows.UI.Xaml.FrameworkElement fe)
         {
             try { if (node == null || fe == null) return; lock (_visualMap) _visualMap[node] = new System.WeakReference(fe); }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private static bool TryGetVisualRect(LiteElement node, out double x, out double y, out double w, out double h)
@@ -268,7 +306,7 @@ namespace BrowserCore.Engine
                 if (fe == null) return false;
                 w = fe.ActualWidth; h = fe.ActualHeight;
                 Windows.UI.Xaml.UIElement root = null;
-                try { var wrs = _visualRoot; if (wrs != null) root = wrs.Target as Windows.UI.Xaml.UIElement; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { var wrs = _visualRoot; if (wrs != null) root = wrs.Target as Windows.UI.Xaml.UIElement; } catch { /* swallow */ }
                 if (root == null)
                     root = Windows.UI.Xaml.Window.Current != null ? Windows.UI.Xaml.Window.Current.Content as Windows.UI.Xaml.UIElement : null;
                 if (root != null)
@@ -277,12 +315,12 @@ namespace BrowserCore.Engine
                     x = p.X; y = p.Y; return true;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return false;
         }
         public static void RegisterVisualRoot(Windows.UI.Xaml.UIElement root)
         {
-            try { _visualRoot = (root != null ? new System.WeakReference(root) : null); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            try { _visualRoot = (root != null ? new System.WeakReference(root) : null); } catch { /* swallow */ }
         }
         // ---- Phase 1/2/3 state ----
         private readonly Dictionary<string, List<string>> _evtDoc = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -316,11 +354,11 @@ namespace BrowserCore.Engine
                 {
                     foreach (var fn in list.ToArray())
                     {
-                        EnqueueMicrotask(() => { try { RunInline(fn + "({ type:'" + evt + "', target:'document' })", _ctx, evt, "document"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                        EnqueueMicrotask(() => { try { RunInline(fn + "({ type:'" + evt + "', target:'document' })", _ctx, evt, "document"); } catch { /* swallow */ } });
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
         }
 
@@ -332,11 +370,11 @@ namespace BrowserCore.Engine
                 {
                     foreach (var fn in list.ToArray())
                     {
-                        EnqueueMicrotask(() => { try { RunInline(fn + "({ type:'" + evt + "', target:'window' })", _ctx, evt, "window"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                        EnqueueMicrotask(() => { try { RunInline(fn + "({ type:'" + evt + "', target:'window' })", _ctx, evt, "window"); } catch { /* swallow */ } });
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         // intervals & rAF
@@ -432,11 +470,11 @@ namespace BrowserCore.Engine
                         {
                             RunInline(fn + "({ type:'" + evt + "', target:'" + id + "' })", _ctx, evt, id);
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
         }
 
@@ -461,11 +499,11 @@ namespace BrowserCore.Engine
                             RunInline(fnName + "({ type:'" + evt + "', target:'" + id + "' })", _ctx, evt, id);
                             if (_stopPropagationRequested) return true;
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return _stopPropagationRequested;
         }
 
@@ -497,11 +535,11 @@ namespace BrowserCore.Engine
                             if (isFnName) RunInline(codeOrFn + "()", _ctx);
                             else RunInline(codeOrFn, _ctx);
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     };
                     if (repaintHost != null) repaintHost.InvokeOnUiThread(run); else run();
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             };
             t = new Timer(tick, null, ms, ms <= 0 ? 1 : ms);
             lock (_intervals) _intervals[id] = t;
@@ -514,7 +552,7 @@ namespace BrowserCore.Engine
             {
                 Timer t; if (_intervals.TryGetValue(id, out t))
                 {
-                    try { t.Dispose(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { t.Dispose(); } catch { /* swallow */ }
                     _intervals.Remove(id);
                 }
             }
@@ -529,10 +567,10 @@ namespace BrowserCore.Engine
             {
                 try
                 {
-                    Action run = () => { try { RunInline(fnName + "(Date.now&&Date.now()||0)", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } };
+                    Action run = () => { try { RunInline(fnName + "(Date.now&&Date.now()||0)", _ctx); } catch { /* swallow */ } };
                     if (repaintHost != null) repaintHost.InvokeOnUiThread(run); else run();
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 finally { CancelAnimationFrame(id); }
             }, null, 16, Timeout.Infinite);
             lock (_rafs) _rafs[id] = t;
@@ -545,7 +583,7 @@ namespace BrowserCore.Engine
             {
                 Timer t; if (_rafs.TryGetValue(id, out t))
                 {
-                    try { t.Dispose(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { t.Dispose(); } catch { /* swallow */ }
                     _rafs.Remove(id);
                 }
             }
@@ -611,7 +649,7 @@ namespace BrowserCore.Engine
                 }
                 await Windows.Storage.FileIO.WriteTextAsync(file, sb.ToString());
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private async Task RestoreLocalStorageAsync()
@@ -640,12 +678,230 @@ namespace BrowserCore.Engine
                             }
                             bag[parts[1]] = parts[2];
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
+
+#if USE_NILJS
+        // Load persisted bad-hash store from local folder (JSON format).
+        private async Task LoadBadHashStoreAsync()
+        {
+            try
+            {
+                await _badHashStoreLock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    // First try the app LocalFolder (default behavior)
+                    var folder = Windows.Storage.ApplicationData.Current.LocalFolder;
+                    Windows.Storage.StorageFile file = null;
+                    try { file = await folder.GetItemAsync(BadHashStoreFile) as Windows.Storage.StorageFile; } catch { file = null; }
+
+                    // If not found in LocalFolder, attempt to read a copy from Pictures/MediaExplorer
+                    if (file == null)
+                    {
+                        try
+                        {
+                            var pics = Windows.Storage.KnownFolders.PicturesLibrary;
+                            var picsFolder = await pics.GetFolderAsync("MediaExplorer").AsTask().ConfigureAwait(false);
+                            if (picsFolder != null)
+                            {
+                                try { file = await picsFolder.GetFileAsync(BadHashStoreFile).AsTask().ConfigureAwait(false); } catch { file = null; }
+                            }
+                        }
+                        catch { /* swallow - fallback only */ }
+                    }
+
+                    if (file == null) return;
+
+                    var text = await Windows.Storage.FileIO.ReadTextAsync(file).AsTask().ConfigureAwait(false);
+                    if (string.IsNullOrWhiteSpace(text)) return;
+                    List<BadHashRecord> list = null;
+                    try { list = JsonConvert.DeserializeObject<List<BadHashRecord>>(text); } catch { list = null; }
+                    if (list == null) return;
+                    foreach (var r in list)
+                    {
+                        try
+                        {
+                            if (r == null || string.IsNullOrWhiteSpace(r.Hash)) continue;
+                            if (!string.IsNullOrWhiteSpace(r.Preview) && r.Preview.Length > 160) r.Preview = r.Preview.Substring(0, 160);
+                            _badHashRecords[r.Hash] = r;
+                        }
+                        catch { /* swallow */ }
+                    }
+                }
+                catch { /* swallow */ }
+            }
+            finally { try { _badHashStoreLock.Release(); } catch { } }
+        }
+
+        // Save current bad-hash store to local folder (JSON format). Best-effort; called async/fire-and-forget.
+        private async Task SaveBadHashStoreAsync()
+        {
+            try
+            {
+                await _badHashStoreLock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    // Persist into app LocalFolder first (default)
+                    var folder = Windows.Storage.ApplicationData.Current.LocalFolder;
+                    var file = await folder.CreateFileAsync(BadHashStoreFile, Windows.Storage.CreationCollisionOption.ReplaceExisting).AsTask().ConfigureAwait(false);
+                    var records = _badHashRecords.Values.OrderByDescending(r => r.Count).ToList();
+                    var json = JsonConvert.SerializeObject(records, Formatting.Indented);
+                    await Windows.Storage.FileIO.WriteTextAsync(file, json).AsTask().ConfigureAwait(false);
+
+                    // Additionally, try to write a copy into Pictures/MediaExplorer when available.
+                    // This is helpful for out-of-process test runners which can access the Pictures library.
+                    try
+                    {
+                        var pics = Windows.Storage.KnownFolders.PicturesLibrary;
+                        var picsFolder = await pics.CreateFolderAsync("MediaExplorer", Windows.Storage.CreationCollisionOption.OpenIfExists).AsTask().ConfigureAwait(false);
+                        if (picsFolder != null)
+                        {
+                            try
+                            {
+                                var picsFile = await picsFolder.CreateFileAsync(BadHashStoreFile, Windows.Storage.CreationCollisionOption.ReplaceExisting).AsTask().ConfigureAwait(false);
+                                if (picsFile != null) await Windows.Storage.FileIO.WriteTextAsync(picsFile, json).AsTask().ConfigureAwait(false);
+                            }
+                            catch { /* swallow copy failure */ }
+                        }
+                    }
+                    catch { /* swallow - pictures library may be unavailable */ }
+                }
+                catch { /* swallow */ }
+            }
+            finally { try { _badHashStoreLock.Release(); } catch { } }
+        }
+
+        // Coalesced save: schedule a debounced save; multiple calls within debounce window coalesce into one write.
+        private void ScheduleSaveBadHashStoreDebounced()
+        {
+            try
+            {
+                lock (_badHashSaveTimerLock)
+                {
+                    if (_badHashSaveTimer != null)
+                    {
+                        try { _badHashSaveTimer.Change(BadHashSaveDebounceMs, System.Threading.Timeout.Infinite); } catch { }
+                    }
+                    else
+                    {
+                        _badHashSaveTimer = new System.Threading.Timer(_ =>
+                        {
+                            try { var _r = SaveBadHashStoreAsync(); } catch { }
+                            try { lock (_badHashSaveTimerLock) { _badHashSaveTimer.Dispose(); _badHashSaveTimer = null; } } catch { }
+                        }, null, BadHashSaveDebounceMs, System.Threading.Timeout.Infinite);
+                    }
+                }
+            }
+            catch { /* swallow */ }
+        }
+
+        // Dump top-N bad-hash summary to Debug and host status (best-effort)
+        public void DumpBadHashSummary(int topN = 10)
+        {
+            try
+            {
+                var list = _badHashRecords.Values.OrderByDescending(r => r.Count).Take(topN).ToList();
+                try { System.Diagnostics.Debug.WriteLine("[DIAG:JS-SUMMARY] bad-hash-top=" + list.Count); } catch { }
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var r = list[i];
+                    var prev = r.Preview ?? "";
+                    prev = prev.Replace("\r", " ").Replace("\n", " ");
+                    if (prev.Length > 80) prev = prev.Substring(0, 80) + "…";
+                    try { System.Diagnostics.Debug.WriteLine("[DIAG:JS-SUMMARY] #" + (i + 1) + " hash=" + r.Hash + " count=" + r.Count + " first=" + r.FirstSeen.ToString("o") + " last=" + r.LastSeen.ToString("o") + " preview=\"" + prev + "\""); } catch { }
+                }
+            }
+            catch { /* swallow */ }
+        }
+
+        // Export current bad-hash store as JSON string (best-effort)
+        public async Task<string> GetBadHashStoreJsonAsync()
+        {
+            try
+            {
+                await _badHashStoreLock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    var records = _badHashRecords.Values.OrderByDescending(r => r.Count).ToList();
+                    return JsonConvert.SerializeObject(records, Formatting.Indented);
+                }
+                catch { return null; }
+                finally { try { _badHashStoreLock.Release(); } catch { } }
+            }
+            catch { return null; }
+        }
+
+        // Restore bad-hash store from a JSON string (best-effort) and persist.
+        public async Task<bool> RestoreBadHashStoreFromJsonAsync(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return false;
+            try
+            {
+                List<BadHashRecord> list = null;
+                try { list = JsonConvert.DeserializeObject<List<BadHashRecord>>(json); } catch { list = null; }
+                if (list == null) return false;
+                await _badHashStoreLock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    _badHashRecords.Clear();
+                    foreach (var r in list)
+                    {
+                        if (r == null || string.IsNullOrWhiteSpace(r.Hash)) continue;
+                        if (!string.IsNullOrWhiteSpace(r.Preview) && r.Preview.Length > 160) r.Preview = r.Preview.Substring(0, 160);
+                        _badHashRecords[r.Hash] = r;
+                    }
+                }
+                finally { try { _badHashStoreLock.Release(); } catch { } }
+                // Persist
+                try { ScheduleSaveBadHashStoreDebounced(); } catch { }
+                return true;
+            }
+            catch { return false; }
+        }
+
+        // Clear bad-hash store (in-memory + remove persisted file)
+        public async Task ClearBadHashStoreAsync()
+        {
+            try
+            {
+                await _badHashStoreLock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    _badHashRecords.Clear();
+                    try
+                    {
+                        var folder = Windows.Storage.ApplicationData.Current.LocalFolder;
+                        var item = await folder.TryGetItemAsync(BadHashStoreFile) as Windows.Storage.StorageFile;
+                        if (item != null) await item.DeleteAsync();
+
+                        // Also attempt to remove copy from Pictures/MediaExplorer if present
+                        try
+                        {
+                            var pics = Windows.Storage.KnownFolders.PicturesLibrary;
+                            var picsFolder = await pics.GetFolderAsync("MediaExplorer").AsTask().ConfigureAwait(false);
+                            if (picsFolder != null)
+                            {
+                                try
+                                {
+                                    var picsItem = await picsFolder.TryGetItemAsync(BadHashStoreFile) as Windows.Storage.StorageFile;
+                                    if (picsItem != null) await picsItem.DeleteAsync();
+                                }
+                                catch { /* swallow */ }
+                            }
+                        }
+                        catch { /* swallow */ }
+                    }
+                    catch { }
+                }
+                finally { try { _badHashStoreLock.Release(); } catch { } }
+            }
+            catch { /* swallow */ }
+        }
+#endif
 
         // ---------------- Cookies (best-effort via CookieBridge) ----------------
         private void SetCookieString(Uri scope, string cookieString)
@@ -658,7 +914,7 @@ namespace BrowserCore.Engine
                 if (jar == null) return;
                 jar.SetCookies(scope, cookieString);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private string GetCookieString(Uri scope)
@@ -711,7 +967,7 @@ namespace BrowserCore.Engine
                 _history.RemoveRange(_historyIndex + 1, _history.Count - (_historyIndex + 1));
             _history.Add(u);
             _historyIndex = _history.Count - 1;
-            try { if (prev != null && string.Equals(BaseWithoutFragment(prev), BaseWithoutFragment(u), StringComparison.OrdinalIgnoreCase) && !string.Equals(prev.Fragment ?? "", u.Fragment ?? "", StringComparison.Ordinal)) FireWindowEvent("hashchange"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            try { if (prev != null && string.Equals(BaseWithoutFragment(prev), BaseWithoutFragment(u), StringComparison.OrdinalIgnoreCase) && !string.Equals(prev.Fragment ?? "", u.Fragment ?? "", StringComparison.Ordinal)) FireWindowEvent("hashchange"); } catch { /* swallow */ }
         }
 
         private void HistoryReplace(Uri u)
@@ -721,7 +977,7 @@ namespace BrowserCore.Engine
             Uri prev = null; if (_historyIndex >= 0 && _historyIndex < _history.Count) prev = _history[_historyIndex];
             if (_historyIndex < 0) { _history.Add(u); _historyIndex = _history.Count - 1; }
             else _history[_historyIndex] = u;
-            try { if (prev != null && string.Equals(BaseWithoutFragment(prev), BaseWithoutFragment(u), StringComparison.OrdinalIgnoreCase) && !string.Equals(prev.Fragment ?? "", u.Fragment ?? "", StringComparison.Ordinal)) FireWindowEvent("hashchange"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            try { if (prev != null && string.Equals(BaseWithoutFragment(prev), BaseWithoutFragment(u), StringComparison.OrdinalIgnoreCase) && !string.Equals(prev.Fragment ?? "", u.Fragment ?? "", StringComparison.Ordinal)) FireWindowEvent("hashchange"); } catch { /* swallow */ }
         }
 
         private void HistoryGo(int delta)
@@ -730,7 +986,7 @@ namespace BrowserCore.Engine
             if (target < 0 || target >= _history.Count) return;
             if (!SandboxAllows(SandboxFeature.Navigation, "history.go(" + delta + ")")) return;
             _historyIndex = target;
-            try { _host.Navigate(_history[_historyIndex]); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            try { _host.Navigate(_history[_historyIndex]); } catch { /* swallow */ }
             FireWindowEvent("popstate");
         }
         // Extracts the first identifier token from a JS line (starting at any non-whitespace position)
@@ -821,7 +1077,7 @@ namespace BrowserCore.Engine
                 var code = mTO.Groups["code"].Value;
                 int ms; if (!int.TryParse(mTO.Groups["ms"].Value, out ms)) ms = 0;
                 var id = ScheduleTimeout(code, ms);
-                try { _host.SetStatus("setTimeout id=" + id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { _host.SetStatus("setTimeout id=" + id); } catch { /* swallow */ }
                 return true;
             }
             var mTO2 = RxSetTimeoutFn.Match(line);
@@ -830,7 +1086,7 @@ namespace BrowserCore.Engine
                 int ms2 = 0; int.TryParse(mTO2.Groups["ms"].Value, out ms2);
                 var fn = mTO2.Groups["fn"].Value;
                 var id2 = ScheduleTimeout(fn + "()", ms2);
-                try { _host.SetStatus("setTimeout id=" + id2); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { _host.SetStatus("setTimeout id=" + id2); } catch { /* swallow */ }
                 return true;
             }
             return false;
@@ -850,7 +1106,7 @@ namespace BrowserCore.Engine
             {
                 var code = mSI.Groups["code"].Value; int ms; if (!int.TryParse(mSI.Groups["ms"].Value, out ms)) ms = 0;
                 var id = ScheduleInterval(code, ms);
-                try { _host.SetStatus("setInterval id=" + id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { _host.SetStatus("setInterval id=" + id); } catch { /* swallow */ }
                 return true;
             }
             var mSIF = RxSetIntervalFn.Match(line);
@@ -859,7 +1115,7 @@ namespace BrowserCore.Engine
                 int ms = 0; int.TryParse(mSIF.Groups["ms"].Value, out ms);
                 var fn = mSIF.Groups["fn"].Value;
                 var id = ScheduleInterval(fn + "()", ms);
-                try { _host.SetStatus("setInterval id=" + id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { _host.SetStatus("setInterval id=" + id); } catch { /* swallow */ }
                 return true;
             }
             return false;
@@ -875,7 +1131,7 @@ namespace BrowserCore.Engine
         private bool TryConsolePatterns(string line)
         {
             var mLog = RxConsoleLog.Match(line);
-            if (mLog.Success) { try { _host.SetStatus(mLog.Groups["msg"].Value ?? ""); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return true; }
+            if (mLog.Success) { try { _host.SetStatus(mLog.Groups["msg"].Value ?? ""); } catch { /* swallow */ } return true; }
             return false;
         }
 
@@ -887,7 +1143,7 @@ namespace BrowserCore.Engine
             if (mAssign.Success) { Navigate(mAssign.Groups["url"].Value); return true; }
             var mReplace = RxReplaceCall.Match(line);
             if (mReplace.Success) { Navigate(mReplace.Groups["url"].Value); return true; }
-            if (RxLocationReload.IsMatch(line)) { try { if (ctx?.BaseUri != null) _host.Navigate(ctx.BaseUri); else RequestRepaint(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return true; }
+            if (RxLocationReload.IsMatch(line)) { try { if (ctx?.BaseUri != null) _host.Navigate(ctx.BaseUri); else RequestRepaint(); } catch { /* swallow */ } return true; }
             return false;
         }
 
@@ -910,7 +1166,7 @@ namespace BrowserCore.Engine
             if (mW.Success) { Navigate(mW.Groups["url"].Value); return true; }
             var mOpen = RxWindowOpen.Match(line);
             if (mOpen.Success) { Navigate(mOpen.Groups["url"].Value); return true; }
-            if (RxLocationReload.IsMatch(line)) { try { if (ctx?.BaseUri != null) _host.Navigate(ctx.BaseUri); else RequestRepaint(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return true; }
+            if (RxLocationReload.IsMatch(line)) { try { if (ctx?.BaseUri != null) _host.Navigate(ctx.BaseUri); else RequestRepaint(); } catch { /* swallow */ } return true; }
             return false;
         }
 
@@ -929,7 +1185,7 @@ namespace BrowserCore.Engine
                     var el = doc.getElementById(id) as JsDomElement;
                     if (el != null) { el.innerHTML = val; RequestRepaint(); }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 return true;
             }
             var mSetHtml = System.Text.RegularExpressions.Regex.Match(line,
@@ -946,7 +1202,7 @@ namespace BrowserCore.Engine
                     var el = doc.getElementById(id) as JsDomElement;
                     if (el != null) { el.setInnerHTML(val, flag); RequestRepaint(); }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 return true;
             }
             var mClick = System.Text.RegularExpressions.Regex.Match(line,
@@ -954,7 +1210,7 @@ namespace BrowserCore.Engine
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (mClick.Success)
             {
-                try { RaiseElementEvent(mClick.Groups["id"].Value, "click"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { RaiseElementEvent(mClick.Groups["id"].Value, "click"); } catch { /* swallow */ }
                 return true;
             }
             var mSetText = RxGetByIdInnerTextAssign.Match(line);
@@ -1023,7 +1279,7 @@ namespace BrowserCore.Engine
             if (mPThenFn.Success)
             {
                 var fn = mPThenFn.Groups["fn"].Value;
-                EnqueueMicrotask(() => { try { RunInline(fn + "()", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                EnqueueMicrotask(() => { try { RunInline(fn + "()", _ctx); } catch { /* swallow */ } });
                 return true;
             }
             if (line.StartsWith("Promise.resolve().then(", StringComparison.Ordinal))
@@ -1035,10 +1291,10 @@ namespace BrowserCore.Engine
                     if (inside.StartsWith("\"") && inside.EndsWith("\""))
                     {
                         var code = inside.Substring(1, inside.Length - 2);
-                        EnqueueMicrotask(() => { try { RunInline(code, ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                        EnqueueMicrotask(() => { try { RunInline(code, ctx); } catch { /* swallow */ } });
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 return true;
             }
             return false;
@@ -1053,7 +1309,7 @@ namespace BrowserCore.Engine
         {
             if (Regex.IsMatch(line, @"^\s*navigator\s*\.\s*serviceWorker\s*\.\s*register\s*\(", RegexOptions.IgnoreCase))
             {
-                try { _host.SetStatus("serviceWorker.register: no-op"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { _host.SetStatus("serviceWorker.register: no-op"); } catch { /* swallow */ }
                 return true;
             }
             return false;
@@ -1078,9 +1334,9 @@ namespace BrowserCore.Engine
                             else txt = await FetchScriptStringAsync(resolved, ctx?.BaseUri).ConfigureAwait(false);
                             var exec = code;
                             if (!string.IsNullOrEmpty(exec) && exec.Contains("%s")) exec = exec.Replace("%s", txt ?? "");
-                            try { RunInline(exec, _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            try { RunInline(exec, _ctx); } catch { /* swallow */ }
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     });
                 }
                 return true;
@@ -1102,9 +1358,9 @@ namespace BrowserCore.Engine
                             else txt = await FetchScriptStringAsync(resolved, ctx?.BaseUri).ConfigureAwait(false);
                             var sr = new SimpleResponse(txt);
                             var respExpr = sr.EmitResponseObject(RegisterResponseBody, () => _inlineThreshold);
-                            EnqueueMicrotask(() => { try { RunInline(fn + "(" + respExpr + ")", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                            EnqueueMicrotask(() => { try { RunInline(fn + "(" + respExpr + ")", _ctx); } catch { /* swallow */ } });
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     });
                 }
                 return true;
@@ -1133,7 +1389,7 @@ namespace BrowserCore.Engine
                             var el = doc.getElementById(id) as JsDomElement;
                             if (el != null) { el.innerText = txt; RequestRepaint(); }
                         }
-                        catch (Exception ex) { try { _host.SetStatus("fetchText failed: " + ex.Message); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
+                        catch (Exception ex) { try { _host.SetStatus("fetchText failed: " + ex.Message); } catch { /* swallow */ } }
                     });
                 }
                 return true;
@@ -1144,7 +1400,7 @@ namespace BrowserCore.Engine
         private bool TryRafPatterns(string line)
         {
             var mRaf = Regex.Match(line, @"^\s*requestAnimationFrame\s*\(\s*(?<fn>[A-Za-z_$][A-Za-z0-9_$]*)\s*\)\s*;?$", RegexOptions.IgnoreCase);
-            if (mRaf.Success) { var id = RequestAnimationFrame(mRaf.Groups["fn"].Value); try { _host.SetStatus("rAF id=" + id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return true; }
+            if (mRaf.Success) { var id = RequestAnimationFrame(mRaf.Groups["fn"].Value); try { _host.SetStatus("rAF id=" + id); } catch { /* swallow */ } return true; }
             return false;
         }
 
@@ -1194,7 +1450,7 @@ namespace BrowserCore.Engine
             {
                 var s = GetCookieString(ctx?.BaseUri ?? _ctx?.BaseUri);
                 var esc = JsEscape(s ?? "", '\'');
-                EnqueueMicrotask(() => { try { RunInline(mCget.Groups["fn"].Value + "('" + esc + "')", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                EnqueueMicrotask(() => { try { RunInline(mCget.Groups["fn"].Value + "('" + esc + "')", _ctx); } catch { /* swallow */ } });
                 return true;
             }
             return false;
@@ -1246,23 +1502,23 @@ namespace BrowserCore.Engine
                                 {
                                     var parsed = Windows.Data.Json.JsonValue.Parse(body) as Windows.Data.Json.IJsonValue;
                                     var literal = JsonToJsLiteral(parsed);
-                                    EnqueueMicrotask(() => { try { RunInline(fnPart.Substring(0, fnPart.Length - ".json_callback".Length) + "(" + literal + ")", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                                    EnqueueMicrotask(() => { try { RunInline(fnPart.Substring(0, fnPart.Length - ".json_callback".Length) + "(" + literal + ")", _ctx); } catch { /* swallow */ } });
                                 }
                                 catch
                                 {
                                     var escErr = JsEscape(body, '\'');
-                                    EnqueueMicrotask(() => { try { RunInline(fnPart + "('" + escErr + "')", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                                    EnqueueMicrotask(() => { try { RunInline(fnPart + "('" + escErr + "')", _ctx); } catch { /* swallow */ } });
                                 }
                             }
                             else
                             {
                                 var esc = JsEscape(body, '\'');
-                                EnqueueMicrotask(() => { try { RunInline(fnPart + "('" + esc + "')", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                                EnqueueMicrotask(() => { try { RunInline(fnPart + "('" + esc + "')", _ctx); } catch { /* swallow */ } });
                             }
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 return true;
             }
             return false;
@@ -1286,10 +1542,10 @@ namespace BrowserCore.Engine
                         string body = bodyPart;
                         if ((body.StartsWith("\"") && body.EndsWith("\"")) || (body.StartsWith("'") && body.EndsWith("'")))
                             body = body.Substring(1, body.Length - 2);
-                        EnqueueMicrotask(() => { try { RunInline(fnPart + "('" + body + "')", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                        EnqueueMicrotask(() => { try { RunInline(fnPart + "('" + body + "')", _ctx); } catch { /* swallow */ } });
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 return true;
             }
             return false;
@@ -1303,7 +1559,7 @@ namespace BrowserCore.Engine
                 if (arg.EndsWith(")")) arg = arg.Substring(0, arg.Length - 1).Trim();
                 if (arg.StartsWith("\"") && arg.EndsWith("\"")) arg = arg.Substring(1, arg.Length - 2);
                 var codeToRun = arg;
-                EnqueueMicrotask(() => { try { RunInline(codeToRun, ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                EnqueueMicrotask(() => { try { RunInline(codeToRun, ctx); } catch { /* swallow */ } });
                 return true;
             }
             return false;
@@ -1340,7 +1596,7 @@ namespace BrowserCore.Engine
                 var code = mSI.Groups["code"].Success ? mSI.Groups["code"].Value : null;
                 var fn = mSI.Groups["fn"].Success ? mSI.Groups["fn"].Value : null;
                 var id = ScheduleInterval(code ?? fn, ms, isFnName: fn != null);
-                try { _host.SetStatus("setInterval id=" + id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { _host.SetStatus("setInterval id=" + id); } catch { /* swallow */ }
                 return true;
             }
             var mCI = Regex.Match(line, @"^\s*clearInterval\s*\(\s*(?<id>\d+)\s*\)\s*;?$", RegexOptions.IgnoreCase);
@@ -1348,7 +1604,7 @@ namespace BrowserCore.Engine
 
             // ---------- requestAnimationFrame / cancelAnimationFrame ----------
             var mRaf = Regex.Match(line, @"^\s*requestAnimationFrame\s*\(\s*(?<fn>[A-Za-z_$][A-Za-z0-9_$]*)\s*\)\s*;?$", RegexOptions.IgnoreCase);
-            if (mRaf.Success) { var id = RequestAnimationFrame(mRaf.Groups["fn"].Value); try { _host.SetStatus("rAF id=" + id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return true; }
+            if (mRaf.Success) { var id = RequestAnimationFrame(mRaf.Groups["fn"].Value); try { _host.SetStatus("rAF id=" + id); } catch { /* swallow */ } return true; }
             var mCRaf = Regex.Match(line, @"^\s*cancelAnimationFrame\s*\(\s*(?<id>\d+)\s*\)\s*;?$", RegexOptions.IgnoreCase);
             if (mCRaf.Success) { int id; if (int.TryParse(mCRaf.Groups["id"].Value, out id)) CancelAnimationFrame(id); return true; }
 
@@ -1365,7 +1621,7 @@ namespace BrowserCore.Engine
             {
                 var bag = GetLocalStorageFor(ctx?.BaseUri ?? _ctx?.BaseUri);
                 string val = null; lock (_storageLock) bag.TryGetValue(mLSgetCb.Groups["k"].Value, out val);
-                var esc = JsEscape(val ?? "", '\''); EnqueueMicrotask(() => { try { RunInline(mLSgetCb.Groups["fn"].Value + "('" + esc + "')", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                var esc = JsEscape(val ?? "", '\''); EnqueueMicrotask(() => { try { RunInline(mLSgetCb.Groups["fn"].Value + "('" + esc + "')", _ctx); } catch { /* swallow */ } });
                 return true;
             }
             var mLSrem = Regex.Match(line, @"^\s*localStorage\s*\.removeItem\s*\(\s*['""](?<k>.+?)['""]\s*\)\s*;?$", RegexOptions.IgnoreCase);
@@ -1379,7 +1635,7 @@ namespace BrowserCore.Engine
             {
                 var bag = GetLocalStorageFor(ctx?.BaseUri ?? _ctx?.BaseUri);
                 lock (_storageLock) bag.Clear();
-                try { var _ = SaveLocalStorageAsync(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { var _ = SaveLocalStorageAsync(); } catch { /* swallow */ }
                 return true;
             }
 
@@ -1396,7 +1652,7 @@ namespace BrowserCore.Engine
             {
                 var bagSS = GetSessionStorageFor(ctx?.BaseUri ?? _ctx?.BaseUri);
                 string vSS = null; lock (_storageLock) bagSS.TryGetValue(mSSget.Groups["k"].Value, out vSS);
-                var escSS = JsEscape(vSS ?? "", '\''); EnqueueMicrotask(() => { try { RunInline(mSSget.Groups["fn"].Value + "('" + escSS + "')", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                var escSS = JsEscape(vSS ?? "", '\''); EnqueueMicrotask(() => { try { RunInline(mSSget.Groups["fn"].Value + "('" + escSS + "')", _ctx); } catch { /* swallow */ } });
                 return true;
             }
             var mSSrem = Regex.Match(line, @"^\s*sessionStorage\s*\.removeItem\s*\(\s*['\""](?<k>.+?)['\""]\s*\)\s*;?$", RegexOptions.IgnoreCase);
@@ -1421,7 +1677,7 @@ namespace BrowserCore.Engine
             {
                 var s = GetCookieString(ctx?.BaseUri ?? _ctx?.BaseUri);
                 var esc = JsEscape(s ?? "", '\'');
-                EnqueueMicrotask(() => { try { RunInline(mCget.Groups["fn"].Value + "('" + esc + "')", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                EnqueueMicrotask(() => { try { RunInline(mCget.Groups["fn"].Value + "('" + esc + "')", _ctx); } catch { /* swallow */ } });
                 return true;
             }
 
@@ -1449,14 +1705,14 @@ namespace BrowserCore.Engine
             if (mPush.Success)
             {
                 var u = Resolve(ctx?.BaseUri ?? _ctx?.BaseUri, mPush.Groups["url"].Value);
-                if (u != null) { HistoryPush(u); try { _host.SetStatus("pushState -> " + u); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
+                if (u != null) { HistoryPush(u); try { _host.SetStatus("pushState -> " + u); } catch { /* swallow */ } }
                 return true;
             }
             var mRep = Regex.Match(line, @"^\s*history\s*\.replaceState\s*\(\s*.*?,\s*['""](?<url>.*?)['""]\s*\)\s*;?$", RegexOptions.IgnoreCase);
             if (mRep.Success)
             {
                 var u = Resolve(ctx?.BaseUri ?? _ctx?.BaseUri, mRep.Groups["url"].Value);
-                if (u != null) { HistoryReplace(u); try { _host.SetStatus("replaceState -> " + u); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
+                if (u != null) { HistoryReplace(u); try { _host.SetStatus("replaceState -> " + u); } catch { /* swallow */ } }
                 return true;
             }
             if (Regex.IsMatch(line, @"^\s*history\s*\.back\s*\(\s*\)\s*;?$", RegexOptions.IgnoreCase)) { HistoryGo(-1); return true; }
@@ -1475,7 +1731,7 @@ namespace BrowserCore.Engine
                 {
                     TraceFeatureGap("Audio", "new Audio().play", mAudioNewPlay.Groups["url"].Value ?? string.Empty);
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 return true;
             }
 
@@ -1492,7 +1748,7 @@ namespace BrowserCore.Engine
                     var el = doc.getElementById(id) as JsDomElement;
                     if (el != null) { el.innerText = txt; RequestRepaint(); }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 return true;
             }
             // document.getElementById('id').addEventListener('evt', fn)
@@ -1525,7 +1781,7 @@ namespace BrowserCore.Engine
                     var el = doc.getElementById(id) as JsDomElement;
                     if (el != null) { el.innerText = b64; RequestRepaint(); }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 return true;
             }
 
@@ -1551,19 +1807,19 @@ if (mST.Success)
                     if (fn != null) RunInline(fn + "()", _ctx);
                     else if (!string.IsNullOrEmpty(code)) RunInline(code, _ctx);
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             };
             if (repaintHost != null) repaintHost.InvokeOnUiThread(run); else run();
         }
-        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+        catch { /* swallow */ }
         finally
         {
-            lock (_timers) { try { if (_timers.ContainsKey(id)) { _timers[id].Dispose(); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } _timers.Remove(id); }
+            lock (_timers) { try { if (_timers.ContainsKey(id)) { _timers[id].Dispose(); } } catch { /* swallow */ } _timers.Remove(id); }
         }
     };
     t = new System.Threading.Timer(fire, null, ms, System.Threading.Timeout.Infinite);
     lock (_timers) _timers[id] = t;
-    try { _host.SetStatus("setTimeout id=" + id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+    try { _host.SetStatus("setTimeout id=" + id); } catch { /* swallow */ }
     return true;
 }
 var mCT = System.Text.RegularExpressions.Regex.Match(line, @"^\s*clearTimeout\s*\(\s*(?<id>\d+)\s*\)\s*;?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
@@ -1573,7 +1829,7 @@ if (mCT.Success)
     {
         lock (_timers)
         {
-            System.Threading.Timer t; if (_timers.TryGetValue(id, out t)) { try { t.Dispose(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } _timers.Remove(id); }
+            System.Threading.Timer t; if (_timers.TryGetValue(id, out t)) { try { t.Dispose(); } catch { /* swallow */ } _timers.Remove(id); }
         }
     }
     return true;
@@ -1585,7 +1841,7 @@ if (mLog.Success)
 {
     var kind = mLog.Groups["kind"].Value.ToLowerInvariant();
     var msg = mLog.Groups["msg"].Value;
-    try { _host.SetStatus(kind + ": " + msg); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+    try { _host.SetStatus(kind + ": " + msg); } catch { /* swallow */ }
     try { BrowserCore.Engine.DevToolsLogger.Log("[JS:" + kind.ToUpperInvariant() + "] " + msg); } catch { }
     return true;
 }
@@ -1595,21 +1851,21 @@ var mAssign = System.Text.RegularExpressions.Regex.Match(line, @"^\s*location\s*
 if (mAssign.Success)
 {
     var u = Resolve(ctx?.BaseUri ?? _ctx?.BaseUri, mAssign.Groups["u"].Value);
-    if (u != null) { try { _host.Navigate(u); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
+    if (u != null) { try { _host.Navigate(u); } catch { /* swallow */ } }
     return true;
 }
 var mReplace = System.Text.RegularExpressions.Regex.Match(line, @"^\s*location\s*\.\s*replace\s*\(\s*['""](?<u>.+?)['""]\s*\)\s*;?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 if (mReplace.Success)
 {
     var u = Resolve(ctx?.BaseUri ?? _ctx?.BaseUri, mReplace.Groups["u"].Value);
-    if (u != null) { try { _host.Navigate(u); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
+    if (u != null) { try { _host.Navigate(u); } catch { /* swallow */ } }
     return true;
 }
 var mHrefSet = System.Text.RegularExpressions.Regex.Match(line, @"^\s*location\s*\.\s*href\s*=\s*['""](?<u>.+?)['""]\s*;?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 if (mHrefSet.Success)
 {
     var u = Resolve(ctx?.BaseUri ?? _ctx?.BaseUri, mHrefSet.Groups["u"].Value);
-    if (u != null) { try { _host.Navigate(u); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
+    if (u != null) { try { _host.Navigate(u); } catch { /* swallow */ } }
     return true;
 }
 
@@ -1628,7 +1884,7 @@ if (mHrefSet.Success)
                         tval = mTitle.Groups["t"].Value;
                     _host.SetTitle(tval);
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 return true;
             }
 
@@ -1842,7 +2098,7 @@ if (mHrefSet.Success)
                         BuildSafeSubresourceHeaders(req, ctx?.BaseUri ?? _ctx?.BaseUri);
 
                         foreach (var kv in st.Headers)
-                            try { req.Headers.TryAddWithoutValidation(kv.Key, kv.Value); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            try { req.Headers.TryAddWithoutValidation(kv.Key, kv.Value); } catch { /* swallow */ }
 
                         if (!string.IsNullOrEmpty(st.Body) && st.Method != null &&
                            (string.Equals(st.Method, "POST", StringComparison.OrdinalIgnoreCase) ||
@@ -1858,7 +2114,7 @@ if (mHrefSet.Success)
                         status = (int)resp.StatusCode;
 
                         var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-                        string enc = null; try { enc = string.Join(",", resp.Content.Headers.ContentEncoding); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        string enc = null; try { enc = string.Join(",", resp.Content.Headers.ContentEncoding); } catch { /* swallow */ }
                         text = DecodeBytes(bytes, enc);
                     }
                 }
@@ -1874,7 +2130,7 @@ if (mHrefSet.Success)
                     if (error != null && !string.IsNullOrWhiteSpace(st.OnErrorFn))
                     {
                         var escErr = JsEscape(text ?? "", '\'');
-                        EnqueueMicrotask(() => { try { RunInline(st.OnErrorFn + "(" + status + ",'" + escErr + "')", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                        EnqueueMicrotask(() => { try { RunInline(st.OnErrorFn + "(" + status + ",'" + escErr + "')", _ctx); } catch { /* swallow */ } });
                         return;
                     }
 
@@ -1882,18 +2138,18 @@ if (mHrefSet.Success)
                     if (bodyOut.Length <= _inlineThreshold)
                     {
                         var esc = JsEscape(bodyOut, '\'');
-                        EnqueueMicrotask(() => { try { RunInline(st.OnLoadFn + "(" + status + ",'" + esc + "')", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                        EnqueueMicrotask(() => { try { RunInline(st.OnLoadFn + "(" + status + ",'" + esc + "')", _ctx); } catch { /* swallow */ } });
                     }
                     else
                     {
                         var token = RegisterResponseBody(bodyOut);
-                        EnqueueMicrotask(() => { try { RunInline("__xhr_deliver('" + token + "'," + st.OnLoadFn + "," + status + ")", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                        EnqueueMicrotask(() => { try { RunInline("__xhr_deliver('" + token + "'," + st.OnLoadFn + "," + status + ")", _ctx); } catch { /* swallow */ } });
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 finally
                 {
-                    try { lock (_xhrLock) _xhr.Remove(id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { lock (_xhrLock) _xhr.Remove(id); } catch { /* swallow */ }
                 }
             });
         }
@@ -1914,7 +2170,7 @@ if (mHrefSet.Success)
             // ***
             _host = host ?? new JsHostAdapter(_ => { }, (_, __) => { }, _ => { });
             try { _http = new System.Net.Http.HttpClient(CreateManagedHandler(null)); } catch { _http = new System.Net.Http.HttpClient(); }
-            try { var _ = RestoreLocalStorageAsync(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            try { var _ = RestoreLocalStorageAsync(); } catch { /* swallow */ }
 #if !USE_NILJS
             // start a background cleanup task to evict expired or over-capacity response tokens
             if (!_responseCleanupRunning)
@@ -1941,11 +2197,11 @@ if (mHrefSet.Success)
                                     }
                                 }
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                             await Task.Delay(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 });
             }
 #endif
@@ -1956,7 +2212,10 @@ if (mHrefSet.Success)
                 _nilInit();
                 _moduleLoader = new ModuleLoader(this, _nil);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
+#if USE_NILJS
+            try { var _ = LoadBadHashStoreAsync(); } catch { }
+#endif
 #endif
 
 #if USE_JINT && !WINDOWS_PHONE_APP
@@ -1987,13 +2246,13 @@ if (mHrefSet.Success)
             {
                 await SaveLocalStorageAsync().ConfigureAwait(false);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
-    public void LocalStorageSet(string key, string value, JsContext ctx) { try { if (!SandboxAllows(SandboxFeature.Storage, "localStorage.setItem")) return; var bag = GetLocalStorageFor(ctx?.BaseUri ?? _ctx?.BaseUri); lock(_storageLock) bag[key] = value ?? ""; PersistLocalStorage(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
+    public void LocalStorageSet(string key, string value, JsContext ctx) { try { if (!SandboxAllows(SandboxFeature.Storage, "localStorage.setItem")) return; var bag = GetLocalStorageFor(ctx?.BaseUri ?? _ctx?.BaseUri); lock(_storageLock) bag[key] = value ?? ""; PersistLocalStorage(); } catch { /* swallow */ } }
     public string LocalStorageGet(string key, JsContext ctx) { try { if (!SandboxAllows(SandboxFeature.Storage, "localStorage.getItem")) return null; var bag = GetLocalStorageFor(ctx?.BaseUri ?? _ctx?.BaseUri); string v=null; lock(_storageLock) bag.TryGetValue(key, out v); return v; } catch { return null; } }
-    public void LocalStorageRemove(string key, JsContext ctx) { try { if (!SandboxAllows(SandboxFeature.Storage, "localStorage.removeItem")) return; var bag = GetLocalStorageFor(ctx?.BaseUri ?? _ctx?.BaseUri); lock(_storageLock) bag.Remove(key); PersistLocalStorage(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
-    public void LocalStorageClear(JsContext ctx) { try { if (!SandboxAllows(SandboxFeature.Storage, "localStorage.clear")) return; var bag = GetLocalStorageFor(ctx?.BaseUri ?? _ctx?.BaseUri); lock(_storageLock) bag.Clear(); PersistLocalStorage(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
+    public void LocalStorageRemove(string key, JsContext ctx) { try { if (!SandboxAllows(SandboxFeature.Storage, "localStorage.removeItem")) return; var bag = GetLocalStorageFor(ctx?.BaseUri ?? _ctx?.BaseUri); lock(_storageLock) bag.Remove(key); PersistLocalStorage(); } catch { /* swallow */ } }
+    public void LocalStorageClear(JsContext ctx) { try { if (!SandboxAllows(SandboxFeature.Storage, "localStorage.clear")) return; var bag = GetLocalStorageFor(ctx?.BaseUri ?? _ctx?.BaseUri); lock(_storageLock) bag.Clear(); PersistLocalStorage(); } catch { /* swallow */ } }
 
     public void Reset(JsContext ctx)
         {
@@ -2007,7 +2266,7 @@ if (mHrefSet.Success)
             {
                 using (var hc = new HttpClient())
                 {
-                    try { hc.DefaultRequestHeaders.UserAgent.ParseAdd("MiniJs/1.0"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { hc.DefaultRequestHeaders.UserAgent.ParseAdd("MiniJs/1.0"); } catch { /* swallow */ }
                     return hc.GetStringAsync(uri).GetAwaiter().GetResult();
                 }
             }
@@ -2075,42 +2334,46 @@ if (mHrefSet.Success)
                     EnqueueMicrotask(() =>
                     {
                         try { cb.Call(JSValue.Undefined, new Arguments { arr, JSValue.Marshal(obs) }); }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     });
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private JSValue InternalRecordsToJSArray(List<InternalMutationRecord> records)
         {
-            var arr = SafeEval("[]");
-            for (int i = 0; i < records.Count; i++)
+            try
             {
-                var r = records[i];
-                var rec = SafeEval("({})");
-                rec["type"] = JSValue.Marshal(r.Type ?? "");
-                rec["target"] = JSValue.Marshal(TargetDescriptor(r.Target));
-                if (r.Type == "childList")
+                var arr = SafeEval("[]");
+                for (int i = 0; i < records.Count; i++)
                 {
-                    var added = SafeEval("[]");
-                    if (r.Added != null)
-                        for (int a = 0; a < r.Added.Count; a++)
-                            added[(string)a.ToString()] = JSValue.Marshal(TargetDescriptor(r.Added[a]));
-                    rec["addedNodes"] = added;
-                    var removed = SafeEval("[]");
-                    if (r.Removed != null)
-                        for (int rm = 0; rm < r.Removed.Count; rm++)
-                            removed[(string)rm.ToString()] = JSValue.Marshal(TargetDescriptor(r.Removed[rm]));
-                    rec["removedNodes"] = removed;
+                    var r = records[i];
+                    var rec = SafeEval("({})");
+                    rec["type"] = JSValue.Marshal(r.Type ?? "");
+                    rec["target"] = JSValue.Marshal(TargetDescriptor(r.Target));
+                    if (r.Type == "childList")
+                    {
+                        var added = SafeEval("[]");
+                        if (r.Added != null)
+                            for (int a = 0; a < r.Added.Count; a++)
+                                added[(string)a.ToString()] = JSValue.Marshal(TargetDescriptor(r.Added[a]));
+                        rec["addedNodes"] = added;
+                        var removed = SafeEval("[]");
+                        if (r.Removed != null)
+                            for (int rm = 0; rm < r.Removed.Count; rm++)
+                                removed[(string)rm.ToString()] = JSValue.Marshal(TargetDescriptor(r.Removed[rm]));
+                        rec["removedNodes"] = removed;
+                    }
+                    if (r.Type == "attributes")
+                    {
+                        rec["attributeName"] = JSValue.Marshal(r.AttributeName ?? "");
+                    }
+                    arr[(string)i.ToString()] = rec;
                 }
-                if (r.Type == "attributes")
-                {
-                    rec["attributeName"] = JSValue.Marshal(r.AttributeName ?? "");
-                }
-                arr[(string)i.ToString()] = rec;
+                return arr;
             }
-            return arr;
+            catch { return SafeEval("[]"); }
         }
 
         private static string TargetDescriptor(LiteElement el)
@@ -2387,7 +2650,7 @@ if (mHrefSet.Success)
             public string title
             {
                 get { return _engine._pageTitle ?? string.Empty; }
-                set { _engine._pageTitle = value; try { _engine._host?.SetTitle(value ?? string.Empty); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
+                set { _engine._pageTitle = value; try { _engine._host?.SetTitle(value ?? string.Empty); } catch { /* swallow */ } }
             }
             public object body
             {
@@ -2582,11 +2845,15 @@ if (mHrefSet.Success)
             private void TriggerPopState()
             {
 #if USE_NILJS
-                if (_engine.OnPopState != null && _engine.OnPopState.ValueType == JSValueType.Function)
+                try
                 {
-                    var evt = JSValue.Marshal(new { state = JSValue.Null });
-                    (_engine.OnPopState as Function)?.Call(JSValue.Undefined, new Arguments { evt });
+                    if (_engine.OnPopState != null && _engine.OnPopState.ValueType == JSValueType.Function)
+                    {
+                        var evt = JSValue.Marshal(new { state = JSValue.Null });
+                        (_engine.OnPopState as Function)?.Call(JSValue.Undefined, new Arguments { evt });
+                    }
                 }
+                catch { /* swallow */ }
 #endif
             }
 
@@ -2637,16 +2904,20 @@ if (mHrefSet.Success)
 
             public void observe(JSValue target, JSValue options)
             {
-                _target = target;
-                _childList = false; _attributes = false; _subtree = false; _attributeOldValue = false;
-                if (options.ValueType == JSValueType.Object)
+                try
                 {
-                    var cv = options["childList"]; if (cv.ValueType == JSValueType.Boolean) _childList = (bool)cv;
-                    var av = options["attributes"]; if (av.ValueType == JSValueType.Boolean) _attributes = (bool)av;
-                    var sv = options["subtree"]; if (sv.ValueType == JSValueType.Boolean) _subtree = (bool)sv;
-                    var ov = options["attributeOldValue"]; if (ov.ValueType == JSValueType.Boolean) _attributeOldValue = (bool)ov;
+                    _target = target;
+                    _childList = false; _attributes = false; _subtree = false; _attributeOldValue = false;
+                    if (options.ValueType == JSValueType.Object)
+                    {
+                        var cv = options["childList"]; if (cv.ValueType == JSValueType.Boolean) _childList = (bool)cv;
+                        var av = options["attributes"]; if (av.ValueType == JSValueType.Boolean) _attributes = (bool)av;
+                        var sv = options["subtree"]; if (sv.ValueType == JSValueType.Boolean) _subtree = (bool)sv;
+                        var ov = options["attributeOldValue"]; if (ov.ValueType == JSValueType.Boolean) _attributeOldValue = (bool)ov;
+                    }
+                    lock (_engine._mutationLock) { if (!_engine._activeObservers.Contains(this)) _engine._activeObservers.Add(this); }
                 }
-                lock (_engine._mutationLock) { if (!_engine._activeObservers.Contains(this)) _engine._activeObservers.Add(this); }
+                catch { /* swallow */ }
             }
 
             public void disconnect()
@@ -2883,7 +3154,7 @@ if (mHrefSet.Success)
                                         resp["headers"] = JSValue.Marshal(new { get = new Func<Arguments, JSValue>(h => JSValue.Marshal("text/plain")) });
                                         onResolve.Call(JSValue.Undefined, new Arguments { resp });
                                     }
-                                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                    catch { /* swallow */ }
                                 });
                             }
                             catch (Exception ex)
@@ -2899,7 +3170,7 @@ if (mHrefSet.Success)
                                         errResp["text"] = JSValue.Marshal(new Func<Arguments, JSValue>(b => JSValue.Marshal(ex.Message ?? "")));
                                         onResolve.Call(JSValue.Undefined, new Arguments { errResp });
                                     }
-                                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                    catch { /* swallow */ }
                                 });
                             }
                         });
@@ -2937,10 +3208,10 @@ if (mHrefSet.Success)
                         {
                             EnqueueMacroTask(() => 
                             {
-                                try { var fn = func as Function; if (fn != null) fn.Call(JSValue.Undefined, new Arguments()); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                try { var fn = func as Function; if (fn != null) fn.Call(JSValue.Undefined, new Arguments()); } catch { /* swallow */ }
                             });
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     }, null, delay, Timeout.Infinite);
                     lock (_timers) _timers[id] = t;
                     return JSValue.Marshal(id);
@@ -2976,10 +3247,10 @@ if (mHrefSet.Success)
                         {
                             EnqueueMacroTask(() => 
                             {
-                                try { var fn = func as Function; if (fn != null) fn.Call(JSValue.Undefined, new Arguments()); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                try { var fn = func as Function; if (fn != null) fn.Call(JSValue.Undefined, new Arguments()); } catch { /* swallow */ }
                             });
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     }, null, delay, delay);
                     lock (_timers) _timers[id] = t;
                     return JSValue.Marshal(id);
@@ -3006,10 +3277,10 @@ if (mHrefSet.Success)
                 var store = new Dictionary<string, object>();
                 return JSValue.Marshal(new
                 {
-                    set = new Func<Arguments, JSValue>(a => { try { if (a.Length >= 2) store["v"] = a[1]; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JSValue.Undefined; }),
-                    get = new Func<Arguments, JSValue>(a => { try { if (a.Length >= 1 && store.TryGetValue("v", out var v)) return v as JSValue ?? JSValue.Undefined; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JSValue.Undefined; }),
-                    has = new Func<Arguments, JSValue>(a => { try { return JSValue.Marshal(store.ContainsKey("v")); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JSValue.Marshal(false); }),
-                    delete = new Func<Arguments, JSValue>(a => { try { return JSValue.Marshal(store.Remove("v")); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JSValue.Marshal(false); })
+                    set = new Func<Arguments, JSValue>(a => { try { if (a.Length >= 2) store["v"] = a[1]; } catch { /* swallow */ } return JSValue.Undefined; }),
+                    get = new Func<Arguments, JSValue>(a => { try { if (a.Length >= 1 && store.TryGetValue("v", out var v)) return v as JSValue ?? JSValue.Undefined; } catch { /* swallow */ } return JSValue.Undefined; }),
+                    has = new Func<Arguments, JSValue>(a => { try { return JSValue.Marshal(store.ContainsKey("v")); } catch { /* swallow */ } return JSValue.Marshal(false); }),
+                    delete = new Func<Arguments, JSValue>(a => { try { return JSValue.Marshal(store.Remove("v")); } catch { /* swallow */ } return JSValue.Marshal(false); })
                 });
             })));
 
@@ -3019,9 +3290,9 @@ if (mHrefSet.Success)
                 var store = new HashSet<string>();
                 return JSValue.Marshal(new
                 {
-                    add = new Func<Arguments, JSValue>(a => { try { store.Add("v"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JSValue.Undefined; }),
-                    has = new Func<Arguments, JSValue>(a => { try { return JSValue.Marshal(store.Contains("v")); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JSValue.Marshal(false); }),
-                    delete = new Func<Arguments, JSValue>(a => { try { return JSValue.Marshal(store.Remove("v")); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JSValue.Marshal(false); })
+                    add = new Func<Arguments, JSValue>(a => { try { store.Add("v"); } catch { /* swallow */ } return JSValue.Undefined; }),
+                    has = new Func<Arguments, JSValue>(a => { try { return JSValue.Marshal(store.Contains("v")); } catch { /* swallow */ } return JSValue.Marshal(false); }),
+                    delete = new Func<Arguments, JSValue>(a => { try { return JSValue.Marshal(store.Remove("v")); } catch { /* swallow */ } return JSValue.Marshal(false); })
                 });
             })));
 
@@ -3263,15 +3534,30 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
         /// <summary>Expose current DOM to the engine (for document.* bridge).</summary>
         public void SetDom(LiteElement domRoot)
         {
+            // Phase DIAG (issue D): reset per-page counters
+            _diagSafeEvalCalls = 0; _diagSafeEvalFails = 0; _diagJSException = 0;
+            try { System.Diagnostics.Debug.WriteLine("[DIAG:JS-RESET] SafeEval/js counters reset for new SetDom"); } catch { }
+            // reset per-page NiL.JS failure state
+            lock (_nilEvalLock)
+            {
+                // Keep _badScriptHashes persistent across navigations so previously
+                // observed failing scripts remain skipped. Only reset per-page
+                // counters here.
+                _safeEvalErrorCount = 0;
+                _skipInlineScriptsForPage = false;
+            }
+            // reset per-page skipped diagnostics counter
+            System.Threading.Interlocked.Exchange(ref _diagSkippedInlineScripts, 0);
             _domRoot = domRoot;
             // JS is "enabled" in this app; hide server noscript overlays & flip no-js ? js
             this.SanitizeForScriptingEnabled(domRoot);
 #if USE_NILJS
-            try { _nilSyncDocument(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            try { _nilSyncDocument(); } catch { /* swallow */ }
             
             // Execute inline scripts
             try
             {
+                int _diagScriptIdx = 0;
                 foreach (var s in _domRoot.SelfAndDescendants())
                 {
                     if (string.Equals(s.Tag, "script", StringComparison.OrdinalIgnoreCase))
@@ -3280,42 +3566,181 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                         var code = CollectScriptText(s);
                         if (!string.IsNullOrWhiteSpace(code))
                         {
+                            // Phase DIAG (issue D): log script preview so we can map a
+                            // later NiL.JS IndexOutOfRangeException/JSException to a
+                            // specific <script> block in the page.
+                            _diagScriptIdx++;
+                            string preview = code.Length > 240 ? code.Substring(0, 240) + "…" : code;
+                            preview = preview.Replace("\r", " ").Replace("\n", " ");
+                            try { System.Diagnostics.Debug.WriteLine("[DIAG:JS-SCRIPT] idx=" + _diagScriptIdx + " len=" + code.Length + " preview=\"" + preview + "\""); } catch { }
+
+                            // Pre-skip known-bad inline scripts to avoid a guaranteed crash.
+                            var h = 0;
+                            try { unchecked { for (int i = 0; i < code.Length; i++) h = h * 31 + code[i]; } } catch { }
+                            bool preSkip = false;
+                            lock (_nilEvalLock)
+                            {
+                                if (_skipInlineScriptsForPage)
+                                {
+                                    preSkip = true;
+                                }
+                                else if (h != 0)
+                                {
+                                    BadHashRecord rec = null;
+                                    _badHashRecords.TryGetValue(h.ToString(), out rec);
+                                    if (rec != null && rec.Count >= BadHashRecordThreshold) preSkip = true;
+                                }
+                            }
+                            if (preSkip)
+                            {
+                                System.Threading.Interlocked.Increment(ref _diagSkippedInlineScripts);
+                                try { System.Diagnostics.Debug.WriteLine("[DIAG:JS-SKIP] pre-skip hash=" + h + " preview=\"" + (preview.Length > 80 ? preview.Substring(0, 80) + "…" : preview) + "\""); } catch { }
+                                continue;
+                            }
+
                             RunGlobalScript(code);
                         }
                     }
                 }
+                try { System.Diagnostics.Debug.WriteLine("[DIAG:JS-SUMMARY] inline-scripts=" + _diagScriptIdx + " SafeEval.calls=" + _diagSafeEvalCalls + " SafeEval.fails=" + _diagSafeEvalFails + " JSException=" + _diagJSException + " SkippedInline=" + _diagSkippedInlineScripts); } catch { }
+                try { DumpBadHashSummary(10); } catch { }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 #endif
         }
 
         private JSValue SafeEval(string code)
         {
 #if USE_NILJS
+            // Phase DIAG (issue D): code hash + first 80 chars of code to
+            // disambiguate which call site triggered the failure.
+            int _diagCodeHash = 0;
+            string _diagCodePreview = "";
             try
             {
+                if (!string.IsNullOrEmpty(code))
+                {
+                    unchecked { for (int i = 0; i < code.Length; i++) _diagCodeHash = _diagCodeHash * 31 + code[i]; }
+                    _diagCodePreview = code.Length > 80 ? code.Substring(0, 80) + "…" : code;
+                    _diagCodePreview = _diagCodePreview.Replace("\r", " ").Replace("\n", " ");
+                }
+            }
+            catch { }
+            _diagSafeEvalCalls++;
+            try
+            {
+                // If we've globally disabled inline scripts for this page, skip evaluation.
+                    lock (_nilEvalLock)
+                    {
+                        if (_skipInlineScriptsForPage)
+                        {
+                            try { System.Diagnostics.Debug.WriteLine("[DIAG:JS-SKIP] global skip active (threshold reached)"); } catch { }
+                            return JSValue.Undefined;
+                        }
+                        if (_diagCodeHash != 0)
+                        {
+                            BadHashRecord recChk = null;
+                            _badHashRecords.TryGetValue(_diagCodeHash.ToString(), out recChk);
+                            if (recChk != null && recChk.Count >= BadHashRecordThreshold)
+                            {
+                                try { System.Diagnostics.Debug.WriteLine("[DIAG:JS-SKIP] hash=" + _diagCodeHash + " preview=\"" + _diagCodePreview + "\""); } catch { }
+                                return JSValue.Undefined;
+                            }
+                        }
+                    }
+
                 if (_evalContext != null)
                 {
                     _niljsSafeEvalFailed = false;
-                    return _evalContext.Eval(code);
+                    // Serialize calls into NiL.JS: only one thread may Eval at a time
+                    lock (_nilEvalLock)
+                    {
+                        return _evalContext.Eval(code);
+                    }
                 }
             }
             catch (InvalidOperationException)
             {
                 // Context likely corrupted — recreate and retry
-                System.Diagnostics.Debug.WriteLine("[NiLJS] Context corrupt, reinitializing...");
+                System.Diagnostics.Debug.WriteLine("[NiLJS] Context corrupt, reinitializing... (hash=" + _diagCodeHash + " preview=\"" + _diagCodePreview + "\")");
                 _nilInit();
                 try
                 {
                     if (_evalContext != null)
-                        return _evalContext.Eval(code);
+                    {
+                        lock (_nilEvalLock)
+                        {
+                            return _evalContext.Eval(code);
+                        }
+                    }
                 }
-                catch (Exception ex2) { System.Diagnostics.Debug.WriteLine("[NiLJS] SafeEval retry failed: " + ex2.GetType().Name + ": " + ex2.Message); }
+                catch (Exception ex2) { System.Diagnostics.Debug.WriteLine("[NiLJS] SafeEval retry failed: " + ex2.GetType().Name + ": " + ex2.Message + " (hash=" + _diagCodeHash + " preview=\"" + _diagCodePreview + "\")"); _niljsSafeEvalFailed = true; _diagSafeEvalFails++; }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("[NiLJS] SafeEval: " + ex.GetType().Name + ": " + ex.Message);
+                System.Diagnostics.Debug.WriteLine("[NiLJS] SafeEval: " + ex.GetType().Name + ": " + ex.Message + " (hash=" + _diagCodeHash + " preview=\"" + _diagCodePreview + "\")");
                 _niljsSafeEvalFailed = true;
+                _diagSafeEvalFails++;
+                if (ex.GetType().Name == "JSException") _diagJSException++;
+
+                try
+                {
+                    // Only record hard NiL.JS failures to the bad-script set to avoid overbroad skipping.
+                    var shouldRecord = ex is IndexOutOfRangeException || ex.GetType().Name == "JSException";
+                    lock (_nilEvalLock)
+                    {
+                        bool needPersist = false;
+                        if (shouldRecord && _diagCodeHash != 0)
+                        {
+                            // Record/increment a BadHashRecord entry keyed by string(hash)
+                            var hk = _diagCodeHash.ToString();
+                            BadHashRecord rec = null;
+                            if (!_badHashRecords.TryGetValue(hk, out rec) || rec == null)
+                            {
+                                rec = new BadHashRecord
+                                {
+                                    Hash = hk,
+                                    Preview = (_diagCodePreview.Length > 160) ? _diagCodePreview.Substring(0, 160) : _diagCodePreview,
+                                    Count = 1,
+                                    FirstSeen = DateTime.UtcNow,
+                                    LastSeen = DateTime.UtcNow
+                                };
+                                _badHashRecords[hk] = rec;
+                            }
+                            else
+                            {
+                                try { rec.Count++; } catch { rec.Count = (rec.Count < int.MaxValue) ? rec.Count + 1 : rec.Count; }
+                                rec.LastSeen = DateTime.UtcNow;
+                                if (string.IsNullOrWhiteSpace(rec.Preview) && !string.IsNullOrWhiteSpace(_diagCodePreview)) rec.Preview = (_diagCodePreview.Length > 160) ? _diagCodePreview.Substring(0, 160) : _diagCodePreview;
+                                _badHashRecords[hk] = rec;
+                            }
+
+                            if (rec != null && rec.Count >= BadHashRecordThreshold)
+                            {
+                                try { System.Diagnostics.Debug.WriteLine("[DIAG:JS-BAD] hash=" + _diagCodeHash + " reached threshold=" + rec.Count + " preview=\"" + (rec.Preview.Length > 80 ? rec.Preview.Substring(0, 80) + "…" : rec.Preview) + "\""); } catch { }
+                                // Request persistent save after leaving the nil-eval lock
+                                needPersist = true;
+                            }
+                            else
+                            {
+                                try { System.Diagnostics.Debug.WriteLine("[DIAG:JS-BAD] hash=" + _diagCodeHash + " observed-fails=" + rec.Count + " (waiting for threshold=" + BadHashRecordThreshold + ")"); } catch { }
+                            }
+                        }
+
+                        if (shouldRecord) _safeEvalErrorCount++;
+                        if (_safeEvalErrorCount > SafeEvalErrorThreshold)
+                        {
+                            _skipInlineScriptsForPage = true;
+                            try { System.Diagnostics.Debug.WriteLine("[DIAG:JS-THRESHOLD] safeEval errors=" + _safeEvalErrorCount + " -> disabling further inline scripts for this page"); } catch { }
+                        }
+                        // Persist bad-hash store if needed (outside nilEvalLock scope)
+                        if (needPersist)
+                        {
+                            try { ScheduleSaveBadHashStoreDebounced(); } catch { }
+                        }
+                    }
+                }
+                catch { /* swallow */ }
             }
 #else
             System.Diagnostics.Debug.WriteLine("[JS] SafeEval skipped (USE_NILJS not defined)");
@@ -3326,7 +3751,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
         private void RunGlobalScript(string js)
         {
             if (string.IsNullOrWhiteSpace(js)) return;
-            try { SafeEval(js); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            try { SafeEval(js); } catch { /* swallow */ }
         }
 
         private static string CollectScriptText(LiteElement n)
@@ -3372,7 +3797,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                 var body = (root.QueryByTag("body") ?? Enumerable.Empty<LiteElement>()).FirstOrDefault();
                 if (body != null) flipClass(body);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             try
             {
@@ -3382,7 +3807,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                         toRemove.Add(n);
                 foreach (var n in toRemove) n.Parent?.Children.Remove(n);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             this.RequestRepaint();                    // OK in instance method
         }
@@ -3402,14 +3827,14 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
             {
                 try
                 {
-                    try { ClearTimeout(id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { ClearTimeout(id); } catch { /* swallow */ }
                     EnqueueMacroTask(() =>
                     {
                         try { ExecuteCachedInline(compiled); }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     });
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }, null, ms, Timeout.Infinite);
             lock (_timers) { _timers[id] = t; }
             return id;
@@ -3430,10 +3855,10 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     EnqueueMacroTask(() =>
                     {
                         try { ExecuteCachedInline(compiled); }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     });
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }, null, ms, ms);
             lock (_timers) { _timers[id] = t; }
             return id;
@@ -3573,7 +3998,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
             {
                 Timer t; if (_timers.TryGetValue(id, out t))
                 {
-                    try { t.Dispose(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { t.Dispose(); } catch { /* swallow */ }
                     _timers.Remove(id);
                 }
             }
@@ -3586,11 +4011,11 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
             if (repaintHost != null)
             {
                 try { repaintHost.InvokeOnUiThread(action); return; }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }
 
             try { action(); }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private void EnqueueMacroTask(Action action)
@@ -3633,10 +4058,10 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
 
                 System.Threading.Interlocked.Exchange(ref _macroExecuting, 1);
                 try { task(); }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 finally
                 {
-                    try { DrainMicrotasksInternal(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { DrainMicrotasksInternal(); } catch { /* swallow */ }
                     System.Threading.Interlocked.Exchange(ref _macroExecuting, 0);
                 }
             }
@@ -3685,7 +4110,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                 }
 
                 try { work?.Invoke(); }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 processed++;
             }
 
@@ -3743,10 +4168,10 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                 }
 
                 var message = builder.ToString();
-                try { System.Diagnostics.Debug.WriteLine(message); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
-                try { _host?.SetStatus(message); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { System.Diagnostics.Debug.WriteLine(message); } catch { /* swallow */ }
+                try { _host?.SetStatus(message); } catch { /* swallow */ }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         internal void ReportMiniRunnerFailure(string phase, string snippet, Exception ex)
@@ -3787,7 +4212,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     if (val != null && string.Equals(val.ToString(), "true", StringComparison.OrdinalIgnoreCase)) return true;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 #endif
 #if USE_JINT && !WINDOWS_PHONE_APP
             // Try Jint first for ES5 inline code; wrap to capture return value
@@ -3804,7 +4229,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                         // if explicit false is returned, cancel default
                         if (val.IsBoolean() && !val.AsBoolean()) return true;
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
             }
             catch { /* fall back to JS-0 allowlist below */ }
@@ -3882,7 +4307,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                         var el = doc.getElementById(id) as JsDomElement;
                         if (el != null) { el.innerHTML = val; RequestRepaint(); }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                     continue;
                 }
 
@@ -3901,7 +4326,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                         var el = doc.getElementById(id) as JsDomElement;
                         if (el != null) { el.setInnerHTML(val, flag); RequestRepaint(); }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                     continue;
                 }
 
@@ -3930,7 +4355,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                 if (mLog.Success) { _host.SetStatus(mLog.Groups["msg"].Value ?? ""); continue; }
                 var mOpen = RxWindowOpen.Match(line);
                 if (mOpen.Success) { Navigate(mOpen.Groups["url"].Value); continue; }
-                if (RxLocationReload.IsMatch(line)) { try { if (_ctx?.BaseUri != null) _host.Navigate(_ctx.BaseUri); else RequestRepaint(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } continue; }
+                if (RxLocationReload.IsMatch(line)) { try { if (_ctx?.BaseUri != null) _host.Navigate(_ctx.BaseUri); else RequestRepaint(); } catch { /* swallow */ } continue; }
                 if (RxVoidZero.IsMatch(line)) { continue; }
 
                 // document.getElementById('id').click()
@@ -3942,7 +4367,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                 if (mClick.Success)
                 {
                     var id = mClick.Groups["id"].Value;
-                    try { RaiseElementEvent(id, "click"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { RaiseElementEvent(id, "click"); } catch { /* swallow */ }
                     continue;
                 }
 
@@ -4015,7 +4440,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     int ms; if (!int.TryParse(mTO.Groups["ms"].Value, out ms)) ms = 0;
                     var id = ScheduleTimeout(code, ms);
                     // no return value to JS-0, but we can SetStatus with id for debugging
-                    try { _host.SetStatus("setTimeout id=" + id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { _host.SetStatus("setTimeout id=" + id); } catch { /* swallow */ }
                     continue;
                 }
 
@@ -4026,7 +4451,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     int ms2 = 0; int.TryParse(mTO2.Groups["ms"].Value, out ms2);
                     var fn = mTO2.Groups["fn"].Value;
                     var id2 = ScheduleTimeout(fn + "()", ms2);
-                    try { _host.SetStatus("setTimeout id=" + id2); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { _host.SetStatus("setTimeout id=" + id2); } catch { /* swallow */ }
                     continue;
                 }
 
@@ -4036,7 +4461,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                 {
                     var code = mSI.Groups["code"].Value; int ms; if (!int.TryParse(mSI.Groups["ms"].Value, out ms)) ms = 0;
                     var id = ScheduleInterval(code, ms);
-                    try { _host.SetStatus("setInterval id=" + id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { _host.SetStatus("setInterval id=" + id); } catch { /* swallow */ }
                     continue;
                 }
 
@@ -4047,7 +4472,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     int ms = 0; int.TryParse(mSIF.Groups["ms"].Value, out ms);
                     var fn = mSIF.Groups["fn"].Value;
                     var id = ScheduleInterval(fn + "()", ms);
-                    try { _host.SetStatus("setInterval id=" + id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { _host.SetStatus("setInterval id=" + id); } catch { /* swallow */ }
                     continue;
                 }
 
@@ -4076,7 +4501,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                                 // navigator.serviceWorker.register(...) no-op to keep sites from hard-failing
                 if (Regex.IsMatch(line, @"^\s*navigator\s*\.\s*serviceWorker\s*\.\s*register\s*\(", RegexOptions.IgnoreCase))
                 {
-                    try { _host.SetStatus("serviceWorker.register: no-op"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { _host.SetStatus("serviceWorker.register: no-op"); } catch { /* swallow */ }
                     continue;
                 }// fetchText('url','elementId') -> populates element.innerText with fetched content
                 var mFetch = RxFetchText.Match(line);
@@ -4099,7 +4524,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                                 var el = doc.getElementById(id) as JsDomElement;
                                 if (el != null) { el.innerText = txt; RequestRepaint(); }
                             }
-                            catch (Exception ex) { try { _host.SetStatus("fetchText failed: " + ex.Message); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
+                            catch (Exception ex) { try { _host.SetStatus("fetchText failed: " + ex.Message); } catch { /* swallow */ } }
                         });
                     }
                     continue;
@@ -4123,9 +4548,9 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                                 else txt = await FetchScriptStringAsync(resolved, _ctx?.BaseUri).ConfigureAwait(false);
                                 var exec = code;
                                 if (!string.IsNullOrEmpty(exec) && exec.Contains("%s")) exec = exec.Replace("%s", txt ?? "");
-                                try { RunInline(exec, _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                try { RunInline(exec, _ctx); } catch { /* swallow */ }
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                         });
                     }
                     continue;
@@ -4150,9 +4575,9 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                                 // schedule as microtask to run in JS-0 and pass a lightweight Response-like object
                                 var sr = new SimpleResponse(txt);
                                 var respExpr = sr.EmitResponseObject(RegisterResponseBody, () => _inlineThreshold);
-                                EnqueueMicrotask(() => { try { RunInline(fn + "(" + respExpr + ")", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                                EnqueueMicrotask(() => { try { RunInline(fn + "(" + respExpr + ")", _ctx); } catch { /* swallow */ } });
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                         });
                     }
                     continue;
@@ -4209,23 +4634,23 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                                     {
                                         var parsed = Windows.Data.Json.JsonValue.Parse(body) as Windows.Data.Json.IJsonValue;
                                         var literal = JsonToJsLiteral(parsed);
-                                        EnqueueMicrotask(() => { try { RunInline(fnPart.Substring(0, fnPart.Length - ".json_callback".Length) + "(" + literal + ")", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                                        EnqueueMicrotask(() => { try { RunInline(fnPart.Substring(0, fnPart.Length - ".json_callback".Length) + "(" + literal + ")", _ctx); } catch { /* swallow */ } });
                                     }
                                     catch
                                     {
                                         var escErr = JsEscape(body, '\'');
-                                        EnqueueMicrotask(() => { try { RunInline(fnPart + "('" + escErr + "')", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                                        EnqueueMicrotask(() => { try { RunInline(fnPart + "('" + escErr + "')", _ctx); } catch { /* swallow */ } });
                                     }
                                 }
                                 else
                                 {
                                     var esc = JsEscape(body, '\'');
-                                    EnqueueMicrotask(() => { try { RunInline(fnPart + "('" + esc + "')", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                                    EnqueueMicrotask(() => { try { RunInline(fnPart + "('" + esc + "')", _ctx); } catch { /* swallow */ } });
                                 }
                             }
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                     continue;
                 }
 
@@ -4234,7 +4659,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                 if (mPThenFn.Success)
                 {
                     var fn = mPThenFn.Groups["fn"].Value;
-                    EnqueueMicrotask(() => { try { RunInline(fn + "()", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                    EnqueueMicrotask(() => { try { RunInline(fn + "()", _ctx); } catch { /* swallow */ } });
                     continue;
                 }
 
@@ -4248,10 +4673,10 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                         if (inside.StartsWith("\"") && inside.EndsWith("\""))
                         {
                             var code = inside.Substring(1, inside.Length - 2);
-                            EnqueueMicrotask(() => { try { RunInline(code, ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                            EnqueueMicrotask(() => { try { RunInline(code, ctx); } catch { /* swallow */ } });
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                     continue;
                 }
 
@@ -4263,7 +4688,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     if (arg.EndsWith(")")) arg = arg.Substring(0, arg.Length - 1).Trim();
                     if (arg.StartsWith("\"") && arg.EndsWith("\"")) arg = arg.Substring(1, arg.Length - 2);
                     var codeToRun = arg;
-                    EnqueueMicrotask(() => { try { RunInline(codeToRun, ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                    EnqueueMicrotask(() => { try { RunInline(codeToRun, ctx); } catch { /* swallow */ } });
                     continue;
                 }
 
@@ -4289,10 +4714,10 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                                 body = body.Substring(1, body.Length - 2);
                             // schedule microtask that calls fnPart(body)
                             var escaped = body; // body is already host-escaped when embedded
-                            EnqueueMicrotask(() => { try { RunInline(fnPart + "('" + escaped + "')", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                            EnqueueMicrotask(() => { try { RunInline(fnPart + "('" + escaped + "')", _ctx); } catch { /* swallow */ } });
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                     continue;
                 }
 
@@ -4342,7 +4767,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     if (body != null)
                     {
                         var esc = JsEscape(body, '\'');
-                        EnqueueMicrotask(() => { try { RunInline(fn + "(" + st + ",'" + esc + "')", _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                        EnqueueMicrotask(() => { try { RunInline(fn + "(" + st + ",'" + esc + "')", _ctx); } catch { /* swallow */ } });
                     }
                     continue;
                 }
@@ -4356,7 +4781,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
         public async Task RunScriptsAsync(LiteElement domRoot, Uri baseUri)
         {
             if (domRoot == null) return;
-            try { System.Diagnostics.Debug.WriteLine("[Diag] RunScriptsAsync start (Phase123) - Parallelized"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            try { System.Diagnostics.Debug.WriteLine("[Diag] RunScriptsAsync start (Phase123) - Parallelized"); } catch { /* swallow */ }
             try
             {
 
@@ -4436,7 +4861,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     const int moduleApproxBytes = 16 * 1024;
                     if (_pageScriptBytesUsed + moduleApproxBytes > _pageScriptByteBudget)
                     {
-                        try { System.Diagnostics.Debug.WriteLine("[JS-BUDGET] Skipping module script (budget exceeded): " + resolved); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        try { System.Diagnostics.Debug.WriteLine("[JS-BUDGET] Skipping module script (budget exceeded): " + resolved); } catch { /* swallow */ }
                         return;
                     }
                     Interlocked.Add(ref _pageScriptBytesUsed, moduleApproxBytes);
@@ -4452,14 +4877,14 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                 {
                      if (!isInline || len > TinyInlineFreeThreshold)
                      {
-                        try { System.Diagnostics.Debug.WriteLine("[JS-BUDGET] Skipping script (budget exceeded) baseUri=" + baseUri + " size=" + len); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        try { System.Diagnostics.Debug.WriteLine("[JS-BUDGET] Skipping script (budget exceeded) baseUri=" + baseUri + " size=" + len); } catch { /* swallow */ }
                         return;
                      }
                 }
                 if (len > TinyInlineFreeThreshold) Interlocked.Add(ref _pageScriptBytesUsed, len);
 
                 try { RunInline(content, new JsContext { BaseUri = resolved }); }
-                catch (Exception ex) { try { System.Diagnostics.Debug.WriteLine($"[Diag] RunInline exception: {ex}"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
+                catch (Exception ex) { try { System.Diagnostics.Debug.WriteLine($"[Diag] RunInline exception: {ex}"); } catch { /* swallow */ } }
             }
 
             // 1) Immediate: Parallel Fetch, Sequential Exec
@@ -4504,7 +4929,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                                         }, TaskContinuationOptions.OnlyOnFaulted);
                                     }
                                 }
-                                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                catch { /* swallow */ }
                             });
                         }
                         else
@@ -4512,8 +4937,8 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                             await Execute(s, res);
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
-                    finally { try { DecAndMaybeFireLoad(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
+                    catch { /* swallow */ }
+                    finally { try { DecAndMaybeFireLoad(); } catch { /* swallow */ } }
                 });
             }
 
@@ -4525,28 +4950,28 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                 await Execute(deferred[i], res);
             }
 
-            _readyState = "interactive"; try { FireDocumentEvent("readystatechange"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            _readyState = "interactive"; try { FireDocumentEvent("readystatechange"); } catch { /* swallow */ }
 
             // 4) DOMContentLoaded
             if (!_domContentLoadedFired)
             {
                 _domContentLoadedFired = true;
-                try { FireDocumentEvent("DOMContentLoaded"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { FireDocumentEvent("DOMContentLoaded"); } catch { /* swallow */ }
             }
 
             // 5) window.load (when asyncs done, or immediately if none)
             if (Volatile.Read(ref _pendingAsyncScripts) == 0 && !_windowLoadFired)
             {
                 _windowLoadFired = true;
-                try { FireWindowEvent("load"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
-                _readyState = "complete"; try { FireDocumentEvent("readystatechange"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { FireWindowEvent("load"); } catch { /* swallow */ }
+                _readyState = "complete"; try { FireDocumentEvent("readystatechange"); } catch { /* swallow */ }
             }
             this.SanitizeForScriptingEnabled(_domRoot);
             RequestRepaint();
             }
             catch (Exception ex)
             {
-                try { System.Diagnostics.Debug.WriteLine("[Diag] RunScriptsAsync top-level EXC: " + ex.GetType().Name + ": " + ex.Message); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { System.Diagnostics.Debug.WriteLine("[Diag] RunScriptsAsync top-level EXC: " + ex.GetType().Name + ": " + ex.Message); } catch { /* swallow */ }
             }
         }
 
@@ -4555,7 +4980,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
             if (Interlocked.Decrement(ref _pendingAsyncScripts) == 0 && _domContentLoadedFired && !_windowLoadFired)
             {
                 _windowLoadFired = true;
-                try { FireWindowEvent("load"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { FireWindowEvent("load"); } catch { /* swallow */ }
             }
         }
 
@@ -4579,7 +5004,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
         private async Task<string> FetchScriptStringAsync(Uri uri, Uri referer = null, bool triedRedirect = false)
         {
             if (uri == null) return null;
-            try { if (SubresourceAllowed != null && !SubresourceAllowed(uri, "script")) return null; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            try { if (SubresourceAllowed != null && !SubresourceAllowed(uri, "script")) return null; } catch { /* swallow */ }
             lock (_script404Lock) { if (_script404.Contains(uri.AbsoluteUri)) return null; }
 
             // Handle ms-appx:/// local package files
@@ -4626,7 +5051,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             if (ExternalScriptFetcher != null)
             {
@@ -4657,11 +5082,11 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                                 }
                             }
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                         return fromHost;
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }
 
             // 1) Managed-first path with cookie bridge + safe headers
@@ -4695,7 +5120,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                             if (altResp.IsSuccessStatusCode)
                             {
                                 var altBytes = await altResp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-                                string enc = null; try { enc = string.Join(",", altResp.Content.Headers.ContentEncoding); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                string enc = null; try { enc = string.Join(",", altResp.Content.Headers.ContentEncoding); } catch { /* swallow */ }
                                 var result = DecodeBytes(altBytes, enc);
                                 return result;
                             }
@@ -4714,7 +5139,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     else
                     {
                         var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-                        string enc = null; try { enc = string.Join(",", resp.Content.Headers.ContentEncoding); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        string enc = null; try { enc = string.Join(",", resp.Content.Headers.ContentEncoding); } catch { /* swallow */ }
                         var result = DecodeBytes(bytes, enc);
                         return result;
                     }
@@ -4755,7 +5180,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                         if (altResp.IsSuccessStatusCode)
                         {
                             var altBytes = await altResp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-                            string enc = null; try { enc = string.Join(",", altResp.Content.Headers.ContentEncoding); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            string enc = null; try { enc = string.Join(",", altResp.Content.Headers.ContentEncoding); } catch { /* swallow */ }
                             var altResult = DecodeBytes(altBytes, enc);
                             return altResult;
                         }
@@ -4766,7 +5191,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                 if (!resp.IsSuccessStatusCode) return null;
 
                 var b2 = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-                string enc2 = null; try { enc2 = string.Join(",", resp.Content.Headers.ContentEncoding); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                string enc2 = null; try { enc2 = string.Join(",", resp.Content.Headers.ContentEncoding); } catch { /* swallow */ }
                 var result = DecodeBytes(b2, enc2);
                 return result;
             }
@@ -4781,10 +5206,10 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
         {
             if (req == null) return;
             const string ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-            try { req.Headers.TryAddWithoutValidation("User-Agent", ua); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
-            try { req.Headers.TryAddWithoutValidation("Accept", "*/*"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
-            try { req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
-            if (referer != null) { try { req.Headers.Referrer = new Uri(referer.AbsoluteUri); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
+            try { req.Headers.TryAddWithoutValidation("User-Agent", ua); } catch { /* swallow */ }
+            try { req.Headers.TryAddWithoutValidation("Accept", "*/*"); } catch { /* swallow */ }
+            try { req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9"); } catch { /* swallow */ }
+            if (referer != null) { try { req.Headers.Referrer = new Uri(referer.AbsoluteUri); } catch { /* swallow */ } }
             // Intentionally NOT setting Accept-Encoding / Connection / Host / DNT / Sec-* / UIR
         }
 
@@ -4796,7 +5221,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
             if (s.IndexOf("/responsive-web/client-web/", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 var alt = s.Replace("/responsive-web/client-web/", "/responsive-web/client-web-legacy/");
-                try { return new Uri(alt); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { return new Uri(alt); } catch { /* swallow */ }
             }
             return null;
         }
@@ -4821,10 +5246,10 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                         {
                             // Brotli may not be available on this target; attempt via reflection and fall through on failure
                             Type broType = null;
-                            try { broType = typeof(System.IO.Compression.GZipStream).GetTypeInfo().Assembly.GetType("System.IO.Compression.BrotliStream"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            try { broType = typeof(System.IO.Compression.GZipStream).GetTypeInfo().Assembly.GetType("System.IO.Compression.BrotliStream"); } catch { /* swallow */ }
                             if (broType == null)
                             {
-                                try { broType = Type.GetType("System.IO.Compression.BrotliStream"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                try { broType = Type.GetType("System.IO.Compression.BrotliStream"); } catch { /* swallow */ }
                             }
                             if (broType != null)
                             {
@@ -4889,7 +5314,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     {
                         foreach (var kv in headers)
                         {
-                            try { req.Headers.TryAddWithoutValidation(kv.Key, kv.Value); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            try { req.Headers.TryAddWithoutValidation(kv.Key, kv.Value); } catch { /* swallow */ }
                         }
                     }
                     if (!string.IsNullOrEmpty(body) && !string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase))
@@ -4900,7 +5325,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     }
                     var resp = await client.SendAsync(req).ConfigureAwait(false);
                     var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-                    string enc = null; try { enc = string.Join(",", resp.Content.Headers.ContentEncoding); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    string enc = null; try { enc = string.Join(",", resp.Content.Headers.ContentEncoding); } catch { /* swallow */ }
                     return DecodeBytes(bytes, enc);
                 }
             }
@@ -4922,7 +5347,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     if (headers != null)
                     {
                         foreach (var kv in headers)
-                            try { req.Headers.TryAddWithoutValidation(kv.Key, kv.Value); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            try { req.Headers.TryAddWithoutValidation(kv.Key, kv.Value); } catch { /* swallow */ }
                     }
                     if (!string.IsNullOrEmpty(body) && !string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase))
                     {
@@ -4932,11 +5357,11 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     }
                     var resp = await client.SendAsync(req).ConfigureAwait(false);
                     var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-                    string enc = null; try { enc = string.Join(",", resp.Content.Headers.ContentEncoding); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    string enc = null; try { enc = string.Join(",", resp.Content.Headers.ContentEncoding); } catch { /* swallow */ }
                     var txt = DecodeBytes(bytes, enc);
                     var h = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                    try { foreach (var kv in resp.Headers) h[kv.Key] = string.Join(",", kv.Value ?? new string[0]); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
-                    try { foreach (var kv in resp.Content.Headers) h[kv.Key] = string.Join(",", kv.Value ?? new string[0]); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { foreach (var kv in resp.Headers) h[kv.Key] = string.Join(",", kv.Value ?? new string[0]); } catch { /* swallow */ }
+                    try { foreach (var kv in resp.Content.Headers) h[kv.Key] = string.Join(",", kv.Value ?? new string[0]); } catch { /* swallow */ }
                     return new FetchResult
                     {
                         Body = txt ?? string.Empty,
@@ -4961,7 +5386,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                 if (Uri.TryCreate(url, UriKind.Absolute, out outUri)) return outUri.AbsoluteUri;
                 if (b != null && Uri.TryCreate(b, url, out outUri)) return outUri.AbsoluteUri;
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return null;
         }
 
@@ -4982,7 +5407,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     var v = kv.Length > 1 ? Uri.UnescapeDataString(kv[1]) : "";
                     if (!d.ContainsKey(k)) d[k] = v;
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }
             return d;
         }
@@ -5009,9 +5434,9 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                         if (rngType != null)
                         {
                             MethodInfo createMethod = null;
-                            try { createMethod = rngType.GetRuntimeMethod("Create", new Type[0]); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
-                            if (createMethod == null) { try { var ti = rngType.GetTypeInfo(); if (ti != null) createMethod = ti.GetDeclaredMethod("Create"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
-                            if (createMethod == null) { try { var ti3 = rngType.GetTypeInfo(); if (ti3 != null) createMethod = ti3.GetDeclaredMethod("Create"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
+                            try { createMethod = rngType.GetRuntimeMethod("Create", new Type[0]); } catch { /* swallow */ }
+                            if (createMethod == null) { try { var ti = rngType.GetTypeInfo(); if (ti != null) createMethod = ti.GetDeclaredMethod("Create"); } catch { /* swallow */ } }
+                            if (createMethod == null) { try { var ti3 = rngType.GetTypeInfo(); if (ti3 != null) createMethod = ti3.GetDeclaredMethod("Create"); } catch { /* swallow */ } }
                             if (createMethod != null)
                             {
                                 try
@@ -5019,13 +5444,13 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                                     using (var rng = (IDisposable)createMethod.Invoke(null, null))
                                     {
                                         MethodInfo getBytes = null;
-                                        try { getBytes = rng.GetType().GetRuntimeMethod("GetBytes", new Type[] { typeof(byte[]) }); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
-                                        if (getBytes == null) { try { var ti2 = rng.GetType().GetTypeInfo(); if (ti2 != null) getBytes = ti2.GetDeclaredMethod("GetBytes"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
-                                        if (getBytes == null) { try { var gi3 = rng.GetType().GetTypeInfo(); if (gi3 != null) getBytes = gi3.GetDeclaredMethod("GetBytes"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
+                                        try { getBytes = rng.GetType().GetRuntimeMethod("GetBytes", new Type[] { typeof(byte[]) }); } catch { /* swallow */ }
+                                        if (getBytes == null) { try { var ti2 = rng.GetType().GetTypeInfo(); if (ti2 != null) getBytes = ti2.GetDeclaredMethod("GetBytes"); } catch { /* swallow */ } }
+                                        if (getBytes == null) { try { var gi3 = rng.GetType().GetTypeInfo(); if (gi3 != null) getBytes = gi3.GetDeclaredMethod("GetBytes"); } catch { /* swallow */ } }
                                         if (getBytes != null) { getBytes.Invoke(rng, new object[] { buf }); filled = true; }
                                     }
                                 }
-                                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                catch { /* swallow */ }
                             }
                         }
                         // If managed RNG path failed or not available, use CryptographicBuffer fallback
@@ -5097,7 +5522,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                 { if (!first) sb.Append(';'); first = false; sb.Append(kv.Key).Append(':').Append(kv.Value); }
                 el.setAttribute("style", sb.ToString());
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
         
 
@@ -5145,7 +5570,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                 catch (Exception ex)
                 {
                     // Log the exception but don't rethrow - fall back to mini runner
-                    try { System.Diagnostics.Debug.WriteLine($"[JS] NiL.JS failed: {ex.Message}"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { System.Diagnostics.Debug.WriteLine($"[JS] NiL.JS failed: {ex.Message}"); } catch { /* swallow */ }
                 }
 #endif
 
@@ -5166,7 +5591,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     var s = (stmt ?? "").Trim(); if (s.Length == 0) continue;
                     // function foo(){...}
                     var mFn = Regex.Match(s, @"^\s*function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^)]*\)\s*\{([\s\S]*)\}\s*;?\s*$", RegexOptions.Singleline);
-                    if (mFn.Success) { try { _userFunctions[mFn.Groups[1].Value] = mFn.Groups[2].Value ?? ""; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } continue; }
+                    if (mFn.Success) { try { _userFunctions[mFn.Groups[1].Value] = mFn.Groups[2].Value ?? ""; } catch { /* swallow */ } continue; }
 
                     // bare call: foo();
                     var mCall = Regex.Match(s, @"^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(\s*\)\s*;?\s*$");
@@ -5174,7 +5599,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     {
                         string body; if (_userFunctions.TryGetValue(mCall.Groups[1].Value, out body)) { ExecuteScriptBlock(body, _ctx); continue; }
                     }
-                    try { RunInline(s, _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { RunInline(s, _ctx); } catch { /* swallow */ }
                 }
             }
             finally { _ctx = prev; }
@@ -5191,7 +5616,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                 if (string.IsNullOrWhiteSpace(name)) return;
                 _userFunctions[name] = body ?? string.Empty;
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         /// <summary>
@@ -5228,7 +5653,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                         return v != null ? v.ToString() : string.Empty;
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 #endif
                 // Mini runner expression parse
                 try
@@ -5236,10 +5661,10 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     var mini = new JsMiniRunner(this);
                     return mini.TryEvalToString(expr);
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 // Fallback: run inline and no result
-                try { RunInline(expr, _ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { RunInline(expr, _ctx); } catch { /* swallow */ }
                 return string.Empty;
             }
             finally { _ctx = prev; }
@@ -5297,8 +5722,8 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
 
         internal static double DeviceDpr()
         {
-            try { var dpr = CssParser.MediaDppx; if (dpr.HasValue) return dpr.Value; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
-            try { var di = Windows.Graphics.Display.DisplayInformation.GetForCurrentView(); return di.RawPixelsPerViewPixel; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            try { var dpr = CssParser.MediaDppx; if (dpr.HasValue) return dpr.Value; } catch { /* swallow */ }
+            try { var di = Windows.Graphics.Display.DisplayInformation.GetForCurrentView(); return di.RawPixelsPerViewPixel; } catch { /* swallow */ }
             return 1.0;
         }
 
@@ -5320,7 +5745,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
             try
             {
                 double w = 0, h = 0;
-                try { var b = Windows.UI.Xaml.Window.Current.Bounds; w = b.Width; h = b.Height; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { var b = Windows.UI.Xaml.Window.Current.Bounds; w = b.Width; h = b.Height; } catch { /* swallow */ }
                 double dpr = DeviceDpr();
                 var scheme = CssParser.MediaPrefersColorScheme ?? "light";
                 var scripting = CssParser.MediaScripting ?? "enabled";
@@ -5376,7 +5801,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     if (!condition) return negate ? true : false;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             return !negate;
         }
@@ -5540,7 +5965,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                             styleMap["position"] = JsVal.FromStr("static");
                             styleMap["visibility"] = JsVal.FromStr("visible");
                             styleMap["opacity"] = JsVal.FromStr("1");
-                            styleMap["getPropertyValue"] = new JsVal { Obj = new HostFunc(a => { try { var p = ToStr(a.Count > 0 ? a[0] : JsVal.Null()).ToLowerInvariant(); JsVal v; if (styleMap.TryGetValue(p, out v)) return v; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.FromStr(""); }) };
+                            styleMap["getPropertyValue"] = new JsVal { Obj = new HostFunc(a => { try { var p = ToStr(a.Count > 0 ? a[0] : JsVal.Null()).ToLowerInvariant(); JsVal v; if (styleMap.TryGetValue(p, out v)) return v; } catch { /* swallow */ } return JsVal.FromStr(""); }) };
                             return new JsVal { Obj = styleMap };
                         }
                         catch { return new JsVal { Obj = new Dictionary<string, JsVal>(StringComparer.Ordinal) }; }
@@ -5569,7 +5994,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     }
                     catch { return JsVal.FromNum(0); }
                 }) };
-                _globals["clearTimeout"] = new JsVal { Obj = new HostFunc(args => { try { int id = (int)ToNum(args.Count > 0 ? args[0] : JsVal.FromNum(0)); _e.ClearTimeout(id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
+                _globals["clearTimeout"] = new JsVal { Obj = new HostFunc(args => { try { int id = (int)ToNum(args.Count > 0 ? args[0] : JsVal.FromNum(0)); _e.ClearTimeout(id); } catch { /* swallow */ } return JsVal.Null(); }) };
                 _globals["setInterval"] = new JsVal { Obj = new HostFunc(args =>
                 {
                     try
@@ -5581,10 +6006,10 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                     }
                     catch { return JsVal.FromNum(0); }
                 }) };
-                _globals["clearInterval"] = new JsVal { Obj = new HostFunc(args => { try { int id = (int)ToNum(args.Count > 0 ? args[0] : JsVal.FromNum(0)); _e.ClearTimeout(id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
+                _globals["clearInterval"] = new JsVal { Obj = new HostFunc(args => { try { int id = (int)ToNum(args.Count > 0 ? args[0] : JsVal.FromNum(0)); _e.ClearTimeout(id); } catch { /* swallow */ } return JsVal.Null(); }) };
 
                 // queueMicrotask(fn)
-                _globals["queueMicrotask"] = new JsVal { Obj = new HostFunc(args => { try { var a = args.Count > 0 ? args[0] : JsVal.Null(); var f = a.Obj as JsFuncDef; if (f != null) { _e.EnqueueMicrotask(() => { try { var r = new JsMiniRunner(_e); r.InvokeFunction(f, new List<JsVal>()); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }); } else { var code = ToStr(a); if (!string.IsNullOrEmpty(code)) _e.EnqueueMicrotask(() => { try { _e.RunInline(code, _e._ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
+                _globals["queueMicrotask"] = new JsVal { Obj = new HostFunc(args => { try { var a = args.Count > 0 ? args[0] : JsVal.Null(); var f = a.Obj as JsFuncDef; if (f != null) { _e.EnqueueMicrotask(() => { try { var r = new JsMiniRunner(_e); r.InvokeFunction(f, new List<JsVal>()); } catch { /* swallow */ } }); } else { var code = ToStr(a); if (!string.IsNullOrEmpty(code)) _e.EnqueueMicrotask(() => { try { _e.RunInline(code, _e._ctx); } catch { /* swallow */ } }); } } catch { /* swallow */ } return JsVal.Null(); }) };
 
                 // atob/btoa helpers (string only)
                 _globals["atob"] = new JsVal { Obj = new HostFunc(args => { try { var s = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); var bytes = Convert.FromBase64String(s ?? ""); var txt = Encoding.UTF8.GetString(bytes, 0, bytes.Length); return JsVal.FromStr(txt); } catch { return JsVal.FromStr(""); } }) };
@@ -5636,7 +6061,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                             {
                                 Func<string,string,string> pick = (style, prop) =>
                                 {
-                                    try { foreach (var part in (style ?? "").Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)) { var kv = part.Split(new[] { ':' }, 2); if (kv.Length == 2 && kv[0].Trim().Equals(prop, StringComparison.OrdinalIgnoreCase)) return kv[1].Trim(); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return null;
+                                    try { foreach (var part in (style ?? "").Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)) { var kv = part.Split(new[] { ':' }, 2); if (kv.Length == 2 && kv[0].Trim().Equals(prop, StringComparison.OrdinalIgnoreCase)) return kv[1].Trim(); } } catch { /* swallow */ } return null;
                                 };
                                 string styleAttr; if (node.Attr.TryGetValue("style", out styleAttr))
                                 {
@@ -5651,7 +6076,7 @@ if (!String.prototype.matchAll) String.prototype.matchAll = function(r){var g=r.
                                 string h; if (node.Attr.TryGetValue("height", out h) && !styleMap.ContainsKey("height")) styleMap["height"] = JsVal.FromStr(h.EndsWith("px")?h:(h+"px"));
                             }
 
-                            styleMap["getPropertyValue"] = new JsVal { Obj = new HostFunc(a => { try { var p = ToStr(a.Count > 0 ? a[0] : JsVal.Null()).ToLowerInvariant(); JsVal v; if (styleMap.TryGetValue(p, out v)) return v; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.FromStr(""); }) };
+                            styleMap["getPropertyValue"] = new JsVal { Obj = new HostFunc(a => { try { var p = ToStr(a.Count > 0 ? a[0] : JsVal.Null()).ToLowerInvariant(); JsVal v; if (styleMap.TryGetValue(p, out v)) return v; } catch { /* swallow */ } return JsVal.FromStr(""); }) };
                             return new JsVal { Obj = styleMap };
                         }
                         catch { return new JsVal { Obj = new Dictionary<string, JsVal>(StringComparer.Ordinal) }; }
@@ -6208,7 +6633,7 @@ public bool Execute(string code)
                                         propHas = true;
                                     }
                                 }
-                                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                catch { /* swallow */ }
                             }
                         }
                         AssignBinding(prop.Target, extracted, propHas, declBlockScoped);
@@ -6423,14 +6848,14 @@ public bool Execute(string code)
                     var parameters = ParseFunctionParameterList(')');
                     Expect("{"); int bodyStart = _pos; int depth = 1; while (!Eof() && depth > 0) { if (Cur() == '{') depth++; else if (Cur() == '}') depth--; Next(); }
                     string body = _src.Substring(bodyStart, Math.Max(0, _pos - bodyStart - 1));
-                    try { _e._userFunctions[name] = body; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { _e._userFunctions[name] = body; } catch { /* swallow */ }
                     try
                     {
                         var def = new JsFuncDef { Body = body };
                         PopulateFunctionParameters(def, parameters);
                         _e._userFunctionsEx[name] = def; SetVarDecl(name, new JsVal { Obj = def }, false);
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                     return;
                 }
                 // expression / call / assignment
@@ -6455,14 +6880,14 @@ public bool Execute(string code)
                                 if (mInner.Success)
                                 {
                                     var id2 = mInner.Groups["id"].Value; var val2 = mInner.Groups["val"].Value;
-                                    try { var doc2 = new JsDocument(_e, _e._domRoot); var el2 = doc2.getElementById(id2) as JsDomElement; if (el2 != null) el2.innerText = val2; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                    try { var doc2 = new JsDocument(_e, _e._domRoot); var el2 = doc2.getElementById(id2) as JsDomElement; if (el2 != null) el2.innerText = val2; } catch { /* swallow */ }
                                 }
                                 else
                                 {
                                     var mHref = Regex.Match(slice, @"(?:window\s*\.\s*)?location\s*\.\s*href\s*=\s*(['""])(?<u>.*?)\1", RegexOptions.IgnoreCase);
                                     if (mHref.Success)
                                     {
-                                        try { var url = mHref.Groups["u"].Value; var abs = Resolve(_e._ctx?.BaseUri, url); if (abs != null) _e._host.Navigate(abs); else _e.Navigate(url); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                        try { var url = mHref.Groups["u"].Value; var abs = Resolve(_e._ctx?.BaseUri, url); if (abs != null) _e._host.Navigate(abs); else _e.Navigate(url); } catch { /* swallow */ }
                                     }
                                     else
                                     {
@@ -6473,10 +6898,10 @@ public bool Execute(string code)
                                 }
                             }
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }
 
             private void ParseVarDecl(bool blockScoped)
@@ -6528,7 +6953,7 @@ public bool Execute(string code)
                 if (Match("extends"))
                 {
                     // Basic support for "extends" keyword - parse and ignore for now
-                    try { ParseIdent(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { ParseIdent(); } catch { /* swallow */ }
                     SkipWs();
                 }
 
@@ -6599,7 +7024,7 @@ public bool Execute(string code)
                 PopulateFunctionParameters(def, ctorParams);
 
                 SetVarDecl(name, new JsVal { Obj = def }, false);
-                try { _e._userFunctionsEx[name] = def; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                try { _e._userFunctionsEx[name] = def; } catch { /* swallow */ }
 
                 var staticMethods = methods.Where(m => m.IsStatic).ToList();
                 if (staticMethods.Count > 0)
@@ -6788,16 +7213,16 @@ public bool Execute(string code)
                     if (!condOk) break;
 
                     // Execute body
-                    try { ExecuteString(bodyText); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { ExecuteString(bodyText); } catch { /* swallow */ }
 
                     // Execute post
                     _pos = postStart;
                     if (postStart < closePos)
                     {
-                        try { var __tmp = ParseExpression(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        try { var __tmp = ParseExpression(); } catch { /* swallow */ }
                     }
                     // move past ')'
-                    try { Expect(")"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { Expect(")"); } catch { /* swallow */ }
                 }
 
                 // position after the entire for statement
@@ -6866,25 +7291,25 @@ public bool Execute(string code)
                             var prop = chain[chain.Count - 1];
                             // Host: location.href
                             if (cur != null && cur.Obj is HostLocation && string.Equals(prop, "href", StringComparison.Ordinal))
-                            { try { var s = ToStr(rhs); var abs = Resolve(_e._ctx?.BaseUri, s); if (abs != null) _e._host.Navigate(abs); else _e.Navigate(s); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return rhs; }
+                            { try { var s = ToStr(rhs); var abs = Resolve(_e._ctx?.BaseUri, s); if (abs != null) _e._host.Navigate(abs); else _e.Navigate(s); } catch { /* swallow */ } return rhs; }
                             // Host: element.innerText / textContent
                             var hel = cur != null ? cur.Obj as HostElement : null;
                             if (hel != null && string.Equals(prop, "innerText", StringComparison.Ordinal))
-                            { try { if (!string.IsNullOrEmpty(hel.Id)) { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(hel.Id) as JsDomElement; if (el != null) el.innerText = ToStr(rhs); } else if (hel.Node != null) { hel.Node.RemoveAllChildren(); var t = new LiteElement("#text"); t.Text = ToStr(rhs); hel.Node.Append(t); _e.RequestRepaint(); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return rhs; }
+                            { try { if (!string.IsNullOrEmpty(hel.Id)) { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(hel.Id) as JsDomElement; if (el != null) el.innerText = ToStr(rhs); } else if (hel.Node != null) { hel.Node.RemoveAllChildren(); var t = new LiteElement("#text"); t.Text = ToStr(rhs); hel.Node.Append(t); _e.RequestRepaint(); } } catch { /* swallow */ } return rhs; }
                             if (hel != null && string.Equals(prop, "textContent", StringComparison.Ordinal))
-                            { try { if (!string.IsNullOrEmpty(hel.Id)) { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(hel.Id) as JsDomElement; if (el != null) el.innerText = ToStr(rhs); } else if (hel.Node != null) { hel.Node.RemoveAllChildren(); var t = new LiteElement("#text"); t.Text = ToStr(rhs); hel.Node.Append(t); _e.RequestRepaint(); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return rhs; }
+                            { try { if (!string.IsNullOrEmpty(hel.Id)) { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(hel.Id) as JsDomElement; if (el != null) el.innerText = ToStr(rhs); } else if (hel.Node != null) { hel.Node.RemoveAllChildren(); var t = new LiteElement("#text"); t.Text = ToStr(rhs); hel.Node.Append(t); _e.RequestRepaint(); } } catch { /* swallow */ } return rhs; }
                             // JS-0 DOM bridge element.innerText / textContent / id / value / checked
                             var jde = cur != null ? cur.Obj as JsDomElement : null;
                             if (jde != null)
                             {
                                 if (string.Equals(prop, "innerText", StringComparison.Ordinal))
-                                { try { jde.innerText = ToStr(rhs); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return rhs; }
+                                { try { jde.innerText = ToStr(rhs); } catch { /* swallow */ } return rhs; }
                                 if (string.Equals(prop, "textContent", StringComparison.Ordinal))
-                                { try { jde.innerText = ToStr(rhs); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return rhs; }
+                                { try { jde.innerText = ToStr(rhs); } catch { /* swallow */ } return rhs; }
                                 if (string.Equals(prop, "id", StringComparison.Ordinal))
-                                { try { jde.id = ToStr(rhs); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return rhs; }
+                                { try { jde.id = ToStr(rhs); } catch { /* swallow */ } return rhs; }
                                 if (string.Equals(prop, "value", StringComparison.Ordinal))
-                                { try { jde.value = ToStr(rhs); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return rhs; }
+                                { try { jde.value = ToStr(rhs); } catch { /* swallow */ } return rhs; }
                                 if (string.Equals(prop, "checked", StringComparison.Ordinal))
                                 {
                                     try
@@ -6893,13 +7318,13 @@ public bool Execute(string code)
                                         // reflect as attribute for simple renderer mapping
                                         jde.setAttribute("checked", v ? "checked" : null);
                                     }
-                                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                    catch { /* swallow */ }
                                     return rhs;
                                 }
                             }
                             // document.title setter
                             var hdoc = cur != null ? cur.Obj as HostDocument : null;
-                            if (hdoc != null && string.Equals(prop, "title", StringComparison.Ordinal)) { try { _e._docTitle = ToStr(rhs); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return rhs; }
+                            if (hdoc != null && string.Equals(prop, "title", StringComparison.Ordinal)) { try { _e._docTitle = ToStr(rhs); } catch { /* swallow */ } return rhs; }
                             var hev = cur != null ? cur.Obj as HostEvent : null;
                             if (hev != null)
                             {
@@ -6911,7 +7336,7 @@ public bool Execute(string code)
                                         hev.PropagationStopped = stop;
                                         if (stop) _e._stopPropagationRequested = true;
                                     }
-                                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                    catch { /* swallow */ }
                                     return rhs;
                                 }
                                 if (string.Equals(prop, "returnValue", StringComparison.Ordinal))
@@ -6922,17 +7347,17 @@ public bool Execute(string code)
                                         hev.DefaultPrevented = !keepDefault;
                                         if (!keepDefault) _e._preventDefaultRequested = true;
                                     }
-                                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                    catch { /* swallow */ }
                                     return rhs;
                                 }
                             }
                             // dataset write: dataset.foo = 'bar'
                             var hds = cur != null ? cur.Obj as HostDataset : null;
                             if (hds != null)
-                            { try { if (hds.Node != null && !string.IsNullOrEmpty(prop)) hds.Node.SetAttribute("data-" + prop, ToStr(rhs)); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return rhs; }
+                            { try { if (hds.Node != null && !string.IsNullOrEmpty(prop)) hds.Node.SetAttribute("data-" + prop, ToStr(rhs)); } catch { /* swallow */ } return rhs; }
                             // Host: style.prop
                             var hst = cur != null ? cur.Obj as HostStyle : null; if (hst != null)
-                            { try { var vstr = ToStr(rhs); if (!string.IsNullOrEmpty(hst.Id)) _e.TryUpdateInlineStyle(hst.Id, prop, vstr); else if (hst.Node != null) { var style = hst.Node.GetAttribute("style") ?? ""; var dict = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase); foreach (var part in style.Split(new[]{';'},StringSplitOptions.RemoveEmptyEntries)) { var kv=part.Split(new[]{':'},2); if (kv.Length==2) dict[kv[0].Trim()] = kv[1].Trim(); } dict[prop]=vstr??""; var sb=new StringBuilder(); bool first=true; foreach(var kv in dict){ if(!first) sb.Append(';'); first=false; sb.Append(kv.Key).Append(':').Append(kv.Value);} hst.Node.SetAttribute("style", sb.ToString()); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return rhs; }
+                            { try { var vstr = ToStr(rhs); if (!string.IsNullOrEmpty(hst.Id)) _e.TryUpdateInlineStyle(hst.Id, prop, vstr); else if (hst.Node != null) { var style = hst.Node.GetAttribute("style") ?? ""; var dict = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase); foreach (var part in style.Split(new[]{';'},StringSplitOptions.RemoveEmptyEntries)) { var kv=part.Split(new[]{':'},2); if (kv.Length==2) dict[kv[0].Trim()] = kv[1].Trim(); } dict[prop]=vstr??""; var sb=new StringBuilder(); bool first=true; foreach(var kv in dict){ if(!first) sb.Append(';'); first=false; sb.Append(kv.Key).Append(':').Append(kv.Value);} hst.Node.SetAttribute("style", sb.ToString()); } } catch { /* swallow */ } return rhs; }
                             // User map fallback
                             JsVal root; if (!TryGetVar(baseNm, out root) || !(root.Obj is Dictionary<string, JsVal>)) root = new JsVal { Obj = new Dictionary<string, JsVal>(StringComparer.Ordinal) };
                             var map = root.Obj as Dictionary<string, JsVal>; map[prop] = rhs; SetVarAssign(baseNm, root); return rhs;
@@ -7028,12 +7453,12 @@ public bool Execute(string code)
                             try
                             {
                                 var runner = new JsMiniRunner(_e);
-                                var resHF = new JsVal { Obj = new HostFunc(a => { var v = a.Count > 0 ? a[0] : JsVal.Null(); p.State = 1; p.Value = v; _e.EnqueueMicrotask(() => { try { ProcessPromiseHandlers(p); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }); return JsVal.Null(); }) };
-                                var rejHF = new JsVal { Obj = new HostFunc(a => { var v = a.Count > 0 ? a[0] : JsVal.Null(); p.State = -1; p.Value = v; _e.EnqueueMicrotask(() => { try { ProcessPromiseHandlers(p); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }); return JsVal.Null(); }) };
+                                var resHF = new JsVal { Obj = new HostFunc(a => { var v = a.Count > 0 ? a[0] : JsVal.Null(); p.State = 1; p.Value = v; _e.EnqueueMicrotask(() => { try { ProcessPromiseHandlers(p); } catch { /* swallow */ } }); return JsVal.Null(); }) };
+                                var rejHF = new JsVal { Obj = new HostFunc(a => { var v = a.Count > 0 ? a[0] : JsVal.Null(); p.State = -1; p.Value = v; _e.EnqueueMicrotask(() => { try { ProcessPromiseHandlers(p); } catch { /* swallow */ } }); return JsVal.Null(); }) };
                                 var child = new JsMiniRunner(_e);
                                 child.InvokeFunction(fdef, new List<JsVal> { resHF, rejHF });
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                         }
                         return new JsVal { Obj = p };
                     }
@@ -7186,7 +7611,7 @@ public bool Execute(string code)
                     {
                         try
                         {
-                            double w = 0, h = 0; try { var b = Windows.UI.Xaml.Window.Current.Bounds; w = b.Width; h = b.Height; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            double w = 0, h = 0; try { var b = Windows.UI.Xaml.Window.Current.Bounds; w = b.Width; h = b.Height; } catch { /* swallow */ }
                             var docElMap = new Dictionary<string, JsVal>(StringComparer.Ordinal)
                             {
                                 { "clientWidth", JsVal.FromNum(w) },
@@ -7209,7 +7634,7 @@ public bool Execute(string code)
                             {
                                 var doc = new JsDocument(_e, _e._domRoot);
                                 var jel = doc.getElementById(id) as JsDomElement;
-                                LiteElement node = null; try { if (jel != null) node = jel._node; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                LiteElement node = null; try { if (jel != null) node = jel._node; } catch { /* swallow */ }
                                 return new JsVal { Obj = new HostElement(_e, id) { Node = node } };
                             }
                             catch { return new JsVal { Obj = new HostElement(_e, id) }; }
@@ -7228,7 +7653,7 @@ public bool Execute(string code)
                                     return new JsVal { Obj = new HostElement(_e, idv) };
                                 }
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                             return JsVal.Null();
                         }) };
                     if (name == "querySelectorAll")
@@ -7289,7 +7714,7 @@ public bool Execute(string code)
                                 var child = args.Count > 0 ? args[0].Obj as JsDomNodeBase : null;
                                 if (child != null) doc.appendChild(child);
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                             return JsVal.Null();
                         }) };
                     if (name == "removeChild")
@@ -7301,11 +7726,11 @@ public bool Execute(string code)
                                 var child = args.Count > 0 ? args[0].Obj as JsDomNodeBase : null;
                                 if (child != null)
                                 {
-                                    try { b._node.Children.Remove(child._node); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                    try { b._node.Children.Remove(child._node); } catch { /* swallow */ }
                                     _e.RequestRepaint();
                                 }
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                             return JsVal.Null();
                         }) };
                     if (name == "body")
@@ -7330,13 +7755,13 @@ public bool Execute(string code)
                                 if (el != null) return new JsVal { Obj = el };
                             }
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                         return JsVal.Null();
                     }
                     if (name == "preventDefault")
-                        return new JsVal { Obj = new HostFunc(args => { try { ev.DefaultPrevented = true; _e._preventDefaultRequested = true; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
+                        return new JsVal { Obj = new HostFunc(args => { try { ev.DefaultPrevented = true; _e._preventDefaultRequested = true; } catch { /* swallow */ } return JsVal.Null(); }) };
                     if (name == "stopPropagation")
-                        return new JsVal { Obj = new HostFunc(args => { try { ev.PropagationStopped = true; _e._stopPropagationRequested = true; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
+                        return new JsVal { Obj = new HostFunc(args => { try { ev.PropagationStopped = true; _e._stopPropagationRequested = true; } catch { /* swallow */ } return JsVal.Null(); }) };
                     if (name == "defaultPrevented") return JsVal.FromBool(ev.DefaultPrevented);
                     if (name == "cancelBubble") return JsVal.FromBool(ev.PropagationStopped);
                     if (name == "returnValue") return JsVal.FromBool(!ev.DefaultPrevented);
@@ -7347,13 +7772,13 @@ public bool Execute(string code)
                 {
                     var jde = (JsDomElement)obj.Obj;
                     if (name == "appendChild")
-                        return new JsVal { Obj = new HostFunc(args => { try { var child = args.Count > 0 ? args[0].Obj as JsDomNodeBase : null; if (child != null) jde.appendChild(child); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
+                        return new JsVal { Obj = new HostFunc(args => { try { var child = args.Count > 0 ? args[0].Obj as JsDomNodeBase : null; if (child != null) jde.appendChild(child); } catch { /* swallow */ } return JsVal.Null(); }) };
                     if (name == "removeChild")
-                        return new JsVal { Obj = new HostFunc(args => { try { var child = args.Count > 0 ? args[0].Obj as JsDomNodeBase : null; if (child != null) jde.removeChild(child); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
+                        return new JsVal { Obj = new HostFunc(args => { try { var child = args.Count > 0 ? args[0].Obj as JsDomNodeBase : null; if (child != null) jde.removeChild(child); } catch { /* swallow */ } return JsVal.Null(); }) };
                     if (name == "setAttribute")
-                        return new JsVal { Obj = new HostFunc(args => { try { string an = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); string av = ToStr(args.Count > 1 ? args[1] : JsVal.Null()); jde.setAttribute(an, av); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
+                        return new JsVal { Obj = new HostFunc(args => { try { string an = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); string av = ToStr(args.Count > 1 ? args[1] : JsVal.Null()); jde.setAttribute(an, av); } catch { /* swallow */ } return JsVal.Null(); }) };
                     if (name == "getAttribute")
-                        return new JsVal { Obj = new HostFunc(args => { try { string an = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); var v = jde.getAttribute(an); return v == null ? JsVal.Null() : JsVal.FromStr(v); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
+                        return new JsVal { Obj = new HostFunc(args => { try { string an = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); var v = jde.getAttribute(an); return v == null ? JsVal.Null() : JsVal.FromStr(v); } catch { /* swallow */ } return JsVal.Null(); }) };
                     if (name == "innerText")
                     {
                         try { return JsVal.FromStr(jde.innerText ?? ""); } catch { return JsVal.Null(); }
@@ -7404,9 +7829,9 @@ public bool Execute(string code)
                             catch { var r=new Dictionary<string,JsVal>(StringComparer.Ordinal){ {"x",JsVal.FromNum(0)},{"y",JsVal.FromNum(0)},{"left",JsVal.FromNum(0)},{"top",JsVal.FromNum(0)},{"width",JsVal.FromNum(0)},{"height",JsVal.FromNum(0)},{"right",JsVal.FromNum(0)},{"bottom",JsVal.FromNum(0)} }; return new JsVal{Obj=r}; }
                         }) };
                     }
-                    if (name == "querySelector") return new JsVal { Obj = new HostFunc(args => { try { string s = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); var r = jde.querySelector(s) as JsDomElement; return r == null ? JsVal.Null() : new JsVal { Obj = r }; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
-                    if (name == "querySelectorAll") return new JsVal { Obj = new HostFunc(args => { try { string s = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); var arrs = jde.querySelectorAll(s) as object[]; var list = new List<JsVal>(); if (arrs != null) { for (int i = 0; i < arrs.Length; i++) { var el = arrs[i] as JsDomElement; if (el != null) list.Add(new JsVal { Obj = el }); } } return new JsVal { Obj = list }; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return new JsVal { Obj = new List<JsVal>() }; }) };
-                    if (name == "insertAdjacentHTML") return new JsVal { Obj = new HostFunc(args => { try { var pos = ToStr(args.Count>0?args[0]:JsVal.Null()); var html = ToStr(args.Count>1?args[1]:JsVal.Null()); jde.insertAdjacentHTML(pos, html); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
+                    if (name == "querySelector") return new JsVal { Obj = new HostFunc(args => { try { string s = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); var r = jde.querySelector(s) as JsDomElement; return r == null ? JsVal.Null() : new JsVal { Obj = r }; } catch { /* swallow */ } return JsVal.Null(); }) };
+                    if (name == "querySelectorAll") return new JsVal { Obj = new HostFunc(args => { try { string s = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); var arrs = jde.querySelectorAll(s) as object[]; var list = new List<JsVal>(); if (arrs != null) { for (int i = 0; i < arrs.Length; i++) { var el = arrs[i] as JsDomElement; if (el != null) list.Add(new JsVal { Obj = el }); } } return new JsVal { Obj = list }; } catch { /* swallow */ } return new JsVal { Obj = new List<JsVal>() }; }) };
+                    if (name == "insertAdjacentHTML") return new JsVal { Obj = new HostFunc(args => { try { var pos = ToStr(args.Count>0?args[0]:JsVal.Null()); var html = ToStr(args.Count>1?args[1]:JsVal.Null()); jde.insertAdjacentHTML(pos, html); } catch { /* swallow */ } return JsVal.Null(); }) };
                     return JsVal.Null();
                 }
                 if (obj.Obj is HostElement)
@@ -7435,7 +7860,7 @@ public bool Execute(string code)
                                     if (def != null)
                                     {
                                         var gen = "__cb" + (_e._cbCounter++).ToString();
-                                        try { _e._userFunctionsEx[gen] = def; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                        try { _e._userFunctionsEx[gen] = def; } catch { /* swallow */ }
                                         _e.RegisterElementListener(he.Id, evt, gen);
                                     }
                                     else
@@ -7445,7 +7870,7 @@ public bool Execute(string code)
                                     }
                                 }
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                             return JsVal.Null();
                         }) };
                     }
@@ -7464,7 +7889,7 @@ public bool Execute(string code)
                                     // If a function object is passed, we do not have a stable mapping -> no-op.
                                 }
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                             return JsVal.Null();
                         }) };
                     }
@@ -7488,15 +7913,15 @@ public bool Execute(string code)
                                 if (!string.IsNullOrWhiteSpace(evt) && !string.IsNullOrWhiteSpace(he.Id))
                                     _e.RaiseElementEventById(he.Id, evt);
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                             return JsVal.Null();
                         }) };
                     }
-                    if (name == "setAttribute") return new JsVal { Obj = new HostFunc(args => { string an = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); string av = ToStr(args.Count > 1 ? args[1] : JsVal.Null()); try { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(he.Id) as JsDomElement; if (el != null) el.setAttribute(an, av); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
-                    if (name == "getAttribute") return new JsVal { Obj = new HostFunc(args => { string an = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); try { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(he.Id) as JsDomElement; if (el != null) { var v = el.getAttribute(an); return v == null ? JsVal.Null() : JsVal.FromStr(v); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
-                    if (name == "innerText") { try { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(he.Id) as JsDomElement; if (el != null) return JsVal.FromStr(el.innerText ?? ""); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }
-                    if (name == "removeAttribute") return new JsVal { Obj = new HostFunc(args => { string an = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); try { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(he.Id) as JsDomElement; if (el != null) el.setAttribute(an, null); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
-                    if (name == "hasAttribute") return new JsVal { Obj = new HostFunc(args => { string an = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); try { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(he.Id) as JsDomElement; if (el != null) { var v = el.getAttribute(an); return JsVal.FromBool(!string.IsNullOrEmpty(v)); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.FromBool(false); }) };
+                    if (name == "setAttribute") return new JsVal { Obj = new HostFunc(args => { string an = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); string av = ToStr(args.Count > 1 ? args[1] : JsVal.Null()); try { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(he.Id) as JsDomElement; if (el != null) el.setAttribute(an, av); } catch { /* swallow */ } return JsVal.Null(); }) };
+                    if (name == "getAttribute") return new JsVal { Obj = new HostFunc(args => { string an = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); try { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(he.Id) as JsDomElement; if (el != null) { var v = el.getAttribute(an); return v == null ? JsVal.Null() : JsVal.FromStr(v); } } catch { /* swallow */ } return JsVal.Null(); }) };
+                    if (name == "innerText") { try { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(he.Id) as JsDomElement; if (el != null) return JsVal.FromStr(el.innerText ?? ""); } catch { /* swallow */ } return JsVal.Null(); }
+                    if (name == "removeAttribute") return new JsVal { Obj = new HostFunc(args => { string an = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); try { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(he.Id) as JsDomElement; if (el != null) el.setAttribute(an, null); } catch { /* swallow */ } return JsVal.Null(); }) };
+                    if (name == "hasAttribute") return new JsVal { Obj = new HostFunc(args => { string an = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); try { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(he.Id) as JsDomElement; if (el != null) { var v = el.getAttribute(an); return JsVal.FromBool(!string.IsNullOrEmpty(v)); } } catch { /* swallow */ } return JsVal.FromBool(false); }) };
                     return JsVal.Null();
                 }
                 if (obj.Obj is JsFuncDef)
@@ -7518,22 +7943,22 @@ public bool Execute(string code)
                 }
                 if (obj.Obj is HostStyle)
                 {
-                    if (name == "setProperty") { var hs = (HostStyle)obj.Obj; return new JsVal { Obj = new HostFunc(args => { string prop = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); string val = ToStr(args.Count > 1 ? args[1] : JsVal.Null()); try { if (!string.IsNullOrEmpty(hs.Id)) _e.TryUpdateInlineStyle(hs.Id, prop, val); else if (hs.Node != null) { var style = hs.Node.GetAttribute("style") ?? ""; var dict = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase); foreach (var part in style.Split(new[] {';'}, StringSplitOptions.RemoveEmptyEntries)) { var kv = part.Split(new[]{':'},2); if (kv.Length==2) dict[kv[0].Trim()] = kv[1].Trim(); } dict[prop]=val??""; var sb=new StringBuilder(); bool first=true; foreach(var kv in dict){ if(!first) sb.Append(';'); first=false; sb.Append(kv.Key).Append(':').Append(kv.Value);} hs.Node.SetAttribute("style", sb.ToString()); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) }; }
+                    if (name == "setProperty") { var hs = (HostStyle)obj.Obj; return new JsVal { Obj = new HostFunc(args => { string prop = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); string val = ToStr(args.Count > 1 ? args[1] : JsVal.Null()); try { if (!string.IsNullOrEmpty(hs.Id)) _e.TryUpdateInlineStyle(hs.Id, prop, val); else if (hs.Node != null) { var style = hs.Node.GetAttribute("style") ?? ""; var dict = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase); foreach (var part in style.Split(new[] {';'}, StringSplitOptions.RemoveEmptyEntries)) { var kv = part.Split(new[]{':'},2); if (kv.Length==2) dict[kv[0].Trim()] = kv[1].Trim(); } dict[prop]=val??""; var sb=new StringBuilder(); bool first=true; foreach(var kv in dict){ if(!first) sb.Append(';'); first=false; sb.Append(kv.Key).Append(':').Append(kv.Value);} hs.Node.SetAttribute("style", sb.ToString()); } } catch { /* swallow */ } return JsVal.Null(); }) }; }
                     return JsVal.Null();
                 }
                 if (obj.Obj is HostClassList)
                 {
                     var cl = (HostClassList)obj.Obj;
-                    if (name == "add" || name == "remove" || name == "toggle") return new JsVal { Obj = new HostFunc(args => { string cls = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); try { if (!string.IsNullOrEmpty(cl.Id)) _e.TryUpdateClassList(cl.Id, name, cls); else if (cl.Node != null) { if (name=="add") cl.Node.AddClass(cls); else if (name=="remove") cl.Node.RemoveClass(cls); else cl.Node.ToggleClass(cls); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
-                    if (name == "contains") return new JsVal { Obj = new HostFunc(args => { string cls = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); try { if (cl.Node != null) { var cur = cl.Node.GetAttribute("class") ?? ""; var set = new HashSet<string>(cur.Split(new[]{' '},StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal); return JsVal.FromBool(set.Contains(cls)); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.FromBool(false); }) };
+                    if (name == "add" || name == "remove" || name == "toggle") return new JsVal { Obj = new HostFunc(args => { string cls = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); try { if (!string.IsNullOrEmpty(cl.Id)) _e.TryUpdateClassList(cl.Id, name, cls); else if (cl.Node != null) { if (name=="add") cl.Node.AddClass(cls); else if (name=="remove") cl.Node.RemoveClass(cls); else cl.Node.ToggleClass(cls); } } catch { /* swallow */ } return JsVal.Null(); }) };
+                    if (name == "contains") return new JsVal { Obj = new HostFunc(args => { string cls = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); try { if (cl.Node != null) { var cur = cl.Node.GetAttribute("class") ?? ""; var set = new HashSet<string>(cur.Split(new[]{' '},StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal); return JsVal.FromBool(set.Contains(cls)); } } catch { /* swallow */ } return JsVal.FromBool(false); }) };
                     return JsVal.Null();
                 }
                 if (obj.Obj is HostDataset)
                 {
                     var ds = (HostDataset)obj.Obj;
-                    if (name == "set") return new JsVal { Obj = new HostFunc(args => { try { var k = ToStr(args.Count>0?args[0]:JsVal.Null()); var v = ToStr(args.Count>1?args[1]:JsVal.Null()); if (ds.Node!=null && !string.IsNullOrEmpty(k)) ds.Node.SetAttribute("data-"+k, v??""); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
+                    if (name == "set") return new JsVal { Obj = new HostFunc(args => { try { var k = ToStr(args.Count>0?args[0]:JsVal.Null()); var v = ToStr(args.Count>1?args[1]:JsVal.Null()); if (ds.Node!=null && !string.IsNullOrEmpty(k)) ds.Node.SetAttribute("data-"+k, v??""); } catch { /* swallow */ } return JsVal.Null(); }) };
                     // reading arbitrary key as property
-                    try { var v = ds.Node != null ? ds.Node.GetAttribute("data-" + name) : null; if (v != null) return JsVal.FromStr(v); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { var v = ds.Node != null ? ds.Node.GetAttribute("data-" + name) : null; if (v != null) return JsVal.FromStr(v); } catch { /* swallow */ }
                     return JsVal.Null();
                 }
                 if (obj.Obj is HostClipboard)
@@ -7549,11 +7974,11 @@ public bool Execute(string code)
                                 if (data != null && data.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
                                 {
                                     var op = data.GetTextAsync(); op.AsTask().Wait(500);
-                                    try { text = op.GetResults(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                    try { text = op.GetResults(); } catch { /* swallow */ }
                                 }
 #endif
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                             var fn = args.Count>0 ? args[0].Obj as JsFuncDef : null;
                             if (fn != null) { var r = new JsMiniRunner(_e); r.InvokeFunction(fn, new List<JsVal> { JsVal.FromStr(text) }); return JsVal.Null(); }
                             return JsVal.FromStr(text);
@@ -7571,7 +7996,7 @@ public bool Execute(string code)
                                 Windows.ApplicationModel.DataTransfer.Clipboard.Flush();
 #endif
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                             return JsVal.Null();
                         }) };
                     return JsVal.Null();
@@ -7579,20 +8004,20 @@ public bool Execute(string code)
                 if (obj.Obj is HostConsole)
                 {
                     if (name == "log" || name == "warn" || name == "error" || name == "info")
-                        return new JsVal { Obj = new HostFunc(args => { try { string msg = args.Count > 0 ? ToStr(args[0]) : ""; _e._host.SetStatus(msg); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
+                        return new JsVal { Obj = new HostFunc(args => { try { string msg = args.Count > 0 ? ToStr(args[0]) : ""; _e._host.SetStatus(msg); } catch { /* swallow */ } return JsVal.Null(); }) };
                     return JsVal.Null();
                 }
                 if (obj.Obj is HostHistory)
                 {
-                    if (name == "pushState") return new JsVal { Obj = new HostFunc(args => { try { string url = ToStr(args.Count > 2 ? args[2] : JsVal.Null()); var u = Resolve(_e._ctx?.BaseUri, url); if (u != null) _e.HistoryPush(u); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
-                    if (name == "replaceState") return new JsVal { Obj = new HostFunc(args => { try { string url = ToStr(args.Count > 2 ? args[2] : JsVal.Null()); var u = Resolve(_e._ctx?.BaseUri, url); if (u != null) _e.HistoryReplace(u); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
+                    if (name == "pushState") return new JsVal { Obj = new HostFunc(args => { try { string url = ToStr(args.Count > 2 ? args[2] : JsVal.Null()); var u = Resolve(_e._ctx?.BaseUri, url); if (u != null) _e.HistoryPush(u); } catch { /* swallow */ } return JsVal.Null(); }) };
+                    if (name == "replaceState") return new JsVal { Obj = new HostFunc(args => { try { string url = ToStr(args.Count > 2 ? args[2] : JsVal.Null()); var u = Resolve(_e._ctx?.BaseUri, url); if (u != null) _e.HistoryReplace(u); } catch { /* swallow */ } return JsVal.Null(); }) };
                     return JsVal.Null();
                 }
                 if (obj.Obj is HostWindow)
                 {
-                    if (name == "open") return new JsVal { Obj = new HostFunc(args => { try { string url = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); _e.Navigate(url); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
-                    if (name == "innerWidth") { try { double w = 0; try { w = Windows.UI.Xaml.Window.Current.Bounds.Width; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.FromNum(w); } catch { return JsVal.FromNum(0); } }
-                    if (name == "innerHeight") { try { double h = 0; try { h = Windows.UI.Xaml.Window.Current.Bounds.Height; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.FromNum(h); } catch { return JsVal.FromNum(0); } }
+                    if (name == "open") return new JsVal { Obj = new HostFunc(args => { try { string url = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); _e.Navigate(url); } catch { /* swallow */ } return JsVal.Null(); }) };
+                    if (name == "innerWidth") { try { double w = 0; try { w = Windows.UI.Xaml.Window.Current.Bounds.Width; } catch { /* swallow */ } return JsVal.FromNum(w); } catch { return JsVal.FromNum(0); } }
+                    if (name == "innerHeight") { try { double h = 0; try { h = Windows.UI.Xaml.Window.Current.Bounds.Height; } catch { /* swallow */ } return JsVal.FromNum(h); } catch { return JsVal.FromNum(0); } }
                     if (name == "navigator") return new JsVal { Obj = new HostNavigator(_e) };
                     if (name == "performance") return new JsVal { Obj = new HostPerformance(_e) };
                     if (name == "matchMedia")
@@ -7614,7 +8039,7 @@ public bool Execute(string code)
                             try
                             {
                                 var url = ToStr(args.Count > 0 ? args[0] : JsVal.Null());
-                                Uri abs = null; try { abs = Resolve(_e._ctx?.BaseUri, url); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                Uri abs = null; try { abs = Resolve(_e._ctx?.BaseUri, url); } catch { /* swallow */ }
                                 // options: { method, headers:{}, body }
                                 string method = null; string body = null; Dictionary<string,string> headers = null;
                                 if (args.Count > 1)
@@ -7678,19 +8103,19 @@ public bool Execute(string code)
                 if (obj.Obj is HostClassList)
                 {
                     var cl = (HostClassList)obj.Obj;
-                    if (name == "add") return new JsVal { Obj = new HostFunc(args => { try { var cls = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); if (cl.Node != null) { var cur = cl.Node.GetAttribute("class") ?? ""; var set = new HashSet<string>(cur.Split(new[]{' '},StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal); set.Add(cls); cl.Node.SetAttribute("class", string.Join(" ", set.ToArray())); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
-                    if (name == "remove") return new JsVal { Obj = new HostFunc(args => { try { var cls = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); if (cl.Node != null) { var cur = cl.Node.GetAttribute("class") ?? ""; var set = new HashSet<string>(cur.Split(new[]{' '},StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal); set.Remove(cls); cl.Node.SetAttribute("class", string.Join(" ", set.ToArray())); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
-                    if (name == "toggle") return new JsVal { Obj = new HostFunc(args => { try { var cls = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); if (cl.Node != null) { var cur = cl.Node.GetAttribute("class") ?? ""; var set = new HashSet<string>(cur.Split(new[]{' '},StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal); if (!set.Add(cls)) set.Remove(cls); cl.Node.SetAttribute("class", string.Join(" ", set.ToArray())); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
-                    if (name == "contains") return new JsVal { Obj = new HostFunc(args => { try { var cls = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); if (cl.Node != null) { var cur = cl.Node.GetAttribute("class") ?? ""; var set = new HashSet<string>(cur.Split(new[]{' '},StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal); return JsVal.FromBool(set.Contains(cls)); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.FromBool(false); }) };
+                    if (name == "add") return new JsVal { Obj = new HostFunc(args => { try { var cls = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); if (cl.Node != null) { var cur = cl.Node.GetAttribute("class") ?? ""; var set = new HashSet<string>(cur.Split(new[]{' '},StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal); set.Add(cls); cl.Node.SetAttribute("class", string.Join(" ", set.ToArray())); } } catch { /* swallow */ } return JsVal.Null(); }) };
+                    if (name == "remove") return new JsVal { Obj = new HostFunc(args => { try { var cls = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); if (cl.Node != null) { var cur = cl.Node.GetAttribute("class") ?? ""; var set = new HashSet<string>(cur.Split(new[]{' '},StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal); set.Remove(cls); cl.Node.SetAttribute("class", string.Join(" ", set.ToArray())); } } catch { /* swallow */ } return JsVal.Null(); }) };
+                    if (name == "toggle") return new JsVal { Obj = new HostFunc(args => { try { var cls = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); if (cl.Node != null) { var cur = cl.Node.GetAttribute("class") ?? ""; var set = new HashSet<string>(cur.Split(new[]{' '},StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal); if (!set.Add(cls)) set.Remove(cls); cl.Node.SetAttribute("class", string.Join(" ", set.ToArray())); } } catch { /* swallow */ } return JsVal.Null(); }) };
+                    if (name == "contains") return new JsVal { Obj = new HostFunc(args => { try { var cls = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); if (cl.Node != null) { var cur = cl.Node.GetAttribute("class") ?? ""; var set = new HashSet<string>(cur.Split(new[]{' '},StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal); return JsVal.FromBool(set.Contains(cls)); } } catch { /* swallow */ } return JsVal.FromBool(false); }) };
                     return JsVal.Null();
                 }
                 if (obj.Obj is HostLocalStorage)
                 {
                     var h = (HostLocalStorage)obj.Obj;
                     if (name == "getItem") return new JsVal { Obj = new HostFunc(args => { try { string k = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); var bag = h.Session ? _e.GetSessionStorageFor(_e._ctx?.BaseUri) : _e.GetLocalStorageFor(_e._ctx?.BaseUri); string v=null; lock(_e._storageLock) bag.TryGetValue(k, out v); return JsVal.FromStr(v??""); } catch { return JsVal.Null(); } }) };
-                    if (name == "setItem") return new JsVal { Obj = new HostFunc(args => { try { string k = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); string v = ToStr(args.Count > 1 ? args[1] : JsVal.Null()); var bag = h.Session ? _e.GetSessionStorageFor(_e._ctx?.BaseUri) : _e.GetLocalStorageFor(_e._ctx?.BaseUri); lock(_e._storageLock) bag[k]=v??""; if(!h.Session) _e.PersistLocalStorage(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
-                    if (name == "removeItem") return new JsVal { Obj = new HostFunc(args => { try { string k = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); var bag = h.Session ? _e.GetSessionStorageFor(_e._ctx?.BaseUri) : _e.GetLocalStorageFor(_e._ctx?.BaseUri); lock(_e._storageLock) bag.Remove(k); if(!h.Session) _e.PersistLocalStorage(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
-                    if (name == "clear") return new JsVal { Obj = new HostFunc(args => { try { var bag = h.Session ? _e.GetSessionStorageFor(_e._ctx?.BaseUri) : _e.GetLocalStorageFor(_e._ctx?.BaseUri); lock(_e._storageLock) bag.Clear(); if(!h.Session) _e.PersistLocalStorage(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
+                    if (name == "setItem") return new JsVal { Obj = new HostFunc(args => { try { string k = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); string v = ToStr(args.Count > 1 ? args[1] : JsVal.Null()); var bag = h.Session ? _e.GetSessionStorageFor(_e._ctx?.BaseUri) : _e.GetLocalStorageFor(_e._ctx?.BaseUri); lock(_e._storageLock) bag[k]=v??""; if(!h.Session) _e.PersistLocalStorage(); } catch { /* swallow */ } return JsVal.Null(); }) };
+                    if (name == "removeItem") return new JsVal { Obj = new HostFunc(args => { try { string k = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); var bag = h.Session ? _e.GetSessionStorageFor(_e._ctx?.BaseUri) : _e.GetLocalStorageFor(_e._ctx?.BaseUri); lock(_e._storageLock) bag.Remove(k); if(!h.Session) _e.PersistLocalStorage(); } catch { /* swallow */ } return JsVal.Null(); }) };
+                    if (name == "clear") return new JsVal { Obj = new HostFunc(args => { try { var bag = h.Session ? _e.GetSessionStorageFor(_e._ctx?.BaseUri) : _e.GetLocalStorageFor(_e._ctx?.BaseUri); lock(_e._storageLock) bag.Clear(); if(!h.Session) _e.PersistLocalStorage(); } catch { /* swallow */ } return JsVal.Null(); }) };
                     return JsVal.Null();
                 }
                 if (obj.Obj is HostPerformance)
@@ -7736,7 +8161,7 @@ public bool Execute(string code)
                                     bag[key] = vprop; return JsVal.Null();
                                 }
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                             return JsVal.Null();
                         }) };
                     }
@@ -7772,7 +8197,7 @@ public bool Execute(string code)
                                         var runner = new JsMiniRunner(_e);
                                         runner.InvokeFunction(fn, new List<JsVal> { new JsVal { Obj = ro } });
                                     }
-                                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                    catch { /* swallow */ }
                                 });
                             }
                             return JsVal.Null();
@@ -7793,7 +8218,7 @@ public bool Execute(string code)
                                         var runner = new JsMiniRunner(_e);
                                         runner.InvokeFunction(fn, new List<JsVal> { JsVal.FromStr(text) });
                                     }
-                                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                    catch { /* swallow */ }
                                 });
                             }
                             return JsVal.Null();
@@ -7810,12 +8235,12 @@ public bool Execute(string code)
                                 {
                                     try
                                     {
-                                        var s = (t.Result != null ? t.Result.Body : "") ?? ""; Windows.Data.Json.IJsonValue jv = null; try { jv = Windows.Data.Json.JsonValue.Parse(s); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                        var s = (t.Result != null ? t.Result.Body : "") ?? ""; Windows.Data.Json.IJsonValue jv = null; try { jv = Windows.Data.Json.JsonValue.Parse(s); } catch { /* swallow */ }
                                         var arg = jv != null ? FromJson(jv) : JsVal.Null();
                                         var runner = new JsMiniRunner(_e);
                                         runner.InvokeFunction(fn, new List<JsVal> { arg });
                                     }
-                                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                    catch { /* swallow */ }
                                 });
                             }
                             return JsVal.Null();
@@ -7826,7 +8251,7 @@ public bool Execute(string code)
                 if (obj.Obj is HostLocation)
                 {
                     if (name == "href") { var u = _e._ctx != null && _e._ctx.BaseUri != null ? _e._ctx.BaseUri.AbsoluteUri : ""; return JsVal.FromStr(u); }
-                    if (name == "reload") return new JsVal { Obj = new HostFunc(args => { try { var b = _e._ctx != null ? _e._ctx.BaseUri : null; if (b != null) _e._host.Navigate(b); else _e.RequestRepaint(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } return JsVal.Null(); }) };
+                    if (name == "reload") return new JsVal { Obj = new HostFunc(args => { try { var b = _e._ctx != null ? _e._ctx.BaseUri : null; if (b != null) _e._host.Navigate(b); else _e.RequestRepaint(); } catch { /* swallow */ } return JsVal.Null(); }) };
                     return JsVal.Null();
                 }
                 if (obj.Obj is HostJSON)
@@ -7863,7 +8288,7 @@ public bool Execute(string code)
                             // If already settled, schedule processing immediately
                             if (hp.State != 0)
                             {
-                                _e.EnqueueMicrotask(() => { try { ProcessPromiseHandlers(hp); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+                                _e.EnqueueMicrotask(() => { try { ProcessPromiseHandlers(hp); } catch { /* swallow */ } });
                             }
                             return new JsVal { Obj = next };
                         }) };
@@ -7873,7 +8298,7 @@ public bool Execute(string code)
                             var onRejected = args.Count > 0 ? args[0].Obj as JsFuncDef : null;
                             var next = new HostPromise { E = _e, State = 0, Value = JsVal.Null() };
                             if (onRejected != null) hp.Handlers.Add(new PromiseHandler { IsFulfill = false, Fn = onRejected, Next = next });
-                            if (hp.State != 0) { _e.EnqueueMicrotask(() => { try { ProcessPromiseHandlers(hp); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }); }
+                            if (hp.State != 0) { _e.EnqueueMicrotask(() => { try { ProcessPromiseHandlers(hp); } catch { /* swallow */ } }); }
                             return new JsVal { Obj = next };
                         }) };
                     if (name == "finally")
@@ -7892,7 +8317,7 @@ public bool Execute(string code)
                             }
                             hp.Handlers.Add(new PromiseHandler { IsFulfill = true, Fn = onFinally, Next = next });
                             hp.Handlers.Add(new PromiseHandler { IsFulfill = false, Fn = onFinally, Next = next });
-                            if (hp.State != 0) { _e.EnqueueMicrotask(() => { try { ProcessPromiseHandlers(hp); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }); }
+                            if (hp.State != 0) { _e.EnqueueMicrotask(() => { try { ProcessPromiseHandlers(hp); } catch { /* swallow */ } }); }
                             return new JsVal { Obj = next };
                         }) };
                     return JsVal.Null();
@@ -7924,7 +8349,7 @@ public bool Execute(string code)
                 {
                     result = InvokeFunction(def, args ?? new List<JsVal>(), instance);
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 if (result != null && (result.Obj != null || result.Str != null || result.Num.HasValue || result.Bool.HasValue))
                 {
@@ -7998,14 +8423,14 @@ public bool Execute(string code)
                         return result ?? JsVal.Null();
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 try
                 {
                     child._src = def.Body ?? ""; child._pos = 0; child._len = child._src.Length; child.SkipWs();
                     while (!child.Eof()) { child.ParseStatement(); child.SkipWs(); }
                 }
                 catch (ReturnEx rex) { return rex.Value ?? JsVal.Null(); }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 return JsVal.Null();
             }
             private static string TypeOf(JsVal v) {
@@ -8088,21 +8513,21 @@ public bool Execute(string code)
                                 }
                                 else
                                 {
-                                    if (h.Next != null) { h.Next.State = rp.State; h.Next.Value = rp.Value; _e.EnqueueMicrotask(() => { try { ProcessPromiseHandlers(h.Next); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }); }
+                                    if (h.Next != null) { h.Next.State = rp.State; h.Next.Value = rp.Value; _e.EnqueueMicrotask(() => { try { ProcessPromiseHandlers(h.Next); } catch { /* swallow */ } }); }
                                 }
                             }
                             else
                             {
-                                if (h.Next != null) { h.Next.State = 1; h.Next.Value = ret ?? JsVal.Null(); _e.EnqueueMicrotask(() => { try { ProcessPromiseHandlers(h.Next); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }); }
+                                if (h.Next != null) { h.Next.State = 1; h.Next.Value = ret ?? JsVal.Null(); _e.EnqueueMicrotask(() => { try { ProcessPromiseHandlers(h.Next); } catch { /* swallow */ } }); }
                             }
                         }
                         else
                         {
                             // no handler => propagate as-is
-                            if (h.Next != null) { h.Next.State = p.State; h.Next.Value = p.Value; _e.EnqueueMicrotask(() => { try { ProcessPromiseHandlers(h.Next); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }); }
+                            if (h.Next != null) { h.Next.State = p.State; h.Next.Value = p.Value; _e.EnqueueMicrotask(() => { try { ProcessPromiseHandlers(h.Next); } catch { /* swallow */ } }); }
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
             }
         }
@@ -8122,7 +8547,7 @@ public bool Execute(string code)
                 else if (op == "toggle") { if (!set.Remove(cls)) { set.Add(cls); } changed = true; }
                 if (changed) el.setAttribute("class", string.Join(" ", set.ToArray()));
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private static Uri Resolve(Uri baseUri, string url)
@@ -8390,7 +8815,7 @@ public bool Execute(string code)
                         _e._pendingMutations.Add(new InternalMutationRecord { Type = "childList", Target = host._node, Added = new List<LiteElement> { j._node } });
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 _e.RequestRepaint();
             }
 
@@ -8412,7 +8837,7 @@ public bool Execute(string code)
                         _e.RequestRepaint();
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }
         }
 
@@ -8447,7 +8872,7 @@ public bool Execute(string code)
                 set
                 {
                     // Attr's setter is inaccessible; only mutate the existing dictionary.
-                    try { _node.SetAttribute("id", value ?? ""); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    try { _node.SetAttribute("id", value ?? ""); } catch { /* swallow */ }
                 }
             }
 
@@ -8469,7 +8894,7 @@ public bool Execute(string code)
                             _e._pendingMutations.Add(new InternalMutationRecord { Type = "childList", Target = _node, Added = new List<LiteElement> { textNode } });
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
 
                     _e.RequestRepaint();
                 }
@@ -8522,7 +8947,7 @@ public bool Execute(string code)
                                 });
                             }
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
 
                         // Optionally execute inline <script> blocks in the assigned fragment
                         if (_e.ExecuteInlineScriptsOnInnerHTML)
@@ -8537,14 +8962,14 @@ public bool Execute(string code)
                                     var code = s.CollectText();
                                     if (!string.IsNullOrWhiteSpace(code))
                                     {
-                                        try { _e.RunInline(code, new JsContext { BaseUri = _e._ctx?.BaseUri }); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                                        try { _e.RunInline(code, new JsContext { BaseUri = _e._ctx?.BaseUri }); } catch { /* swallow */ }
                                     }
                                 }
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
 
                     _e.RequestRepaint();
                 }
@@ -8616,11 +9041,11 @@ public bool Execute(string code)
                             _e._pendingMutations.Add(new InternalMutationRecord { Type = "childList", Target = target, Added = added });
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
 
                     _e.RequestRepaint();
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }
 
             public void setAttribute(string name, string value)
@@ -8639,7 +9064,7 @@ public bool Execute(string code)
                         _e._pendingMutations.Add(new InternalMutationRecord { Type = "attributes", Target = _node, AttributeName = name });
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 _e.RequestRepaint();
             }
@@ -8659,7 +9084,7 @@ public bool Execute(string code)
                 {
                     lock (_e._mutationLock) { _e._pendingMutations.Add(new InternalMutationRecord { Type = "childList", Target = _node, Added = new List<LiteElement> { j._node } }); }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 _e.RequestRepaint();
             }
 
@@ -8686,7 +9111,7 @@ public bool Execute(string code)
                             _e._pendingMutations.Add(new InternalMutationRecord { Type = "attributes", Target = _node, AttributeName = "value" });
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                     _e.RequestRepaint();
                 }
             }
@@ -8700,7 +9125,7 @@ public bool Execute(string code)
                     _node.Children.Remove(j._node);
                     lock (_e._mutationLock) { _e._pendingMutations.Add(new InternalMutationRecord { Type = "childList", Target = _node, Removed = new List<LiteElement> { j._node } }); }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 _e.RequestRepaint();
             }
 
@@ -8727,7 +9152,7 @@ public bool Execute(string code)
                         c.CopyAttributesFrom(n);
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 try
                 {
                     for (int i = 0; i < n.Children.Count; i++)
@@ -8736,7 +9161,7 @@ public bool Execute(string code)
                         if (childClone != null) c.Append(childClone);
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 return c;
             }
 
@@ -8747,7 +9172,7 @@ public bool Execute(string code)
                 {
                     for (int i = 0; i < n.Children.Count; i++) SerializeNode(n.Children[i], sb);
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 return sb.ToString();
             }
 
@@ -8769,7 +9194,7 @@ public bool Execute(string code)
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 // void tags
                 if (LiteDomUtil.IsVoid(tag)) { sb.Append('/').Append('>'); return; }
                 sb.Append('>');
@@ -8787,7 +9212,7 @@ public bool Execute(string code)
                             else SerializeNode(ch, sb);
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
                 else
                 {
@@ -8833,7 +9258,7 @@ public bool Execute(string code)
                     var body = (root.QueryByTag("body") ?? Enumerable.Empty<LiteElement>()).FirstOrDefault();
                     if (body != null) flipClass(body);
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 // Do NOT remove <noscript> on this platform; we are a limited JS renderer
                 // and <noscript> often contains the only usable fallback content.
@@ -8887,8 +9312,8 @@ public bool Execute(string code)
             _navigate = navigate ?? (_ => { });
             _post = post ?? ((_, __) => { });
             _status = status ?? (_ => { });
-            _requestRender = requestRender ?? (() => { try { _status("[DOM mutated]"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
-            _invokeOnUiThread = invokeOnUiThread ?? (a => { try { a(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } });
+            _requestRender = requestRender ?? (() => { try { _status("[DOM mutated]"); } catch { /* swallow */ } });
+            _invokeOnUiThread = invokeOnUiThread ?? (a => { try { a(); } catch { /* swallow */ } });
             _setTitle = setTitle ?? (_ => { });
         }
 
@@ -8897,13 +9322,13 @@ public bool Execute(string code)
         public void SetStatus(string s) => _status(s);
 
         // IJsHostRepaint implementation
-        public void RequestRender() { try { _requestRender(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
-        public void InvokeOnUiThread(Action action) { if (action == null) return; try { _invokeOnUiThread(action); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); } }
+        public void RequestRender() { try { _requestRender(); } catch { /* swallow */ } }
+        public void InvokeOnUiThread(Action action) { if (action == null) return; try { _invokeOnUiThread(action); } catch { /* swallow */ } }
 
         public void SetTitle(string tval)
         {
             try { _setTitle(tval ?? string.Empty); }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JavaScriptEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
     }
 }

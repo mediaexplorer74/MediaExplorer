@@ -7,9 +7,7 @@ using NiL.JS.Core.Interop;
 
 namespace NiL.JS.BaseLibrary;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class RegExp : CustomType
 {
     private struct RegExpCacheItem
@@ -694,14 +692,12 @@ public sealed class RegExp : CustomType
         return true;
     }
 
-#if !WRC
     [CLSCompliant(false)]
     [DoNotEnumerate]
     public JSValue toString()
     {
         return ToString();
     }
-#endif
 
     [Hidden]
     public override string ToString()

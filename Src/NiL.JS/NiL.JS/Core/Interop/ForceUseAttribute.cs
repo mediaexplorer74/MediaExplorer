@@ -1,22 +1,15 @@
-п»їusing System;
+using System;
 
 namespace NiL.JS.Core.Interop;
 
 /// <summary>
-/// РЈРєР°Р·С‹РІР°РµС‚ РЅР° РЅРµРѕР±С…РѕРґРёРјРѕСЃС‚СЊ СѓС‡РёС‚С‹РІР°С‚СЊ С‡Р»РµРЅ РїСЂРё СЃРѕР·РґР°РЅРёРё РїСЂРµРґСЃС‚Р°РІРёС‚РµР»СЏ РІ СЃСЂРµРґРµ РІС‹РїРѕР»РЅРµРЅРёСЏ СЃС†РµРЅР°СЂРёСЏ 
-/// РІРЅРµ Р·Р°РІРёСЃРёРјРѕСЃС‚Рё РѕС‚ РјРѕРґРёС„РёРєР°С‚РѕСЂР° РґРѕСЃС‚СѓРїР°
+/// Указывает на необходимость учитывать член при создании представителя в среде выполнения сценария 
+/// вне зависимости от модификатора доступа
 /// </summary>
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [AttributeUsage(AttributeTargets.All
-#if (PORTABLE || NETCORE)
-    & ~AttributeTargets.Constructor
-#endif
 , AllowMultiple = false, Inherited = true)]
-#if !WRC
 public
-#endif
 sealed class ForceUseAttribute : Attribute
 {
 }

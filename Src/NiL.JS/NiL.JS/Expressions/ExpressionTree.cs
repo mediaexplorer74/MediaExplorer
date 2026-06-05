@@ -13,9 +13,7 @@ namespace NiL.JS.Expressions;
  * Если желание твоё посетить сие место всё ещё живо и не угасло... и да хранит тебя Б-г.
  */
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 internal enum OperationTypeGroups
 {
     None = 0x00,
@@ -38,9 +36,7 @@ internal enum OperationTypeGroups
     Special = 0xFF0
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 internal enum OperationType
 {
     None = OperationTypeGroups.None + 0,
@@ -99,9 +95,7 @@ internal enum OperationType
     Yield = OperationTypeGroups.Special + 4
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class ExpressionTree : Expression
 {
     private OperationType _operationKind;

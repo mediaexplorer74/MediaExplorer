@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -10,17 +10,13 @@ using NiL.JS.Expressions;
 using NiL.JS.Statements;
 using linqEx = System.Linq.Expressions;
 
-#if !(PORTABLE || NETCORE)
-#endif
 
 namespace NiL.JS.BaseLibrary;
 
 /// <summary>
-/// Возможные типы функции в контексте использования.
+/// ��������� ���� ������� � ��������� �������������.
 /// </summary>
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public enum FunctionKind
 {
     Function = 0,
@@ -39,9 +35,7 @@ public enum FunctionKind
     AsyncGenerator,
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public enum RequireNewKeywordLevel
 {
     Both = 0,
@@ -49,19 +43,13 @@ public enum RequireNewKeywordLevel
     WithoutNewOnly
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public partial class Function : JSObject, ICallable
 {
     private static readonly FunctionDefinition creatorDummy = new FunctionDefinition();
     internal static readonly Function Empty = new Function();
     private static readonly Function TTEProxy = new MethodProxy(new Context(null, false, Empty), typeof(Function)
-#if (PORTABLE || NETCORE)
-        .GetTypeInfo().GetDeclaredMethod("ThrowTypeError"))
-#else
         .GetMethod("ThrowTypeError", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic))
-#endif
     {
         _attributes = JSValueAttributesInternal.DoNotDelete
             | JSValueAttributesInternal.Immutable
@@ -186,9 +174,9 @@ public partial class Function : JSObject, ICallable
             {
                 if ((_attributes & JSValueAttributesInternal.ProxyPrototype) != 0)
                 {
-                    // Вызывается в случае Function.prototype.prototype
-                    // выдавать тут константу undefined нельзя, иначе будет падать на вызове defineProperty
-                    // присваивание нужно для простановки атрибутов
+                    // ���������� � ������ Function.prototype.prototype
+                    // �������� ��� ��������� undefined ������, ����� ����� ������ �� ������ defineProperty
+                    // ������������ ����� ��� ����������� ���������
                     prototype = new JSObject();
                     _prototype._attributes = JSValueAttributesInternal.None;
                 }
@@ -233,7 +221,7 @@ public partial class Function : JSObject, ICallable
         }
     }
     /// <summary>
-    /// Объект, содержащий параметры вызова функции либо null если в данный момент функция не выполняется.
+    /// ������, ���������� ��������� ������ ������� ���� null ���� � ������ ������ ������� �� �����������.
     /// </summary>
     [Field]
     [DoNotDelete]
@@ -468,7 +456,7 @@ public partial class Function : JSObject, ICallable
 
     protected internal virtual JSValue Invoke(bool construct, JSValue targetObject, Arguments arguments)
     {
-#if DEBUG && !(PORTABLE || NETCORE)
+#if DEBUG
         if (_functionDefinition.trace)
             System.Console.WriteLine("DEBUG: Run \"" + _functionDefinition.Reference.Name + "\"");
 #endif
@@ -486,7 +474,7 @@ public partial class Function : JSObject, ICallable
             || _functionDefinition._functionInfo.NeedDecompose
             || (currentContext?._debugging ?? false);
 
-        if (_functionDefinition.recursionDepth > _functionDefinition.parametersStored) // рекурсивный вызов.
+        if (_functionDefinition.recursionDepth > _functionDefinition.parametersStored) // ����������� �����.
         {
             if (!ceocw)
                 storeParameters();
@@ -511,7 +499,7 @@ public partial class Function : JSObject, ICallable
             }
             finally
             {
-#if DEBUG && !(PORTABLE || NETCORE)
+#if DEBUG
                 if (_functionDefinition.trace)
                     System.Console.WriteLine("DEBUG: Exit \"" + _functionDefinition.Reference.Name + "\"");
 #endif
@@ -551,7 +539,7 @@ public partial class Function : JSObject, ICallable
         }
         else
         {
-            // константы и новосозданные объекты копировать нет смысла
+            // ��������� � ������������� ������� ���������� ��� ������
             if ((ai._attributes & JSValueAttributesInternal.SystemObject) == 0)
                 return ai.CloneImpl(false);
             return ai;
@@ -809,7 +797,7 @@ public partial class Function : JSObject, ICallable
         }
         else if (_initialContext != null)
         {
-            if (!strict) // Поправляем this
+            if (!strict) // ���������� this
             {
                 if (thisBind._valueType > JSValueType.Undefined && thisBind._valueType < JSValueType.Object)
                     return thisBind.ToObject();
@@ -956,11 +944,7 @@ public partial class Function : JSObject, ICallable
         }
 
         MethodInfo invokeMethod = null;
-#if (PORTABLE || NETCORE)
-        invokeMethod = System.Linq.Enumerable.First(delegateType.GetRuntimeMethods(), x => x.Name == "Invoke");
-#else
         invokeMethod = delegateType.GetMethod("Invoke");
-#endif
         var @delegate = Tools.BuildJsCallTree(
             Context,
             "<delegate>" + name,

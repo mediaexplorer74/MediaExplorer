@@ -1,18 +1,16 @@
-п»їusing System;
+using System;
 using NiL.JS.Core;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Negation : Expression
 {
     protected internal override PredictedType ResultType
     {
         get
         {
-            return PredictedType.Number; // -int.MinValue == int.MinValue, РЅРѕ РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ -int.MinValue == -(double)int.MinValue;
+            return PredictedType.Number; // -int.MinValue == int.MinValue, но должно быть -int.MinValue == -(double)int.MinValue;
         }
     }
 

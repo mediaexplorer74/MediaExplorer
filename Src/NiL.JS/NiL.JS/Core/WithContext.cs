@@ -1,11 +1,9 @@
-﻿using System;
+using System;
 using NiL.JS.BaseLibrary;
 
 namespace NiL.JS.Core;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class WithContext : Context
 {
     private JSValue @object;

@@ -1,4 +1,4 @@
-ï»¿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
@@ -538,7 +538,7 @@ public static class JSON
                         var prevIndex = int.Parse(prevKey ?? "-1");
 
                         var capacity = result.Length + "null,".Length * (curentIndex - prevIndex);
-                        if (capacity > result.Length) // ÐœÐ¾Ð¶ÐµÑ‚ Ð¿Ñ€Ð¾Ð¸Ð·Ð¾Ð¹Ñ‚Ð¸ Ð¿ÐµÑ€ÐµÐ¿Ð¾Ð»Ð½ÐµÐ½Ð¸Ðµ
+                        if (capacity > result.Length) // Ìîæåò ïðîèçîéòè ïåðåïîëíåíèå
                             result.EnsureCapacity(capacity);
 
                         for (var i = curentIndex - 1; i-- > prevIndex;)

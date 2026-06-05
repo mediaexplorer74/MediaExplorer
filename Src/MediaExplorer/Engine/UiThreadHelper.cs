@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Windows.ApplicationModel.Core;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
@@ -15,13 +15,13 @@ namespace BrowserCore.Engine
                 if (disp != null)
                     return disp;
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/UiThreadHelper.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             try
             {
                 return CoreApplication.MainView?.CoreWindow?.Dispatcher;
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/UiThreadHelper.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             return null;
         }
@@ -36,7 +36,7 @@ namespace BrowserCore.Engine
         {
             if (dispatcher == null || callback == null) return;
             try { dispatcher.RunAsync(priority, callback); }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/UiThreadHelper.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         internal static async System.Threading.Tasks.Task RunAsyncAwaitable(CoreDispatcher dispatcher, CoreDispatcherPriority priority, DispatchedHandler callback)
@@ -46,7 +46,7 @@ namespace BrowserCore.Engine
             {
                 await dispatcher.RunAsync(priority, callback);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/UiThreadHelper.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
     }
 }

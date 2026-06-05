@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using NiL.JS.BaseLibrary;
@@ -7,9 +7,7 @@ using NiL.JS.Expressions;
 
 namespace NiL.JS.Statements;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class SwitchCase
 {
     internal int index;
@@ -19,9 +17,7 @@ public sealed class SwitchCase
     public CodeNode Statement { get { return statement; } }
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Switch : CodeNode
 {
     private sealed class SuspendData

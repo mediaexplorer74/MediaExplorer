@@ -1,10 +1,8 @@
-п»їusing System;
+using System;
 
 namespace NiL.JS.Core.Interop;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [AttributeUsage(
       AttributeTargets.Field
     | AttributeTargets.ReturnValue
@@ -17,13 +15,13 @@ public abstract class ConvertValueAttribute : Attribute
     /// <summary>
     /// Called to convert from a value type to a script-accessible type.
     /// </summary>
-    /// <param name="source">РСЃС…РѕРґРЅРѕРµ Р·РЅР°С‡РµРЅРёРµ</param>
-    /// <returns>РџСЂРµРѕР±СЂР°Р·РѕРІР°РЅРЅРѕРµ Р·РЅР°С‡РµРЅРёРµ.</returns>
+    /// <param name="source">Исходное значение</param>
+    /// <returns>Преобразованное значение.</returns>
     public abstract object From(object source);
     /// <summary>
     /// Called to convert from a value accessible from the script to the original value type.
     /// </summary>
-    /// <param name="source">Р—РЅР°С‡РµРЅРёРµ, РґРѕСЃС‚СѓРїРЅРѕРµ РёР· СЃС†РµРЅР°СЂРёСЏ.</param>
-    /// <returns>РџСЂРµРѕР±СЂР°Р·РѕРІР°РЅРЅРѕРµ Р·РЅР°С‡РµРЅРёРµ.</returns>
+    /// <param name="source">Значение, доступное из сценария.</param>
+    /// <returns>Преобразованное значение.</returns>
     public abstract object To(JSValue source);
 }

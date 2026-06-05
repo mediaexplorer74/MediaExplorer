@@ -7,9 +7,7 @@ using NiL.JS.Extensions;
 
 namespace NiL.JS.BaseLibrary;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class String : JSObject, IIterable
 {
     [DoNotEnumerate]
@@ -350,40 +348,6 @@ public sealed class String : JSObject, IIterable
     }
 
     // Not implemented in .Net Standard 1.3. Will be in .Net Standard 2.0
-#if !NETCORE && !PORTABLE && !NETSTANDARD1_4
-    [DoNotEnumerate]
-    [InstanceMember]
-    [ArgumentsCount(1)]
-    public static JSValue normalize(JSValue self, Arguments args)
-    {
-        if (self == null || self._valueType <= JSValueType.Undefined || (self._valueType >= JSValueType.Object && self.Value == null))
-            ExceptionHelper.Throw(new TypeError("String.prototype.normalize called on null or undefined"));
-
-        var selfStr = self.BaseToString();
-
-        if (args == null || args.Length == 0)
-            return selfStr.Normalize(NormalizationForm.FormC);
-
-        string form = "NFC";
-        var a0 = args[0];
-        if (a0 != null && a0._valueType > JSValueType.Undefined)
-            form = a0.ToString();
-
-        var nf = NormalizationForm.FormC;
-        if (form == "NFC")
-            nf = NormalizationForm.FormC;
-        else if (form == "NFD")
-            nf = NormalizationForm.FormD;
-        else if (form == "NFKC")
-            nf = NormalizationForm.FormKC;
-        else if (form == "NFKD")
-            nf = NormalizationForm.FormKD;
-        else
-            ExceptionHelper.Throw(new RangeError("The normalization form should be one of NFC, NFD, NFKC, NFKD"));
-
-        return selfStr.Normalize(nf);
-    }
-#endif
 
     [DoNotEnumerate]
     [InstanceMember]

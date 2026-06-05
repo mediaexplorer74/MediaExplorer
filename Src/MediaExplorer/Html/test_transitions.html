@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>CSS Transitions demo (Phase C.6)</title>
+<style>
+  body {
+    font-family: 'Segoe UI', sans-serif;
+    background: #FAFAFA;
+    color: #222;
+    margin: 0;
+    padding: 16px;
+  }
+  h1 { color: #0078D7; }
+  h2 { color: #444; margin-top: 24px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0 16px; }
+  .box {
+    width: 96px;
+    height: 64px;
+    background: #0078D7;
+    color: white;
+    font-size: 12px;
+    text-align: center;
+    line-height: 64px;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .pill {
+    padding: 8px 16px;
+    background: #5C2D91;
+    color: white;
+    border-radius: 999px;
+    cursor: pointer;
+    user-select: none;
+    display: inline-block;
+  }
+  .card {
+    width: 140px;
+    height: 80px;
+    background: white;
+    color: #222;
+    border: 1px solid #DDD;
+    border-radius: 8px;
+    text-align: center;
+    line-height: 80px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .muted { color: #777; font-size: 12px; margin: 4px 0 12px; }
+
+  /* 1) opacity only */
+  .t-opacity { transition: opacity 0.3s ease; }
+  .t-opacity:hover { opacity: 0.4; }
+
+  /* 2) background-color only */
+  .t-bg { transition: background-color 0.4s linear; }
+  .t-bg:hover { background-color: #107C10; }
+
+  /* 3) transform only (scale) */
+  .t-scale { transition: transform 0.3s ease-out; }
+  .t-scale:hover { transform: scale(1.15); }
+
+  /* 4) transform rotate */
+  .t-rotate { transition: transform 0.4s ease-in-out; }
+  .t-rotate:hover { transform: rotate(8deg); }
+
+  /* 5) transform translate */
+  .t-shift { transition: transform 0.3s ease; }
+  .t-shift:hover { transform: translate(6px, -4px); }
+
+  /* 6) all three at once */
+  .t-all { transition: all 0.3s ease; }
+  .t-all:hover {
+    opacity: 0.5;
+    background-color: #FFB900;
+    transform: scale(1.1) rotate(3deg);
+  }
+
+  /* 7) fast (0.1s) */
+  .t-fast { transition: opacity 0.1s linear; }
+  .t-fast:hover { opacity: 0.3; }
+
+  /* 8) slow (1s) */
+  .t-slow { transition: background-color 1s ease; }
+  .t-slow:hover { background-color: #E81123; }
+
+  /* 9) with delay */
+  .t-delay { transition: opacity 0.2s ease 0.2s; }
+  .t-delay:hover { opacity: 0.4; }
+
+  /* 10) card lifts up */
+  .t-lift { transition: transform 0.25s ease, opacity 0.25s ease; }
+  .t-lift:hover { transform: translateY(-6px) scale(1.03); opacity: 0.9; }
+</style>
+</head>
+<body>
+  <h1>CSS Transitions demo</h1>
+  <p>Phase C.6 — Storyboard + DoubleAnimation/ColorAnimation on PointerEntered/Exited.</p>
+  <p class="muted">Hover any element below; it should animate smoothly to its :hover state and animate back on pointer-exit.</p>
+
+  <h2>1) opacity only</h2>
+  <div class="row">
+    <div class="box t-opacity">opacity 0.3s</div>
+  </div>
+
+  <h2>2) background-color only</h2>
+  <div class="row">
+    <div class="box t-bg">bg 0.4s linear</div>
+  </div>
+
+  <h2>3) transform: scale</h2>
+  <div class="row">
+    <div class="box t-scale">scale 1.15</div>
+  </div>
+
+  <h2>4) transform: rotate</h2>
+  <div class="row">
+    <div class="box t-rotate">rotate 8deg</div>
+  </div>
+
+  <h2>5) transform: translate</h2>
+  <div class="row">
+    <div class="box t-shift">shift +6,-4</div>
+  </div>
+
+  <h2>6) all three at once (transition: all)</h2>
+  <div class="row">
+    <div class="box t-all">opacity+bg+scale+rotate</div>
+  </div>
+
+  <h2>7) fast (0.1s)</h2>
+  <div class="row">
+    <div class="box t-fast">opacity 0.1s</div>
+  </div>
+
+  <h2>8) slow (1s)</h2>
+  <div class="row">
+    <div class="box t-slow">bg 1s</div>
+  </div>
+
+  <h2>9) with 0.2s delay</h2>
+  <div class="row">
+    <div class="box t-delay">opacity 0.2s + delay 0.2s</div>
+  </div>
+
+  <h2>10) card lift (composite transition)</h2>
+  <div class="row">
+    <div class="card t-lift">lift +6px</div>
+    <div class="card t-lift">lift +6px</div>
+    <div class="card t-lift">lift +6px</div>
+  </div>
+
+  <h2>11) pills</h2>
+  <div class="row">
+    <span class="pill t-opacity">opacity</span>
+    <span class="pill t-bg">bg</span>
+    <span class="pill t-scale">scale</span>
+    <span class="pill t-all">all</span>
+  </div>
+</body>
+</html>

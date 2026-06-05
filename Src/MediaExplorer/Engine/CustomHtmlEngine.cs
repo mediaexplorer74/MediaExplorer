@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -149,7 +149,7 @@ namespace BrowserCore.Engine
                 _activeJs = null; 
                 _activeDom = null;
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private async Task RaiseLoadingChangedAsync(bool isLoading)
@@ -164,7 +164,7 @@ namespace BrowserCore.Engine
                     await UiThreadHelper.RunAsyncAwaitable(disp, CoreDispatcherPriority.Normal, () =>
                     {
                         try { handler(this, isLoading); }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     });
                 }
                 else
@@ -172,7 +172,7 @@ namespace BrowserCore.Engine
                     handler(this, isLoading);
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         // Resolve a possibly relative URL against a base
@@ -191,7 +191,7 @@ namespace BrowserCore.Engine
                 if (Uri.TryCreate(href, UriKind.Absolute, out abs)) return abs;
                 if (baseUri != null && Uri.TryCreate(baseUri, href, out abs)) return abs;
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return null;
         }
 
@@ -218,7 +218,7 @@ namespace BrowserCore.Engine
                 if (System.Text.RegularExpressions.Regex.IsMatch(u, @"\.(webp|avif)(\?.*)?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                     u = System.Text.RegularExpressions.Regex.Replace(u, @"\.(webp|avif)(\?.*)?$", ".jpg$2", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return u;
         }
 
@@ -274,7 +274,7 @@ namespace BrowserCore.Engine
                 var gate = new System.Threading.SemaphoreSlim(6);
                 int budget = 32; // avoid over-queuing
                 double dw = viewportWidth ?? 0; 
-                try { if (dw <= 0) dw = Windows.UI.Xaml.Window.Current.Bounds.Width; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                try { if (dw <= 0) dw = Windows.UI.Xaml.Window.Current.Bounds.Width; } catch { /* swallow */ }
                 if (dw <= 0) dw = 480;
 
                 // Helper to execute load
@@ -294,7 +294,7 @@ namespace BrowserCore.Engine
                                 try { await imageLoader(abs); } 
                                 finally { gate.Release(); } 
                             } 
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); } 
+                            catch { /* swallow */ } 
                         }));
                     }
                 };
@@ -359,11 +359,11 @@ namespace BrowserCore.Engine
                             }
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
                 // Fire-and-forget; we do not await prewarm tasks to avoid blocking render
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private static string GatherPlainText(LiteElement n)
@@ -525,7 +525,7 @@ namespace BrowserCore.Engine
             if (_activeJs != null)
             {
                 try { _activeJs.FetchOverride = ScriptFetcher; }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }
         }
 
@@ -542,19 +542,19 @@ namespace BrowserCore.Engine
                 CssLoader.SetViewportDimensions(vw, vh);
                 
                 CssParser.MediaViewportWidth = viewportWidth;
-                try { CssParser.MediaViewportHeight = vh; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                try { CssParser.MediaViewportHeight = vh; } catch { /* swallow */ }
                 try
                 {
                     double dpr = 1.0;
-                    try { var di = Windows.Graphics.Display.DisplayInformation.GetForCurrentView(); dpr = di.RawPixelsPerViewPixel; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                    try { var di = Windows.Graphics.Display.DisplayInformation.GetForCurrentView(); dpr = di.RawPixelsPerViewPixel; } catch { /* swallow */ }
                     CssParser.MediaDppx = dpr;
                 }
                 catch { CssParser.MediaDppx = 1.0; }
                 try { CssParser.MediaPrefersColorScheme = ((Application.Current != null && Application.Current.RequestedTheme == ApplicationTheme.Dark) ? "dark" : "light"); }
                 catch { CssParser.MediaPrefersColorScheme = "light"; }
-                try { CssParser.MediaScripting = "enabled"; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                try { CssParser.MediaScripting = "enabled"; } catch { /* swallow */ }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private async Task<FrameworkElement> BuildVisualTreeAsync(
@@ -648,7 +648,7 @@ namespace BrowserCore.Engine
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             if (imageLoader == null)
                 imageLoader = _ => Task.FromResult<IRandomAccessStream>(null);
@@ -746,7 +746,7 @@ namespace BrowserCore.Engine
                         var sp = new StackPanel { Margin = new Thickness(12, 12, 12, 12) };
                         sp.Children.Add(new TextBlock { Text = "Render thread error", FontSize = 18, FontWeight = Windows.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Windows.UI.Colors.Black) });
                         string detail = threadEx.Message;
-                        try { detail += "\n" + (threadEx.StackTrace ?? "(no stack)" ); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                        try { detail += "\n" + (threadEx.StackTrace ?? "(no stack)" ); } catch { /* swallow */ }
                         sp.Children.Add(new TextBlock { Text = detail, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Windows.UI.Colors.Black), Margin = new Thickness(0,6,0,0) });
                         element = new Border { Background = new SolidColorBrush(Windows.UI.Colors.White), Child = sp };
                     });
@@ -816,7 +816,7 @@ namespace BrowserCore.Engine
                              }
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
             }
 
@@ -825,7 +825,7 @@ namespace BrowserCore.Engine
                 var fallback = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(12, 12, 12, 12) };
                 var fg = new SolidColorBrush(Windows.UI.Colors.White);
                 string title = null;
-                try { var tnode = dom.Descendants().FirstOrDefault(n => n.Tag == "title"); if (tnode != null) title = tnode.Text; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                try { var tnode = dom.Descendants().FirstOrDefault(n => n.Tag == "title"); if (tnode != null) title = tnode.Text; } catch { /* swallow */ }
                 if (string.IsNullOrWhiteSpace(title)) title = baseUri != null ? baseUri.Host : "This page";
                 fallback.Children.Add(new TextBlock { Text = title, FontSize = 20, FontWeight = Windows.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6), Foreground = fg });
                 fallback.Children.Add(new TextBlock { Text = baseUri != null ? baseUri.AbsoluteUri : string.Empty, TextWrapping = TextWrapping.Wrap, Foreground = fg });
@@ -839,7 +839,7 @@ namespace BrowserCore.Engine
                 {
                     element.CacheMode = new Windows.UI.Xaml.Media.BitmapCache();
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }
 
             if (includeDiagnosticsBanner)
@@ -856,7 +856,7 @@ namespace BrowserCore.Engine
                     if (element != null) wrap.Children.Add(element);
                     element = wrap;
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }
 
             return element;
@@ -916,7 +916,7 @@ namespace BrowserCore.Engine
                     await UiThreadHelper.RunAsyncAwaitable(disp, CoreDispatcherPriority.Normal, () =>
                     {
                         try { handler(element); }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     }).ConfigureAwait(false);
                 }
                 else
@@ -924,7 +924,7 @@ namespace BrowserCore.Engine
                     handler(element);
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private async Task<bool> ApplyIncrementalUpdateAsync(CoreDispatcher disp)
@@ -1133,7 +1133,7 @@ namespace BrowserCore.Engine
                         _repaintGate.Release();
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 finally
                 {
                     System.Threading.Interlocked.Exchange(ref _repaintScheduled, 0);
@@ -1279,7 +1279,7 @@ namespace BrowserCore.Engine
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
 
                 // Hint CSS that JS is enabled: swap 'no-js' -> 'js' on <html> element if present
@@ -1305,10 +1305,10 @@ namespace BrowserCore.Engine
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 // 1.25) Prewarm images in the background so first paint can swap in sooner
-                try { PrewarmImages(dom, baseUri, imageLoader, viewportWidth); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                try { PrewarmImages(dom, baseUri, imageLoader, viewportWidth); } catch { /* swallow */ }
 
                 bool allowJs = EnableJavaScript;
                 bool richMode = _renderMode == RenderModeType.Rich;
@@ -1356,7 +1356,7 @@ namespace BrowserCore.Engine
                     if (!hasScripts)
                     {
                         allowJs = false;
-                        try { System.Diagnostics.Debug.WriteLine("[PERF] No scripts detected. Skipping JS engine initialization."); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                        try { System.Diagnostics.Debug.WriteLine("[PERF] No scripts detected. Skipping JS engine initialization."); } catch { /* swallow */ }
                     }
                 }
 
@@ -1365,19 +1365,19 @@ namespace BrowserCore.Engine
                 // JavaScript execution entirely to avoid 20-30s loads and double renders.
                 if (allowJs && IsJsHeavyAppShell(baseUri))
                 {
-                    try { System.Diagnostics.Debug.WriteLine("[SAFE-MODE] Skipping JS for heavy app-shell site " + baseUri); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                    try { System.Diagnostics.Debug.WriteLine("[SAFE-MODE] Skipping JS for heavy app-shell site " + baseUri); } catch { /* swallow */ }
                     allowJs = false;
                 }
-                try { System.Diagnostics.Debug.WriteLine("[JS ENABLE] initial EnableJavaScript=" + EnableJavaScript + " baseUri=" + (baseUri!=null? baseUri.AbsoluteUri: "(null)")); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                try { System.Diagnostics.Debug.WriteLine("[JS ENABLE] initial EnableJavaScript=" + EnableJavaScript + " baseUri=" + (baseUri!=null? baseUri.AbsoluteUri: "(null)")); } catch { /* swallow */ }
 
                 var jsOverride = BrowserCoreHelpers.GetJsQueryOverride(baseUri);
                 if (jsOverride.HasValue)
                 {
                     allowJs = jsOverride.Value;
-                    try { System.Diagnostics.Debug.WriteLine("[JS ENABLE] query override detected -> " + allowJs); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                    try { System.Diagnostics.Debug.WriteLine("[JS ENABLE] query override detected -> " + allowJs); } catch { /* swallow */ }
                 }
 
-                try { System.Diagnostics.Debug.WriteLine("[JS ENABLE] final allowJs=" + allowJs); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                try { System.Diagnostics.Debug.WriteLine("[JS ENABLE] final allowJs=" + allowJs); } catch { /* swallow */ }
 
                 if (allowJs)
                 {
@@ -1391,9 +1391,9 @@ namespace BrowserCore.Engine
                         {
                             node.Remove(); removed++;
                         }
-                        try { System.Diagnostics.Debug.WriteLine("[JS ENABLE] removed noscript count=" + removed); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                        try { System.Diagnostics.Debug.WriteLine("[JS ENABLE] removed noscript count=" + removed); } catch { /* swallow */ }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
 
                 var cssFetcher = fetchExternalCssAsync ?? (async _ => string.Empty);
@@ -1414,15 +1414,15 @@ namespace BrowserCore.Engine
                                 // Fix: Never block threads with .Wait() in WP8.1
                                 if (disp != null && !UiThreadHelper.HasThreadAccess(disp))
                                 {
-                                    var _ = disp.RunAsync(CoreDispatcherPriority.Normal, () => { try { action(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); } });
+                                    var _ = disp.RunAsync(CoreDispatcherPriority.Normal, () => { try { action(); } catch { /* swallow */ } });
                                 }
                                 else
                                 {
                                     try { action(); }
-                                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                                    catch { /* swallow */ }
                                 }
                             }
-                            catch { try { action(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); } }
+                            catch { try { action(); } catch { /* swallow */ } }
                         }))
                     {
                         Sandbox = allowJs ? SandboxPolicy.AllowAll : SandboxPolicy.NoScripts,
@@ -1461,7 +1461,7 @@ namespace BrowserCore.Engine
                                     return await ScriptFetcher(u).ConfigureAwait(false);
                                 }
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                             return null;
                         };
                     }
@@ -1485,7 +1485,7 @@ namespace BrowserCore.Engine
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 CaptureActiveContext(dom, baseUri, cssFetcher, imageLoader, onNavigate, viewportWidth, onFixedBackground, js);
 
@@ -1552,13 +1552,13 @@ namespace BrowserCore.Engine
 
                     if (isEmpty)
                     {
-                        try { System.Diagnostics.Debug.WriteLine("[RENDER] JS path empty, retrying without scripts"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                        try { System.Diagnostics.Debug.WriteLine("[RENDER] JS path empty, retrying without scripts"); } catch { /* swallow */ }
                         await RaiseLoadingChangedAsync(false);
                         return await RenderAsync(html, baseUri, fetchExternalCssAsync, imageLoader, onNavigate, viewportWidth, onFixedBackground, forceJavascript: false, disableAutoFallback: true).ConfigureAwait(false);
                     }
                 }
 
-                try { System.Diagnostics.Debug.WriteLine("[RENDER] Final element null=" + (element == null) + " empty=" + (element != null && IsEffectivelyEmpty(element))); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                try { System.Diagnostics.Debug.WriteLine("[RENDER] Final element null=" + (element == null) + " empty=" + (element != null && IsEffectivelyEmpty(element))); } catch { /* swallow */ }
                 return element;
             }
             finally
@@ -1582,7 +1582,7 @@ namespace BrowserCore.Engine
             Action<Windows.UI.Xaml.Media.Brush> onFixedBackground = null)
         {
             try { var _ = RenderAsync(html, baseUri, fetchExternalCssAsync, imageLoader, onNavigate, viewportWidth, onFixedBackground); }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         /// <summary>Expose the current active Lite DOM (last parsed).</summary>
@@ -1607,7 +1607,7 @@ namespace BrowserCore.Engine
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return dict;
         }
 
@@ -1619,7 +1619,7 @@ namespace BrowserCore.Engine
                 var cookie = new System.Net.Cookie(name ?? string.Empty, value ?? string.Empty, path ?? "/", u.Host);
                 _jsCookieJar.Add(u, cookie);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         public void DeleteCookie(Uri scope, string name)
@@ -1631,7 +1631,7 @@ namespace BrowserCore.Engine
                 var expired = new System.Net.Cookie(name ?? string.Empty, string.Empty, "/", u.Host) { Expires = DateTime.UtcNow.AddDays(-1) };
                 _jsCookieJar.Add(u, expired);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private static bool IsEffectivelyEmpty(FrameworkElement fe)
@@ -1758,7 +1758,7 @@ namespace BrowserCore.Engine
                 int count = Windows.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(node);
                 for (int i = 0; i < count; i++) ApplyDefaultForeground(Windows.UI.Xaml.Media.VisualTreeHelper.GetChild(node, i), desired);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
     }
 }

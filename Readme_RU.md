@@ -1,4 +1,4 @@
-# MediaExplorer 0.42.4 - dev branch
+# MediaExplorer 0.42.5 - dev branch
 
 
 ![](/Images/logo.png)
@@ -69,8 +69,8 @@ MediaExplorer — это хобби-браузер для Windows 10 Mobile (W10
 
 ---
 
-Как есть. Без поддержки. Только RnD. DIY.
+Как есть. Без поддержки. Только RnD. Сделай сам.
 
-[m][e] 03 июня 2026
+[m][e] 04 июня 2026
 
 ![](/Images/footer.png)

@@ -1,4 +1,4 @@
-ï»¿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -522,14 +522,14 @@ internal sealed class MethodProxy : Function
             {
                 if (targetValue != null && targetValue._valueType >= JSValueType.Object)
                 {
-                    // ÐžÐ±ÑŠÐµÐºÑ‚ Ð½ÑƒÐ¶Ð½Ð¾ Ñ€Ð°Ð·Ð²ÐµÑ€Ð½ÑƒÑ‚ÑŒ Ð´Ð¾ Ð¾ÑÐ½Ð¾Ð²Ð½Ð¾Ð³Ð¾ Ð·Ð½Ð°Ñ‡ÐµÐ½Ð¸Ñ. Ð”Ð°Ð¶Ðµ ÐµÑÐ»Ð¸ ÑÑ‚Ð¾ Ð¾Ð±Ñ‘Ñ€Ñ‚ÐºÐ° Ð½Ð°Ð´ Ð¿Ñ€Ð¸Ð¼Ð¸Ñ‚Ð¸Ð²Ð½Ñ‹Ð¼ Ð·Ð½Ð°Ñ‡ÐµÐ½Ð¸ÐµÐ¼
+                    // Îáúåêò íóæíî ðàçâåðíóòü äî îñíîâíîãî çíà÷åíèÿ. Äàæå åñëè ýòî îá¸ðòêà íàä ïðèìèòèâíûì çíà÷åíèåì
                     target = targetValue.Value;
 
                     var proxy = target as Proxy;
                     if (proxy != null)
                         target = proxy.PrototypeInstance ?? target;
 
-                    // ForceInstance Ñ€Ð°Ð±Ð¾Ñ‚Ð°ÐµÑ‚ Ñ‚Ð¾Ð»ÑŒÐºÐ¾ ÐµÑÐ»Ð¸ Ð¿ÐµÑ€Ð²Ñ‹Ð¹ Ð°Ñ€Ð³ÑƒÐ¼ÐµÐ½Ñ‚ Ñ‚Ð¸Ð¿Ð° JSValue
+                    // ForceInstance ðàáîòàåò òîëüêî åñëè ïåðâûé àðãóìåíò òèïà JSValue
                     if (!(target is JSValue))
                         target = targetValue;
                 }
@@ -541,7 +541,7 @@ internal sealed class MethodProxy : Function
                 target = convertTargetObject(targetValue ?? undefined, _method.DeclaringType);
                 if (target == null)
                 {
-                    // Ð˜ÑÐºÐ»ÑŽÑ‡Ð¸Ñ‚ÐµÐ»ÑŒÐ½Ð°Ñ ÑÐ¸Ñ‚ÑƒÐ°Ñ†Ð¸Ñ. Ð¯ Ð½Ðµ Ð·Ð½Ð°ÑŽ Ð¿Ð¾Ñ‡ÐµÐ¼Ñƒ Function.length Ð¾Ð±Ð¾Ð±Ñ‰Ñ‘Ð½Ð½Ð¾Ðµ ÑÐ²Ð¾Ð¹ÑÑ‚Ð²Ð¾, Ð° Ð½Ðµ ÐºÐ¾Ð½ÑÑ‚Ð°Ð½Ñ‚Ð°. Array.length Ñ€Ð°Ð±Ð¾Ñ‚Ð°ÐµÑ‚ Ð¿Ð¾-Ð´Ñ€ÑƒÐ³Ð¾Ð¼Ñƒ.
+                    // Èñêëþ÷èòåëüíàÿ ñèòóàöèÿ. ß íå çíàþ ïî÷åìó Function.length îáîáù¸ííîå ñâîéñòâî, à íå êîíñòàíòà. Array.length ðàáîòàåò ïî-äðóãîìó.
                     if (_method.Name == "get_length" && typeof(Function).IsAssignableFrom(_method.DeclaringType))
                         return Function.Empty;
 
@@ -558,14 +558,12 @@ internal sealed class MethodProxy : Function
         if (target == null)
             return null;
 
-        target = target._oValue as JSValue ?? target; // ÑÑ‚Ð¾ Ð¼Ð¾Ð¶ÐµÑ‚ Ð±Ñ‹Ñ‚ÑŒ Ð»Ð¸ÑˆÑŒ ÑÑÑ‹Ð»ÐºÐ° Ð½Ð° ÐºÐ°ÐºÐ¾Ð¹-Ñ‚Ð¾ Ð´Ñ€ÑƒÐ³Ð¾Ð¹ ÐºÐ¾Ð½Ñ‚ÐµÐ¹Ð½ÐµÑ€
+        target = target._oValue as JSValue ?? target; // ýòî ìîæåò áûòü ëèøü ññûëêà íà êàêîé-òî äðóãîé êîíòåéíåð
         var res = Tools.ConvertJStoObj(target, targetType, false);
         return res;
     }
 
-#if !NET40
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-#endif
     private object processArgument(Expressions.Expression[] arguments, Context initiator, int index)
     {
         var value = arguments.Length > index
@@ -575,9 +573,7 @@ internal sealed class MethodProxy : Function
         return convertArgument(index, value);
     }
 
-#if !NET40
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-#endif
     private object convertArgument(int index, JSValue value)
     {
         var cvtArgs = ConvertArgsOptions.ThrowOnError | ConvertArgsOptions.AllowDefaultValues;
@@ -631,13 +627,8 @@ internal sealed class MethodProxy : Function
         {
             result = parameterInfo.DefaultValue;
 
-#if !NET40
             if (result != null && result.GetType().FullName == "System.DBNull")
             {
-#else
-            if (result is DBNull)
-            {
-#endif
                 if (strictConversion && options.HasFlag(ConvertArgsOptions.ThrowOnError))
                     ExceptionHelper.ThrowTypeError("Unable to convert " + value + " to type " + parameterType);
 
@@ -712,7 +703,6 @@ internal sealed class MethodProxy : Function
         return result;
     }
 
-#if !NET40
     public override Delegate MakeDelegate(Type delegateType)
     {
         try
@@ -725,7 +715,6 @@ internal sealed class MethodProxy : Function
             return base.MakeDelegate(delegateType);
         }
     }
-#endif
 
     public override string ToString(bool headerOnly)
     {

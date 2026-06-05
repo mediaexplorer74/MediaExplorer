@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -94,10 +94,10 @@ namespace BrowserCore.Api
 
             _js = new JavaScriptEngine(new JsHostAdapter(
                 delegate (Uri u) {
-                    try { var ignored = NavigateInternalAsync(u); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+                    try { var ignored = NavigateInternalAsync(u); } catch { /* swallow */ }
                 },
                 delegate (Uri target, string body) {
-                    try { var ignored = NavigateInternalAsync(target); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+                    try { var ignored = NavigateInternalAsync(target); } catch { /* swallow */ }
                 },
                 delegate (string msg) { RaiseStatus(msg); },
                 null,
@@ -105,10 +105,10 @@ namespace BrowserCore.Api
                     try
                     {
                         var disp = UiThreadHelper.TryGetDispatcher();
-                        if (disp != null) UiThreadHelper.RunAsync(disp, Windows.UI.Core.CoreDispatcherPriority.Normal, () => { try { a(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); } });
+                        if (disp != null) UiThreadHelper.RunAsync(disp, Windows.UI.Core.CoreDispatcherPriority.Normal, () => { try { a(); } catch { /* swallow */ } });
                         else a();
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }))
             {
                 ExecuteInlineScriptsOnInnerHTML = true
@@ -141,7 +141,7 @@ namespace BrowserCore.Api
 
                 _history.Clear();
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         public Uri CurrentUri { get { return _current; } }
@@ -162,7 +162,7 @@ namespace BrowserCore.Api
                 var handler = StatusMessage;
                 if (handler != null) handler(this, msg);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private async Task RaiseRepaintAsync(FrameworkElement element)
@@ -179,7 +179,7 @@ namespace BrowserCore.Api
                     await UiThreadHelper.RunAsyncAwaitable(disp, Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
                     {
                         try { handler(this, element); }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     });
                 }
                 else
@@ -187,7 +187,7 @@ namespace BrowserCore.Api
                     handler(this, element);
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private void RaiseNavigated(Uri uri)
@@ -209,7 +209,7 @@ namespace BrowserCore.Api
                     UiThreadHelper.RunAsync(disp, Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
                     {
                         try { handler(this, uri); }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     });
                 }
                 else
@@ -217,7 +217,7 @@ namespace BrowserCore.Api
                     handler(this, uri);
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private void RaiseNavigationFailed(string message)
@@ -233,7 +233,7 @@ namespace BrowserCore.Api
                     UiThreadHelper.RunAsync(disp, Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
                     {
                         try { handler(this, message); }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     });
                 }
                 else
@@ -241,7 +241,7 @@ namespace BrowserCore.Api
                     handler(this, message);
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private async Task NavigateInternalAsync(Uri uri, bool addToHistory = true)
@@ -307,7 +307,7 @@ namespace BrowserCore.Api
                         html = await _resources.FetchTextWithOptionsAsync(uri, null,
                             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "document", ua, "identity");
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
 
                 if (string.IsNullOrWhiteSpace(html))
@@ -318,7 +318,7 @@ namespace BrowserCore.Api
                         html = await _resources.FetchTextWithOptionsAsync(uri, null,
                             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "document", ua, "identity");
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
 
                 // If still empty, show a user-friendly error page
@@ -395,7 +395,7 @@ namespace BrowserCore.Api
                     uri,
                     u => _resources.FetchTextAsync(u, uri),
                     u => _resources.FetchImageAsync(u, uri, ResourceManager.ResourcePriority.Low),
-                    delegate (Uri u) { try { var ignored = NavigateInternalAsync(u); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); } },
+                    delegate (Uri u) { try { var ignored = NavigateInternalAsync(u); } catch { /* swallow */ } },
                     vw);
                 System.Diagnostics.Debug.WriteLine("[DIAG] BrowserHost _engine.RenderAsync DONE element2=" + (element2 != null ? element2.GetType().Name : "null") + " navId=" + currentNavId);
 
@@ -500,7 +500,7 @@ namespace BrowserCore.Api
                 var handler = MessageReceived;
                 if (handler != null) handler(this, msg ?? string.Empty);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         public async Task<bool> EvaluateAsync(string code)
@@ -629,7 +629,7 @@ namespace BrowserCore.Api
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return list;
         }
 
@@ -719,11 +719,11 @@ namespace BrowserCore.Api
                     if (Uri.TryCreate(urlComponent, UriKind.Absolute, out abs)) return abs;
                     if (baseUri != null)
                     {
-                        try { return new Uri(baseUri, urlComponent); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+                        try { return new Uri(baseUri, urlComponent); } catch { /* swallow */ }
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return null;
         }
 
@@ -739,7 +739,7 @@ namespace BrowserCore.Api
                     if (!string.IsNullOrWhiteSpace(inner)) return inner;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return null;
         }
 
@@ -769,12 +769,12 @@ namespace BrowserCore.Api
                         if (Uri.TryCreate(target, UriKind.Absolute, out abs)) return abs;
                         if (baseUri != null)
                         {
-                            try { return new Uri(baseUri, target); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+                            try { return new Uri(baseUri, target); } catch { /* swallow */ }
                         }
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return null;
         }
 
@@ -807,7 +807,7 @@ namespace BrowserCore.Api
                         string.Equals(valStr, "off", StringComparison.OrdinalIgnoreCase)) return false;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/BrowserApi.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return null;
         }
 

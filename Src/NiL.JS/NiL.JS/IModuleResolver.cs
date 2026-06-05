@@ -1,4 +1,4 @@
-﻿namespace NiL.JS;
+namespace NiL.JS;
 
 public interface IModuleResolver
 {

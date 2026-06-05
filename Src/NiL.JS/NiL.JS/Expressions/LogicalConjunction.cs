@@ -3,9 +3,7 @@ using NiL.JS.Core;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class LogicalConjunction : Expression
 {
     protected internal override PredictedType ResultType

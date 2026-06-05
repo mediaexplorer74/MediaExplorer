@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -29,12 +29,51 @@ namespace BrowserCore.Engine
         {
         }
 
+        // Phase S.1: NaN/Infinity/negative guard for size properties.
+        // Used at hot-path assignments to FrameworkElement.Width/Height and
+        // to GridLength construction. Returns the fallback (default 0) when
+        // the value would otherwise poison XAML layout.
+        // Logs once per (source, call site) tuple via DevToolsLogger to keep
+        // diagnostic value while not spamming per-frame.
+        private static double SanitizeSize(double v, double fallback, string source)
+        {
+            if (double.IsNaN(v) || double.IsInfinity(v) || v < 0)
+            {
+                try { DevToolsLogger.Log($"[DIAG:NaN] source={source} val={v} → fallback={fallback}"); } catch { }
+                return fallback;
+            }
+            return v;
+        }
+
+        private static double SanitizeSize(double v, string source)
+            => SanitizeSize(v, 0, source);
+
         private async Task<FrameworkElement> DispatchTagAsync(LiteElement n, Uri baseUri, Action<Uri> onNavigate, JavaScriptEngine js, CancellationToken ct)
         {
             // Check CSS display value for Grid/Flex containers
             var css = TryGetCss(n);
             if (css != null)
             {
+                // Phase DIAG (issue A): trace flex/grid detection per element
+                var dispRaw = GetDisplayValue(css);
+                var dispNorm = NormalizeDisplayValue(dispRaw);
+                try
+                {
+                    bool isGrid = IsGridContainer(css);
+                    bool isFlex = !isGrid && IsFlexContainer(css);
+                    if (dispNorm != null && (dispNorm == "grid" || dispNorm == "inline-grid" || dispNorm.Contains("flex") || dispNorm.Contains("flexbox")))
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            "[DIAG:FLEXGRID] tag=" + n.Tag +
+                            " id=" + (n.Attr != null && n.Attr.ContainsKey("id") ? n.Attr["id"] : "") +
+                            " display.raw=\"" + (dispRaw ?? "<null>") + "\"" +
+                            " display.norm=\"" + (dispNorm ?? "<null>") + "\"" +
+                            " → IsGrid=" + isGrid + " IsFlex=" + isFlex +
+                            " → path=" + (isGrid ? "RenderCssGridAsync" : isFlex ? "MakeGridFallbackAsync" : "fallback-to-block"));
+                    }
+                }
+                catch { /* swallow */ }
+
                 if (IsGridContainer(css))
                     return await RenderCssGridAsync(n, baseUri, onNavigate, js, ct);
                 if (IsFlexContainer(css))
@@ -155,17 +194,17 @@ namespace BrowserCore.Engine
                 if (e == null) return;
                 var t = e.GetType();
                 System.Reflection.PropertyInfo p = null;
-                try { p = t.GetRuntimeProperty("Handled"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                try { p = t.GetRuntimeProperty("Handled"); } catch { /* swallow */ }
                 if (p == null)
                 {
-                    try { var ti = t.GetTypeInfo(); if (ti != null) p = ti.GetDeclaredProperty("Handled"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                    try { var ti = t.GetTypeInfo(); if (ti != null) p = ti.GetDeclaredProperty("Handled"); } catch { /* swallow */ }
                 }
                 if (p != null && p.CanWrite && p.PropertyType == typeof(bool))
                 {
-                    try { p.SetValue(e, true); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                    try { p.SetValue(e, true); } catch { /* swallow */ }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         // ---------- Engine integration ----------
@@ -233,7 +272,7 @@ namespace BrowserCore.Engine
                             originY = pt.Y;
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
 
                     var trans = fe.RenderTransform as TranslateTransform;
                     if (trans == null) { trans = new TranslateTransform(); fe.RenderTransform = trans; }
@@ -246,8 +285,8 @@ namespace BrowserCore.Engine
                             if (!double.IsNaN(bottom))
                             {
                                 double vh = 0, eh = 0;
-                                try { vh = scroller.ViewportHeight; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-                                try { eh = fe.ActualHeight; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                                try { vh = scroller.ViewportHeight; } catch { /* swallow */ }
+                                try { eh = fe.ActualHeight; } catch { /* swallow */ }
                                 var targetBottom = offset + Math.Max(0, vh) - bottom;
                                 var defaultBottom = originY + eh;
                                 var desired = targetBottom - defaultBottom;
@@ -261,10 +300,10 @@ namespace BrowserCore.Engine
                                 trans.Y = desired;
                             }
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     };
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             };
         }
 
@@ -279,7 +318,7 @@ namespace BrowserCore.Engine
                     cur = Windows.UI.Xaml.Media.VisualTreeHelper.GetParent(cur);
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return null;
         }
 
@@ -305,8 +344,8 @@ namespace BrowserCore.Engine
                             rw = relative.ActualWidth; rh = relative.ActualHeight;
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-                    try { ew = fe.ActualWidth; eh = fe.ActualHeight; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
+                    try { ew = fe.ActualWidth; eh = fe.ActualHeight; } catch { /* swallow */ }
 
                     if (css != null)
                     {
@@ -327,7 +366,7 @@ namespace BrowserCore.Engine
                                     double px; if (double.TryParse(raw.Replace("px", "").Trim(), out px)) return px;
                                 }
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                             return double.NaN;
                         };
 
@@ -348,18 +387,18 @@ namespace BrowserCore.Engine
                     Canvas.SetTop(fe, top);
                     if (css != null && css.ZIndex.HasValue) Canvas.SetZIndex(fe, css.ZIndex.Value);
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             };
 
-            fe.Loaded += (s, e) => { try { place(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
-            fe.SizeChanged += (s, e) => { try { place(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
-            if (relative != null) relative.SizeChanged += (s, e) => { try { place(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
+            fe.Loaded += (s, e) => { try { place(); } catch { /* swallow */ } };
+            fe.SizeChanged += (s, e) => { try { place(); } catch { /* swallow */ } };
+            if (relative != null) relative.SizeChanged += (s, e) => { try { place(); } catch { /* swallow */ } };
             try
             {
                 if (css != null && string.Equals(css.Position, "fixed", StringComparison.OrdinalIgnoreCase))
-                    Window.Current.SizeChanged += (s, e) => { try { place(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
+                    Window.Current.SizeChanged += (s, e) => { try { place(); } catch { /* swallow */ } };
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             place();
         }
 
@@ -524,8 +563,8 @@ namespace BrowserCore.Engine
             }
             else
             {
-                if (!double.IsNaN(width) && width > 0) canvas.Width = width;
-                if (!double.IsNaN(height) && height > 0) canvas.Height = height;
+                if (!double.IsNaN(width) && width > 0) canvas.Width = SanitizeSize(width, "svg.canvas.width");
+                if (!double.IsNaN(height) && height > 0) canvas.Height = SanitizeSize(height, "svg.canvas.height");
             }
 
             if (svg.Children != null)
@@ -589,7 +628,7 @@ namespace BrowserCore.Engine
                     }
                     canvas.Children.Add(path);
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 return;
             }
 
@@ -747,14 +786,14 @@ namespace BrowserCore.Engine
                     {
                         string href = DictGet(node.Attr, "href");
                         var abs = ResolveUri(baseUri, href);
-                        CssComputed css = null; try { css = TryGetCss(node); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-                        string td = null; try { if (css != null && css.Map != null) css.Map.TryGetValue("text-decoration", out td); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                        CssComputed css = null; try { css = TryGetCss(node); } catch { /* swallow */ }
+                        string td = null; try { if (css != null && css.Map != null) css.Map.TryGetValue("text-decoration", out td); } catch { /* swallow */ }
 
                         // If text-decoration: none, emulate a non-underlined link using InlineUIContainer + TextBlock
                         if (!string.IsNullOrWhiteSpace(td) && td.IndexOf("none", StringComparison.OrdinalIgnoreCase) >= 0)
                         {
                             var tb = new TextBlock { TextWrapping = TextWrapping.Wrap };
-                            try { RendererStyles.ApplyTextStyle(tb, css); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            try { RendererStyles.ApplyTextStyle(tb, css); } catch { /* swallow */ }
                             var linkText = TransformWhitespace(GatherText(node) ?? "", wsMode);
                             if (string.IsNullOrWhiteSpace(linkText) && abs != null) linkText = abs.AbsoluteUri;
                             tb.Text = linkText ?? string.Empty;
@@ -763,8 +802,8 @@ namespace BrowserCore.Engine
                             var hover = TryBuildHoverBrush(orig);
                             if (hover != null)
                             {
-                                tb.PointerEntered += (s, e) => { try { tb.Foreground = hover; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
-                                tb.PointerExited += (s, e) => { try { tb.Foreground = orig; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
+                                tb.PointerEntered += (s, e) => { try { tb.Foreground = hover; } catch { /* swallow */ } };
+                                tb.PointerExited += (s, e) => { try { tb.Foreground = orig; } catch { /* swallow */ } };
                             }
                             if (abs != null && onNavigate != null) tb.Tapped += (s, e) =>
                             {
@@ -773,11 +812,11 @@ namespace BrowserCore.Engine
                                 {
                                     if (Js != null)
                                     {
-                                        string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                                        string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { /* swallow */ }
                                         if (!string.IsNullOrWhiteSpace(id)) cancelDom = Js.RaiseElementEventSync(id, "click");
                                     }
                                 }
-                                catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                                catch { /* swallow */ }
                                 if (cancelDom) { TrySetHandled(e); return; }
                                 onNavigate(abs);
                             };
@@ -790,11 +829,11 @@ namespace BrowserCore.Engine
                                     bool cancel = false;
                                     try
                                     {
-                                        string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                                        string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { /* swallow */ }
                                         var code = PreprocessInlineHandler(onclick, id);
                                         cancel = Js.RunInline(code, new JsContext { BaseUri = baseUri }, "click", id);
                                     }
-                                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                                    catch { /* swallow */ }
                                     if (cancel) TrySetHandled(e);
                                 };
                             }
@@ -805,7 +844,7 @@ namespace BrowserCore.Engine
 
                         // Default: true Hyperlink
                         var link = new Hyperlink();
-                        try { ApplyInlineTextStyle(link, css); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                        try { ApplyInlineTextStyle(link, css); } catch { /* swallow */ }
                         // onclick inline handler support (may cancel default)
                         string onclickH = DictGet(node.Attr, "onclick");
                         link.Click += (s, e) =>
@@ -815,13 +854,13 @@ namespace BrowserCore.Engine
                             {
                                 if (!string.IsNullOrWhiteSpace(onclickH) && Js != null)
                                 {
-                                    string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                                    string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { /* swallow */ }
                                     var code = PreprocessInlineHandler(onclickH, id);
                                     cancel = Js.RunInline(code, new JsContext { BaseUri = baseUri }, "click", id);
                                 }
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-                            bool cancelDom = false; try { if (Js != null) { string id2 = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id2); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } if (!string.IsNullOrWhiteSpace(id2)) cancelDom = Js.RaiseElementEventSync(id2, "click"); } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
+                            bool cancelDom = false; try { if (Js != null) { string id2 = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id2); } catch { /* swallow */ } if (!string.IsNullOrWhiteSpace(id2)) cancelDom = Js.RaiseElementEventSync(id2, "click"); } } catch { /* swallow */ }
                             if (cancel || cancelDom) { TrySetHandled(e); return; }
                             if (abs != null && onNavigate != null) onNavigate(abs);
                         };
@@ -847,7 +886,7 @@ namespace BrowserCore.Engine
                             Margin = new Thickness(2, 2, 2, 2)
                         };
                         // Try to apply inline styles (font/foreground)
-                        try { var css = TryGetCss(node); RendererStyles.ApplyTextStyle(btn, css); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                        try { var css = TryGetCss(node); RendererStyles.ApplyTextStyle(btn, css); } catch { /* swallow */ }
                         // Add click event handling
                         btn.Click += (s, e) =>
                         {
@@ -856,14 +895,14 @@ namespace BrowserCore.Engine
                             {
                                 if (Js != null)
                                 {
-                                    string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                                    string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { /* swallow */ }
                                     if (!string.IsNullOrWhiteSpace(id))
                                     {
                                         cancel = Js.RaiseElementEventSync(id, "click");
                                     }
                                 }
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                             if (cancel) { TrySetHandled(e); }
                         };
                         para.Inlines.Add(new InlineUIContainer { Child = btn });
@@ -886,7 +925,7 @@ namespace BrowserCore.Engine
                                 MinHeight = 32,
                                 Margin = new Thickness(2, 2, 2, 2)
                             };
-                            try { var css = TryGetCss(node); RendererStyles.ApplyTextStyle(btn, css); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            try { var css = TryGetCss(node); RendererStyles.ApplyTextStyle(btn, css); } catch { /* swallow */ }
                             // Add click event handling
                             btn.Click += (s, e) =>
                             {
@@ -895,14 +934,14 @@ namespace BrowserCore.Engine
                                 {
                                     if (Js != null)
                                     {
-                                        string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                                        string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { /* swallow */ }
                                         if (!string.IsNullOrWhiteSpace(id))
                                         {
                                             cancel = Js.RaiseElementEventSync(id, "click");
                                         }
                                     }
                                 }
-                                catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                                catch { /* swallow */ }
                                 if (cancel) { TrySetHandled(e); }
                             };
                             para.Inlines.Add(new InlineUIContainer { Child = btn });
@@ -910,7 +949,7 @@ namespace BrowserCore.Engine
                         }
                         if (type == "text" || type == "search" || type == "email" || type == "url")
                         {
-                            double vw = 0; try { vw = Window.Current.Bounds.Width; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            double vw = 0; try { vw = Window.Current.Bounds.Width; } catch { /* swallow */ }
                             if (vw <= 0) vw = 360;
                             var tb = new TextBox
                             {
@@ -928,8 +967,8 @@ namespace BrowserCore.Engine
                                 if (node.Attr != null && node.Attr.ContainsKey("disabled")) tb.IsEnabled = false;
                                 if (node.Attr != null && node.Attr.ContainsKey("readonly")) tb.IsReadOnly = true;
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-                            try { var css = TryGetCss(node); RendererStyles.ApplyTextStyle(tb, css); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
+                            try { var css = TryGetCss(node); RendererStyles.ApplyTextStyle(tb, css); } catch { /* swallow */ }
                             // Heuristic sizing for inline search textboxes if width not specified
                             try
                             {
@@ -939,12 +978,12 @@ namespace BrowserCore.Engine
                                     tb.MaxWidth = Math.Min(720, Math.Max(tb.MinWidth, vw * 0.9));
                                 }
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-                            string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
+                            string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { /* swallow */ }
                             if (!string.IsNullOrWhiteSpace(id) && Js != null)
                             {
-                                tb.TextChanged += (s, e) => { try { Js.RaiseElementEvent(id, "input", tb.Text ?? ""); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
-                                tb.LostFocus += (s, e) => { try { Js.RaiseElementEvent(id, "change", tb.Text ?? ""); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
+                                tb.TextChanged += (s, e) => { try { Js.RaiseElementEvent(id, "input", tb.Text ?? ""); } catch { /* swallow */ } };
+                                tb.LostFocus += (s, e) => { try { Js.RaiseElementEvent(id, "change", tb.Text ?? ""); } catch { /* swallow */ } };
                             }
                             para.Inlines.Add(new InlineUIContainer { Child = tb });
                             return;
@@ -956,13 +995,13 @@ namespace BrowserCore.Engine
                             {
                                 if (node.Attr != null && node.Attr.ContainsKey("disabled")) pb.IsEnabled = false;
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-                            try { var css = TryGetCss(node); RendererStyles.ApplyTextStyle(pb, css); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-                            string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
+                            try { var css = TryGetCss(node); RendererStyles.ApplyTextStyle(pb, css); } catch { /* swallow */ }
+                            string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { /* swallow */ }
                             if (!string.IsNullOrWhiteSpace(id) && Js != null)
                             {
-                                pb.PasswordChanged += (s, e) => { try { Js.RaiseElementEvent(id, "input", ""); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
-                                pb.LostFocus += (s, e) => { try { Js.RaiseElementEvent(id, "change", ""); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
+                                pb.PasswordChanged += (s, e) => { try { Js.RaiseElementEvent(id, "input", ""); } catch { /* swallow */ } };
+                                pb.LostFocus += (s, e) => { try { Js.RaiseElementEvent(id, "change", ""); } catch { /* swallow */ } };
                             }
                             para.Inlines.Add(new InlineUIContainer { Child = pb });
                             return;
@@ -970,15 +1009,15 @@ namespace BrowserCore.Engine
                         if (type == "checkbox")
                         {
                             var cb = new CheckBox { VerticalAlignment = VerticalAlignment.Center };
-                            try { var css = TryGetCss(node); RendererStyles.ApplyTextStyle(cb, css); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            try { var css = TryGetCss(node); RendererStyles.ApplyTextStyle(cb, css); } catch { /* swallow */ }
                             // state
-                            try { if (node.Attr != null && node.Attr.ContainsKey("checked")) cb.IsChecked = true; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-                            try { if (node.Attr != null && node.Attr.ContainsKey("disabled")) cb.IsEnabled = false; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            try { if (node.Attr != null && node.Attr.ContainsKey("checked")) cb.IsChecked = true; } catch { /* swallow */ }
+                            try { if (node.Attr != null && node.Attr.ContainsKey("disabled")) cb.IsEnabled = false; } catch { /* swallow */ }
                             // JS bridge if element has id
-                            string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { /* swallow */ }
                             if (!string.IsNullOrWhiteSpace(id) && Js != null)
                             {
-                                cb.Click += (s, e) => { try { Js.RaiseElementEvent(id, "change", null, cb.IsChecked == true); } catch { try { Js.RaiseElementEventById(id, "change"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } } };
+                                cb.Click += (s, e) => { try { Js.RaiseElementEvent(id, "change", null, cb.IsChecked == true); } catch { try { Js.RaiseElementEventById(id, "change"); } catch { /* swallow */ } } };
                             }
                             para.Inlines.Add(new InlineUIContainer { Child = cb });
                             return;
@@ -986,18 +1025,18 @@ namespace BrowserCore.Engine
                         if (type == "radio")
                         {
                             var rb = new RadioButton { VerticalAlignment = VerticalAlignment.Center };
-                            try { var css = TryGetCss(node); RendererStyles.ApplyTextStyle(rb, css); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            try { var css = TryGetCss(node); RendererStyles.ApplyTextStyle(rb, css); } catch { /* swallow */ }
                             string name = DictGet(node.Attr, "name"); if (!string.IsNullOrWhiteSpace(name)) rb.GroupName = name;
-                            try { if (node.Attr != null && node.Attr.ContainsKey("checked")) rb.IsChecked = true; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-                            try { if (node.Attr != null && node.Attr.ContainsKey("disabled")) rb.IsEnabled = false; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-                            string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            try { if (node.Attr != null && node.Attr.ContainsKey("checked")) rb.IsChecked = true; } catch { /* swallow */ }
+                            try { if (node.Attr != null && node.Attr.ContainsKey("disabled")) rb.IsEnabled = false; } catch { /* swallow */ }
+                            string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { /* swallow */ }
                             string value = DictGet(node.Attr, "value");
                             if (!string.IsNullOrWhiteSpace(id) && Js != null)
                             {
                                 rb.Click += (s, e) =>
                                 {
                                     try { Js.RaiseElementEvent(id, "change", value ?? "", rb.IsChecked == true); }
-                                    catch { try { Js.RaiseElementEventById(id, "change"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } }
+                                    catch { try { Js.RaiseElementEventById(id, "change"); } catch { /* swallow */ } }
                                 };
                             }
                             para.Inlines.Add(new InlineUIContainer { Child = rb });
@@ -1022,12 +1061,12 @@ namespace BrowserCore.Engine
                                 };
                                 combo.Items.Add(it);
                                 // selected attribute
-                                try { if (opt.Attr != null && opt.Attr.ContainsKey("selected")) combo.SelectedItem = it; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                                try { if (opt.Attr != null && opt.Attr.ContainsKey("selected")) combo.SelectedItem = it; } catch { /* swallow */ }
                             }
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-                        try { var css = TryGetCss(node); RendererStyles.ApplyTextStyle(combo, css); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-                        string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
+                        try { var css = TryGetCss(node); RendererStyles.ApplyTextStyle(combo, css); } catch { /* swallow */ }
+                        string id = null; try { if (node.Attr != null) node.Attr.TryGetValue("id", out id); } catch { /* swallow */ }
                         if (!string.IsNullOrWhiteSpace(id) && Js != null)
                         {
                             combo.SelectionChanged += (s, e) =>
@@ -1038,7 +1077,7 @@ namespace BrowserCore.Engine
                                     string txt = it != null ? (it.Value ?? it.Text ?? "") : (combo.SelectedItem?.ToString() ?? "");
                                     Js.RaiseElementEvent(id, "change", txt);
                                 }
-                                catch { try { Js.RaiseElementEventById(id, "change"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } }
+                                catch { try { Js.RaiseElementEventById(id, "change"); } catch { /* swallow */ } }
                             };
                         }
                         para.Inlines.Add(new InlineUIContainer { Child = combo });
@@ -1072,7 +1111,7 @@ namespace BrowserCore.Engine
                                 return;
                             }
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
 
                         var alt = DictGet(node.Attr, "alt");
                         var placeholderText = "[img]";
@@ -1119,7 +1158,7 @@ namespace BrowserCore.Engine
                             try
                             {
                                 var rtb = new RichTextBlock { IsTextSelectionEnabled = false, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0) };
-                                try { RendererStyles.ApplyTextStyle(rtb, css); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                                try { RendererStyles.ApplyTextStyle(rtb, css); } catch { /* swallow */ }
                                 var p = new Paragraph();
                                 rtb.Blocks.Add(p);
                                 if (node.Children != null)
@@ -1154,7 +1193,7 @@ namespace BrowserCore.Engine
                                 }
                                 para.Inlines.Add(new InlineUIContainer { Child = bd });
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                             return;
                         }
 
@@ -1171,7 +1210,7 @@ namespace BrowserCore.Engine
                             if (node.Tag == "small" && (css == null || !css.FontSize.HasValue)) sp.FontSize = 12; // 0.75em approx
                             else if ((node.Tag == "sub" || node.Tag == "sup") && (css == null || !css.FontSize.HasValue)) sp.FontSize = 10; 
                         } 
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
 
                         foreach (var child in node.Children) AppendInline(sp.Inlines, child, baseUri, onNavigate, wsMode);
                         para.Inlines.Add(sp);
@@ -1180,7 +1219,7 @@ namespace BrowserCore.Engine
                 case "code":
                     {
                         var sp = new Span();
-                        try { sp.FontFamily = new FontFamily("Consolas, Courier New, monospace"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                        try { sp.FontFamily = new FontFamily("Consolas, Courier New, monospace"); } catch { /* swallow */ }
                         var codeText = TransformWhitespace(GatherText(node) ?? "", wsMode == "pre" ? "pre" : "pre-wrap");
                         if (!string.IsNullOrEmpty(codeText)) sp.Inlines.Add(new Run { Text = codeText });
                         para.Inlines.Add(sp);
@@ -1227,7 +1266,7 @@ namespace BrowserCore.Engine
                                 prop.SetValue(tb, val);
                             }
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                         para.Inlines.Add(new InlineUIContainer { Child = tb });
                         return;
                     }
@@ -1291,7 +1330,7 @@ namespace BrowserCore.Engine
                         var text = TryInlineToText(inline);
                         if (!string.IsNullOrEmpty(text)) col.Add(new Run { Text = text });
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
             }
         }
@@ -1434,7 +1473,7 @@ namespace BrowserCore.Engine
                     para.Inlines.Add(new Run { Text = " " });
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private static void ApplyInlineTextStyle(TextElement te, CssComputed css)
@@ -1444,27 +1483,27 @@ namespace BrowserCore.Engine
             {
                 if (css.Foreground != null) te.Foreground = css.Foreground;
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             try
             {
                 if (css.FontFamily != null) te.FontFamily = css.FontFamily;
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             try
             {
                 if (css.FontSize.HasValue && css.FontSize.Value > 0) te.FontSize = css.FontSize.Value;
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             try
             {
                 if (css.FontStyle.HasValue) te.FontStyle = css.FontStyle.Value;
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             try
             {
                 if (css.FontWeight.HasValue) te.FontWeight = css.FontWeight.Value;
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         // ---------- CSS Grid ----------
@@ -2011,7 +2050,7 @@ namespace BrowserCore.Engine
                     else wrapPanel.VerticalAlignment = VerticalAlignment.Stretch;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             var absoluteItems = new List<Tuple<FrameworkElement, CssComputed>>();
             var children = n.Children ?? new List<LiteElement>();
@@ -2044,7 +2083,7 @@ namespace BrowserCore.Engine
                     var stickyElt = await RenderNodeAsync(child, baseUri, onNavigate, js, ct);
                     if (stickyElt != null)
                     {
-                        try { AttachStickyBehavior(stickyElt, cssChild); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                        try { AttachStickyBehavior(stickyElt, cssChild); } catch { /* swallow */ }
                     }
                     continue;
                 }
@@ -2066,7 +2105,7 @@ namespace BrowserCore.Engine
                 {
                     var fe = tuple.Item1;
                     grid.Children.Add(fe);
-                    try { PositionOnCanvas(fe, tuple.Item2, wrapPanel); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                    try { PositionOnCanvas(fe, tuple.Item2, wrapPanel); } catch { /* swallow */ }
                 }
                 container = grid;
             }
@@ -2103,7 +2142,7 @@ namespace BrowserCore.Engine
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private static double ExtractMinColumnWidth(CssComputed css)
@@ -2126,7 +2165,7 @@ namespace BrowserCore.Engine
                     if (TryPx(auto, out px)) return px;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             return double.NaN;
         }
@@ -2161,7 +2200,7 @@ namespace BrowserCore.Engine
                     if (TryPx(simple.Groups["num"].Value, out px)) return px;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             return double.NaN;
         }
@@ -2342,7 +2381,7 @@ namespace BrowserCore.Engine
                         return await applyCandidateAsync(index + 1);
                     }
 
-                    try { img.Source = source; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                    try { img.Source = source; } catch { /* swallow */ }
                     return true;
                 }
                 catch (Exception ex)
@@ -2371,7 +2410,7 @@ namespace BrowserCore.Engine
                         log("[ImgFailedAll]", failed);
                         if (!string.IsNullOrWhiteSpace(alt))
                         {
-                            try { img.Source = null; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            try { img.Source = null; } catch { /* swallow */ }
                             img.Visibility = Visibility.Collapsed;
                         }
                     }
@@ -2417,14 +2456,14 @@ namespace BrowserCore.Engine
                 {
                     double wd;
                     if (double.TryParse(w, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out wd))
-                        img.Width = wd;
+                        img.Width = SanitizeSize(wd, "img.width@attr");
                 }
                 string h;
                 if (n.Attr.TryGetValue("height", out h))
                 {
                     double hd;
                     if (double.TryParse(h, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out hd))
-                        img.Height = hd;
+                        img.Height = SanitizeSize(hd, "img.height@attr");
                 }
             }
 
@@ -2447,7 +2486,7 @@ namespace BrowserCore.Engine
                     string p; if (n.Attr.TryGetValue("poster", out p)) poster = p;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             if (src == null)
             {
@@ -2466,7 +2505,7 @@ namespace BrowserCore.Engine
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }
 
             var host = new BrowserCore.Engine.VideoHost();
@@ -2538,13 +2577,13 @@ namespace BrowserCore.Engine
                     return await tcs.Task;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             ct.ThrowIfCancellationRequested();
 
             _renderedOneSearchForm = false;
             _baseUriForResources = baseUri;
             // expose computed styles statically for helper lookups (list-style-type bullets)
-            try { _computedStylesStatic = this.ComputedStyles; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            try { _computedStylesStatic = this.ComputedStyles; } catch { /* swallow */ }
             if (Js != null) Js._computedStyles = ComputedStyles;
 
             // Honor <base href>
@@ -2582,7 +2621,7 @@ namespace BrowserCore.Engine
                         if (m.Success) extracted = m.Groups[1].Value;
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 var part = (extracted ?? string.Empty).Trim().Trim('\'', '"', ' ', ';');
                 if (!string.IsNullOrWhiteSpace(part))
@@ -2603,7 +2642,7 @@ namespace BrowserCore.Engine
             var body = root.Descendants().FirstOrDefault(n => n.Tag == "body") ?? root;
 
             var panel = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(8, 8, 8, 24) };
-            try { System.Diagnostics.Debug.WriteLine("[BuildAsync] start nodes=" + (body.Children!=null? body.Children.Count:0)); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            try { System.Diagnostics.Debug.WriteLine("[BuildAsync] start nodes=" + (body.Children!=null? body.Children.Count:0)); } catch { /* swallow */ }
             if (body.Children != null)
             {
                 foreach (var child in body.Children)
@@ -2621,10 +2660,35 @@ namespace BrowserCore.Engine
             // Apply computed + inline styles to body container
             try
             {
+                // Phase DIAG (issue B): log what body CSS is computed BEFORE applying,
+                // and what margin the StackPanel already has. Helps see if body padding
+                // (16px in test.html) is reaching the panel container.
+                if (ComputedStyles != null)
+                {
+                    CssComputed cssBodyDiag = null;
+                    ComputedStyles.TryGetValue(body, out cssBodyDiag);
+                    if (cssBodyDiag == null)
+                    {
+                        var bodyKey2 = ComputedStyles.Keys.FirstOrDefault(k => string.Equals(k.Tag, "body", StringComparison.OrdinalIgnoreCase));
+                        if (bodyKey2 != null) ComputedStyles.TryGetValue(bodyKey2, out cssBodyDiag);
+                    }
+                    if (cssBodyDiag != null)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            "[DIAG:BODY-CSS] body padding=L" + cssBodyDiag.Padding.Left + " T" + cssBodyDiag.Padding.Top +
+                            " R" + cssBodyDiag.Padding.Right + " B" + cssBodyDiag.Padding.Bottom +
+                            " margin=L" + cssBodyDiag.Margin.Left + " T" + cssBodyDiag.Margin.Top +
+                            " R" + cssBodyDiag.Margin.Right + " B" + cssBodyDiag.Margin.Bottom +
+                            " bg=" + (cssBodyDiag.Background != null ? cssBodyDiag.Background.ToString() : "<null>") +
+                            " display=" + (GetDisplayValue(cssBodyDiag) ?? "<null>"));
+                    }
+                }
+                System.Diagnostics.Debug.WriteLine("[DIAG:BODY-PANEL] StackPanel margin pre-apply=L" + panel.Margin.Left + " T" + panel.Margin.Top + " R" + panel.Margin.Right + " B" + panel.Margin.Bottom);
                 ApplyComputedStyles(panel, body);
                 ApplyInlineStyles(panel, body);
+                System.Diagnostics.Debug.WriteLine("[DIAG:BODY-PANEL] StackPanel margin post-apply=L" + panel.Margin.Left + " T" + panel.Margin.Top + " R" + panel.Margin.Right + " B" + panel.Margin.Bottom);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             // Wrap body/html background if present
             FrameworkElement rootVisual = panel;
@@ -2674,7 +2738,7 @@ namespace BrowserCore.Engine
                     rootVisual = wrapper;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             // Synthetic search bar only if there's no visible form and the host is a search engine
             bool hasUsableForm = body.Descendants().Any(d => d.Tag == "form" && !IsHidden(d));
@@ -2710,13 +2774,13 @@ namespace BrowserCore.Engine
                         target.Children.Add(fe);
                         PositionOnCanvas(fe, css, grid);
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
                 _pendingFixed.Clear();
-                try { System.Diagnostics.Debug.WriteLine("[BuildAsync] done children=" + panel.Children.Count); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                try { System.Diagnostics.Debug.WriteLine("[BuildAsync] done children=" + panel.Children.Count); } catch { /* swallow */ }
                 return grid;
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             return rootVisual;
         }
@@ -2740,7 +2804,7 @@ namespace BrowserCore.Engine
                     else fe.HorizontalAlignment = HorizontalAlignment.Stretch;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private static void ApplyJustify(FrameworkElement cont, bool isRow, string justify)
@@ -2760,7 +2824,7 @@ namespace BrowserCore.Engine
                     else cont.VerticalAlignment = VerticalAlignment.Stretch;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private static FrameworkElement BuildJustifiedLine(List<FrameworkElement> elems, bool isRow, string mode, string align)
@@ -2867,8 +2931,46 @@ namespace BrowserCore.Engine
         private async Task<FrameworkElement> RenderGenericContainerAsync(LiteElement n, Uri baseUri, Action<Uri> onNavigate, JavaScriptEngine js, CancellationToken ct)
         {
             var panel = new StackPanel { Orientation = Orientation.Vertical };
-            try { ApplyComputedStyles(panel, n); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-            try { ApplyInlineStyles(panel, n); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            try { ApplyComputedStyles(panel, n); } catch { /* swallow */ }
+            try { ApplyInlineStyles(panel, n); } catch { /* swallow */ }
+
+            // Phase DIAG (issue C): log the resulting block element margin for
+            // top-level structural elements (h1..h6, .test-card, body, divs in
+            // test pages). Helps see why huge vertical gaps appear in test.html.
+            try
+            {
+                bool isInteresting = false;
+                if (n.Tag != null)
+                {
+                    if (n.Tag.Length == 2 && n.Tag[0] == 'h' && n.Tag[1] >= '1' && n.Tag[1] <= '6') isInteresting = true;
+                    else if (n.Tag == "div" || n.Tag == "p" || n.Tag == "section" || n.Tag == "article") isInteresting = true;
+                }
+                if (!isInteresting && n.Attr != null && n.Attr.ContainsKey("class"))
+                {
+                    var cls = n.Attr["class"] ?? "";
+                    if (cls.Contains("test-card") || cls.Contains("section-label")) isInteresting = true;
+                }
+                if (isInteresting)
+                {
+                    var cssForEl = TryGetCss(n);
+                    string marginL = "<n/a>", marginT = "<n/a>", marginR = "<n/a>", marginB = "<n/a>";
+                    if (cssForEl != null)
+                    {
+                        marginL = cssForEl.Margin.Left.ToString();
+                        marginT = cssForEl.Margin.Top.ToString();
+                        marginR = cssForEl.Margin.Right.ToString();
+                        marginB = cssForEl.Margin.Bottom.ToString();
+                    }
+                    System.Diagnostics.Debug.WriteLine(
+                        "[DIAG:MARGIN] tag=" + n.Tag +
+                        " id=" + (n.Attr != null && n.Attr.ContainsKey("id") ? n.Attr["id"] : "") +
+                        " class=" + (n.Attr != null && n.Attr.ContainsKey("class") ? n.Attr["class"] : "") +
+                        " css.margin=L" + marginL + " T" + marginT + " R" + marginR + " B" + marginB +
+                        " → panel.margin=L" + panel.Margin.Left + " T" + panel.Margin.Top + " R" + panel.Margin.Right + " B" + panel.Margin.Bottom +
+                        " display=" + (cssForEl != null ? (GetDisplayValue(cssForEl) ?? "<null>") : "<n/a>"));
+                }
+            }
+            catch { /* swallow */ }
 
             if (n.Children != null)
             {
@@ -2956,8 +3058,8 @@ namespace BrowserCore.Engine
             
             btn.Content = panel;
 
-            try { ApplyComputedStyles(btn, n); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-            try { ApplyInlineStyles(btn, n); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            try { ApplyComputedStyles(btn, n); } catch { /* swallow */ }
+            try { ApplyInlineStyles(btn, n); } catch { /* swallow */ }
 
             if (n.Attr != null && n.Attr.TryGetValue("onclick", out var code) && !string.IsNullOrWhiteSpace(code))
             {
@@ -2969,7 +3071,7 @@ namespace BrowserCore.Engine
                     {
                         js.RunInline(code, null, "click", id);
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 };
             }
 
@@ -3107,7 +3209,7 @@ namespace BrowserCore.Engine
                     string disp; if (cssUl.Map.TryGetValue("display", out disp) && !string.IsNullOrWhiteSpace(disp) && disp.ToLowerInvariant().Contains("flex")) inlineItems = true;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             var liNodes = (n.Children?.Where(c => c.Tag == "li") ?? Enumerable.Empty<LiteElement>()).ToList();
             foreach (var li in liNodes)
@@ -3125,7 +3227,7 @@ namespace BrowserCore.Engine
                         string lst; if (cssLi.Map.TryGetValue("list-style-type", out lst) && !string.IsNullOrWhiteSpace(lst) && lst.ToLowerInvariant().Contains("none")) listStyleNone = true;
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }
 
             if (inlineItems)
@@ -3147,12 +3249,12 @@ namespace BrowserCore.Engine
             {
                 var stack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(0, 6, 0, 6) };
                 int i = 1;
-                try { if (ordered && n.Attr != null) { string st; if (n.Attr.TryGetValue("start", out st)) { int si; if (int.TryParse(st, out si) && si > 0) i = si; } } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                try { if (ordered && n.Attr != null) { string st; if (n.Attr.TryGetValue("start", out st)) { int si; if (int.TryParse(st, out si) && si > 0) i = si; } } } catch { /* swallow */ }
                 foreach (var li in liNodes)
                 {
                     ct.ThrowIfCancellationRequested();
                     var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 2) };
-                    try { if (ordered && li != null && li.Attr != null) { string v; if (li.Attr.TryGetValue("value", out v)) { int vi; if (int.TryParse(v, out vi) && vi > 0) i = vi; } } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                    try { if (ordered && li != null && li.Attr != null) { string v; if (li.Attr.TryGetValue("value", out v)) { int vi; if (int.TryParse(v, out vi) && vi > 0) i = vi; } } } catch { /* swallow */ }
                     
                     if (!listStyleNone)
                     {
@@ -3259,12 +3361,12 @@ namespace BrowserCore.Engine
             var u = ResolveUri(baseUri, src);
             if (u != null)
             {
-                try { img.Source = new BitmapImage(u); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                try { img.Source = new BitmapImage(u); } catch { /* swallow */ }
             }
             if (n.Attr != null)
             {
-                if (n.Attr.TryGetValue("width", out var w) && double.TryParse(w, out var wd)) img.Width = wd;
-                if (n.Attr.TryGetValue("height", out var h) && double.TryParse(h, out var hd)) img.Height = hd;
+                if (n.Attr.TryGetValue("width", out var w) && double.TryParse(w, out var wd)) img.Width = SanitizeSize(wd, "img.width@attr2");
+                if (n.Attr.TryGetValue("height", out var h) && double.TryParse(h, out var hd)) img.Height = SanitizeSize(hd, "img.height@attr2");
             }
             return ApplyBoxesAndText(img, n);
         }
@@ -3390,7 +3492,7 @@ namespace BrowserCore.Engine
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             // Prefer rendering an inline image if the link wraps one (e.g., Google logo)
             FrameworkElement inlineContent = null;
@@ -3423,11 +3525,11 @@ namespace BrowserCore.Engine
                                     if (ih <= 0 && cssImg.Height.HasValue) ih = (int)cssImg.Height.Value;
                                 }
                             }
-                            if (iw > 0) img.Width = iw; if (ih > 0) img.Height = ih;
+                            if (iw > 0) img.Width = SanitizeSize(iw, "img.width@css"); if (ih > 0) img.Height = SanitizeSize(ih, "img.height@css");
                         }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                         // Bind source now, then try cookie-aware loader asynchronously for fidelity
-                        try { img.Source = new BitmapImage(u); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                        try { img.Source = new BitmapImage(u); } catch { /* swallow */ }
                         var uiImg = img; var reqW = (int)(uiImg.Width > 0 ? uiImg.Width : Window.Current?.Bounds.Width ?? 360.0);
                         // NOTE: async image enhancement removed to keep link image creation strictly synchronous/UI-thread bound.
                         // Future: queue background decode, then dispatcher assign if needed.
@@ -3435,7 +3537,7 @@ namespace BrowserCore.Engine
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             if (inlineContent == null)
             {
                 // If anchor has only a CSS background image, synthesize an inline Image so it contributes layout
@@ -3459,13 +3561,13 @@ namespace BrowserCore.Engine
                             if (u != null)
                             {
                                 var img = new Image { Stretch = Stretch.None, HorizontalAlignment = HorizontalAlignment.Left };
-                                try { img.Source = new BitmapImage(u); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                                try { img.Source = new BitmapImage(u); } catch { /* swallow */ }
                                 inlineContent = img;
                             }
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 if (inlineContent == null && string.IsNullOrWhiteSpace(text))
                 {
@@ -3489,8 +3591,8 @@ namespace BrowserCore.Engine
                 Margin = new Thickness(0, 4, 0, 4),
                 Padding = new Thickness(0, 0, 0, 0)
             };
-            try { Windows.UI.Xaml.Automation.AutomationProperties.SetName(hb, text); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-            try { hb.IsTabStop = true; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            try { Windows.UI.Xaml.Automation.AutomationProperties.SetName(hb, text); } catch { /* swallow */ }
+            try { hb.IsTabStop = true; } catch { /* swallow */ }
             // Key handling falls through to Click via default behaviors
             ToolTipService.SetToolTip(hb, abs != null ? (object)abs.AbsoluteUri : href);
 
@@ -3505,7 +3607,7 @@ namespace BrowserCore.Engine
                     hb.Margin = new Thickness(0, 6, 0, 6);
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             if (!string.IsNullOrWhiteSpace(href) && href.Trim().StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
             {
@@ -3529,7 +3631,7 @@ namespace BrowserCore.Engine
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             // Normalize Google redirectors for absolute links too (https://google.com/url?... or /url=...)
             try
@@ -3586,12 +3688,12 @@ namespace BrowserCore.Engine
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             if (abs != null && onNavigate != null)
                 hb.Click += (s, e) =>
                 {
-                    string elId = null; try { if (n.Attr != null) n.Attr.TryGetValue("id", out elId); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                    string elId = null; try { if (n.Attr != null) n.Attr.TryGetValue("id", out elId); } catch { /* swallow */ }
                     bool cancel = false;
                     // Inline JS handler may cancel default ("return false;")
                     string onclick;
@@ -3643,14 +3745,14 @@ namespace BrowserCore.Engine
                     {
                         if (Js != null)
                         {
-                            string id = null; try { if (n.Attr != null) n.Attr.TryGetValue("id", out id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            string id = null; try { if (n.Attr != null) n.Attr.TryGetValue("id", out id); } catch { /* swallow */ }
                             if (!string.IsNullOrWhiteSpace(id))
                             {
                                 cancel = Js.RaiseElementEventSync(id, "click");
                             }
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                     if (cancel) { TrySetHandled(e); }
                 };
                 return btn;
@@ -3820,7 +3922,7 @@ namespace BrowserCore.Engine
             // Heuristic: widen primary text inputs (search box)
             try
             {
-                double vw = 0; try { vw = Window.Current.Bounds.Width; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                double vw = 0; try { vw = Window.Current.Bounds.Width; } catch { /* swallow */ }
                 if (vw <= 0) vw = 360;
                 double minSearch = Math.Min(720, Math.Max(220, vw * 0.75));
                 double maxSearch = Math.Min(800, Math.Max(minSearch, vw * 0.95));
@@ -3847,7 +3949,7 @@ namespace BrowserCore.Engine
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             // Focus first textbox if any
             TextBox firstTb = null;
@@ -3861,7 +3963,7 @@ namespace BrowserCore.Engine
                 string onsubmit;
                 if (form.Attr != null && form.Attr.TryGetValue("onsubmit", out onsubmit) && Js != null)
                 {
-                    string formId = null; try { if (form.Attr != null) form.Attr.TryGetValue("id", out formId); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                    string formId = null; try { if (form.Attr != null) form.Attr.TryGetValue("id", out formId); } catch { /* swallow */ }
                     bool cancel = Js.RunInline(onsubmit, new JsContext { BaseUri = baseUri }, "submit", formId);
                     if (cancel) return;
                 }
@@ -3870,7 +3972,7 @@ namespace BrowserCore.Engine
                 {
                     /* property onsubmit not canceling in JS-0 */
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 string action = null; if (form.Attr != null) form.Attr.TryGetValue("action", out action);
                 string method = null; if (form.Attr != null) form.Attr.TryGetValue("method", out method);
@@ -3894,7 +3996,7 @@ namespace BrowserCore.Engine
                         append("gbv", "1");
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 foreach (var kv in staticInputs) append(kv.Key, kv.Value);
 
@@ -4022,14 +4124,14 @@ namespace BrowserCore.Engine
                 {
                     if (Js != null)
                     {
-                        string id = null; try { if (form.Attr != null) form.Attr.TryGetValue("id", out id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                        string id = null; try { if (form.Attr != null) form.Attr.TryGetValue("id", out id); } catch { /* swallow */ }
                         if (!string.IsNullOrWhiteSpace(id))
                         {
                             cancel = Js.RaiseElementEventSync(id, "click");
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 if (cancel) { TrySetHandled(e); return; }
                 submit();
             };
@@ -4050,12 +4152,12 @@ namespace BrowserCore.Engine
                         else
                             wrap.Margin = new Thickness(0, 8, 0, 0);
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                     wrap.Children.Add(panel);
                     return Finish(wrap, form);
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             return Finish(panel, form);
         }
@@ -4116,7 +4218,7 @@ namespace BrowserCore.Engine
                     string.Equals(k2.Tag, n.Tag, StringComparison.OrdinalIgnoreCase));
                 if (k != null && ComputedStyles.TryGetValue(k, out css) && css != null) return css;
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             return null;
         }
@@ -4146,9 +4248,9 @@ namespace BrowserCore.Engine
             if (double.IsNaN(heightAdjust)) heightAdjust = 0;
 
             if (css.Width.HasValue && !double.IsNaN(css.Width.Value) && css.Width.Value > 0)
-                fe.Width = css.Width.Value + widthAdjust;
+                fe.Width = SanitizeSize(css.Width.Value + widthAdjust, "css.Width");
             if (css.Height.HasValue && !double.IsNaN(css.Height.Value) && css.Height.Value > 0)
-                fe.Height = css.Height.Value + heightAdjust;
+                fe.Height = SanitizeSize(css.Height.Value + heightAdjust, "css.Height");
             if (css.MinWidth.HasValue && !double.IsNaN(css.MinWidth.Value) && css.MinWidth.Value > 0)
                 fe.MinWidth = css.MinWidth.Value + widthAdjust;
             if (css.MinHeight.HasValue && !double.IsNaN(css.MinHeight.Value) && css.MinHeight.Value > 0)
@@ -4393,18 +4495,18 @@ namespace BrowserCore.Engine
                         content = b;
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }
 
-            try { BrowserCore.Engine.JavaScriptEngine.RegisterDomVisual(n, content); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            try { BrowserCore.Engine.JavaScriptEngine.RegisterDomVisual(n, content); } catch { /* swallow */ }
 
             // Apply box-sizing aware layout
-            try { ApplyComputedLayout(content, css); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            try { ApplyComputedLayout(content, css); } catch { /* swallow */ }
 
             // Apply CSS transform (translate, scale, rotate)
             if (css != null && !string.IsNullOrEmpty(css.Transform))
             {
-                try { ApplyTransform(content, css.Transform); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                try { ApplyTransform(content, css.Transform); } catch { /* swallow */ }
             }
 
             // Minimal event bridge to JS for elements with explicit id
@@ -4422,15 +4524,15 @@ namespace BrowserCore.Engine
                         try { cancel = Js.RaiseElementEventSync(id, "click", null, null, pos.X, pos.Y); } catch { cancel = false; }
                         if (cancel) { TrySetHandled(e); return; }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 };
 
                 // Text input -> "input"
                 var tb = content as TextBox;
                 if (tb != null)
                 {
-                    tb.TextChanged += (s, e) => { try { Js.RaiseElementEvent(id, "input", tb.Text ?? ""); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
-                    tb.LostFocus += (s, e) => { try { Js.RaiseElementEvent(id, "change", tb.Text ?? ""); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
+                    tb.TextChanged += (s, e) => { try { Js.RaiseElementEvent(id, "input", tb.Text ?? ""); } catch { /* swallow */ } };
+                    tb.LostFocus += (s, e) => { try { Js.RaiseElementEvent(id, "change", tb.Text ?? ""); } catch { /* swallow */ } };
                 }
 
                 // Combo / Listbox / CheckBox -> "change"
@@ -4461,7 +4563,7 @@ namespace BrowserCore.Engine
                         }
                         Js.RaiseElementEvent(id, "change", txt);
                     }
-                    catch { try { Js.RaiseElementEventById(id, "change"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } }
+                    catch { try { Js.RaiseElementEventById(id, "change"); } catch { /* swallow */ } }
                 };
                 var list = content as ListBox;
                 if (list != null) list.SelectionChanged += (s, e) =>
@@ -4490,10 +4592,10 @@ namespace BrowserCore.Engine
                         }
                         Js.RaiseElementEvent(id, "change", txt);
                     }
-                    catch { try { Js.RaiseElementEventById(id, "change"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } }
+                    catch { try { Js.RaiseElementEventById(id, "change"); } catch { /* swallow */ } }
                 };
                 var chk = content as CheckBox;
-                if (chk != null) chk.Click += (s, e) => { try { Js.RaiseElementEvent(id, "change", null, chk.IsChecked == true); } catch { try { Js.RaiseElementEventById(id, "change"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } } };
+                if (chk != null) chk.Click += (s, e) => { try { Js.RaiseElementEvent(id, "change", null, chk.IsChecked == true); } catch { try { Js.RaiseElementEventById(id, "change"); } catch { /* swallow */ } } };
             }
 
             // Inline on* attribute handlers (onclick/oninput/onchange)
@@ -4506,9 +4608,9 @@ namespace BrowserCore.Engine
                     var btn = content as Button;
                     var hbtn = content as HyperlinkButton;
                     var code = PreprocessInlineHandler(on, id);
-                    if (btn != null) btn.Click += (s, e) => { try { Js.RunInline(code, new JsContext { BaseUri = _baseUriForResources }, "click", id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
-                    else if (hbtn != null) hbtn.Click += (s, e) => { try { Js.RunInline(code, new JsContext { BaseUri = _baseUriForResources }, "click", id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
-                    else content.Tapped += (s, e) => { try { Js.RunInline(code, new JsContext { BaseUri = _baseUriForResources }, "click", id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
+                    if (btn != null) btn.Click += (s, e) => { try { Js.RunInline(code, new JsContext { BaseUri = _baseUriForResources }, "click", id); } catch { /* swallow */ } };
+                    else if (hbtn != null) hbtn.Click += (s, e) => { try { Js.RunInline(code, new JsContext { BaseUri = _baseUriForResources }, "click", id); } catch { /* swallow */ } };
+                    else content.Tapped += (s, e) => { try { Js.RunInline(code, new JsContext { BaseUri = _baseUriForResources }, "click", id); } catch { /* swallow */ } };
                 }
 
                 // oninput -> TextChanged for TextBox
@@ -4516,17 +4618,17 @@ namespace BrowserCore.Engine
                 {
                     var tb = content as TextBox;
                     var code = PreprocessInlineHandler(on, id);
-                    if (tb != null) tb.TextChanged += (s, e) => { try { Js.RunInline(code, new JsContext { BaseUri = _baseUriForResources }, "input", id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
+                    if (tb != null) tb.TextChanged += (s, e) => { try { Js.RunInline(code, new JsContext { BaseUri = _baseUriForResources }, "input", id); } catch { /* swallow */ } };
                 }
 
                 // onchange -> LostFocus for TextBox; SelectionChanged for ComboBox/ListBox; Click for CheckBox/Radio
                 if (n.Attr.TryGetValue("onchange", out on) && !string.IsNullOrWhiteSpace(on))
                 {
                     var code = PreprocessInlineHandler(on, id);
-                    var tb = content as TextBox; if (tb != null) tb.LostFocus += (s, e) => { try { Js.RunInline(code, new JsContext { BaseUri = _baseUriForResources }, "change", id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
-                    var combo = content as ComboBox; if (combo != null) combo.SelectionChanged += (s, e) => { try { Js.RunInline(code, new JsContext { BaseUri = _baseUriForResources }, "change", id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
-                    var list = content as ListBox; if (list != null) list.SelectionChanged += (s, e) => { try { Js.RunInline(code, new JsContext { BaseUri = _baseUriForResources }, "change", id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
-                    var chk = content as CheckBox; if (chk != null) chk.Click += (s, e) => { try { Js.RunInline(code, new JsContext { BaseUri = _baseUriForResources }, "change", id); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
+                    var tb = content as TextBox; if (tb != null) tb.LostFocus += (s, e) => { try { Js.RunInline(code, new JsContext { BaseUri = _baseUriForResources }, "change", id); } catch { /* swallow */ } };
+                    var combo = content as ComboBox; if (combo != null) combo.SelectionChanged += (s, e) => { try { Js.RunInline(code, new JsContext { BaseUri = _baseUriForResources }, "change", id); } catch { /* swallow */ } };
+                    var list = content as ListBox; if (list != null) list.SelectionChanged += (s, e) => { try { Js.RunInline(code, new JsContext { BaseUri = _baseUriForResources }, "change", id); } catch { /* swallow */ } };
+                    var chk = content as CheckBox; if (chk != null) chk.Click += (s, e) => { try { Js.RunInline(code, new JsContext { BaseUri = _baseUriForResources }, "change", id); } catch { /* swallow */ } };
                 }
             }
 
@@ -4555,7 +4657,7 @@ namespace BrowserCore.Engine
                     var byTag = ComputedStyles.Keys.FirstOrDefault(k => k != null && string.Equals(k.Tag, n.Tag, StringComparison.OrdinalIgnoreCase));
                     if (byTag != null) ComputedStyles.TryGetValue(byTag, out st);
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 if (st == null) return;
             }
 
@@ -4575,7 +4677,7 @@ namespace BrowserCore.Engine
                     fe.Visibility = Visibility.Collapsed;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             if (st.Foreground != null)
             {
@@ -4725,6 +4827,304 @@ namespace BrowserCore.Engine
                     fe.RenderTransformOrigin = origin.Value;
                 }
             }
+
+            // Phase C.6: attach :hover → transition animation handlers when
+            // (a) the element has a :hover override computed in CssLoader
+            // (b) the base computed style has a transition with a positive
+            //     duration. Without (b) there's no animation to play and the
+            // hover state would just snap.
+            try
+            {
+                if (st.Hover != null && st.TransitionDurationMs > 0)
+                {
+                    AttachHoverTransition(fe, st);
+                }
+            }
+            catch { /* swallow */ }
+        }
+
+        // Phase C.6: wire PointerEntered/Exited to drive Storyboard animations
+        // between base and hover computed values for the property listed in
+        // CssComputed.TransitionProperty ("opacity" / "background-color" /
+        // "transform" / "all").
+        private void AttachHoverTransition(FrameworkElement fe, CssComputed baseCss)
+        {
+            if (fe == null || baseCss == null || baseCss.Hover == null) return;
+            var hover = baseCss.Hover;
+            double dur = baseCss.TransitionDurationMs;
+            double delay = baseCss.TransitionDelayMs;
+            string timing = baseCss.TransitionTimingFunction ?? "ease";
+            string prop = baseCss.TransitionProperty ?? "all";
+
+            // Capture base values BEFORE we attach any handlers, so we can
+            // return to them on PointerExited.
+            double baseOpacity = fe.Opacity;
+            Windows.UI.Color baseColor = GetBackgroundColor(fe) ?? Windows.UI.Colors.Transparent;
+            bool hasBaseBrush = GetBackgroundBrush(fe) != null;
+
+            double baseScaleX = 1, baseScaleY = 1, baseRotate = 0, baseTx = 0, baseTy = 0;
+            var group = fe.RenderTransform as Windows.UI.Xaml.Media.TransformGroup;
+            if (group != null && group.Children != null)
+            {
+                for (int i = 0; i < group.Children.Count; i++)
+                {
+                    var tr = group.Children[i];
+                    if (tr is Windows.UI.Xaml.Media.ScaleTransform sc) { baseScaleX = sc.ScaleX; baseScaleY = sc.ScaleY; }
+                    else if (tr is Windows.UI.Xaml.Media.RotateTransform rt) { baseRotate = rt.Angle; }
+                    else if (tr is Windows.UI.Xaml.Media.TranslateTransform tt) { baseTx = tt.X; baseTy = tt.Y; }
+                }
+            }
+
+            // Pre-compute hover values from the hover computed style.
+            double? hoverOpacity = null;
+            Windows.UI.Color? hoverColor = null;
+            double? hoverScaleX = null, hoverScaleY = null;
+            double? hoverRotate = null;
+            double? hoverTx = null, hoverTy = null;
+
+            // opacity
+            if (prop == "opacity" || prop == "all")
+            {
+                var oStr = DictGet(hover.Map, "opacity");
+                double ov;
+                if (TryPxOrDouble(oStr, out ov)) hoverOpacity = Math.Max(0, Math.Min(1, ov));
+            }
+            // background-color / background
+            if (prop == "background-color" || prop == "background" || prop == "all")
+            {
+                var cStr = ExtractBackgroundColor(hover.Map);
+                if (!string.IsNullOrWhiteSpace(cStr))
+                {
+                    var brush = TryParseCssColorToBrush(cStr);
+                    if (brush != null) hoverColor = brush.Color;
+                }
+            }
+            // transform
+            if (prop == "transform" || prop == "all")
+            {
+                var tStr = DictGet(hover.Map, "transform");
+                if (!string.IsNullOrWhiteSpace(tStr))
+                {
+                    ParseTransformForHover(tStr,
+                        out double sx, out double sy, out double rot, out double tx, out double ty);
+                    hoverScaleX = sx; hoverScaleY = sy; hoverRotate = rot; hoverTx = tx; hoverTy = ty;
+                }
+            }
+
+            // Only attach if there's at least one thing to animate
+            if (hoverOpacity == null && hoverColor == null
+                && hoverScaleX == null && hoverRotate == null && hoverTx == null)
+                return;
+
+            fe.PointerEntered += (s, e) =>
+            {
+                try
+                {
+                    if (hoverOpacity.HasValue)
+                        TransitionAnimator.AnimateOpacity(fe, hoverOpacity.Value, dur, delay, timing);
+                    if (hoverColor.HasValue)
+                    {
+                        if (hasBaseBrush)
+                            TransitionAnimator.AnimateBackgroundColor(fe, hoverColor.Value, dur, delay, timing);
+                        else
+                        {
+                            // Element had no background brush in the base state —
+                            // assign one (jump to the color, then nothing to animate).
+                            try { SetBackgroundBrush(fe, new Windows.UI.Xaml.Media.SolidColorBrush(hoverColor.Value)); } catch { }
+                        }
+                    }
+                    if (hoverScaleX.HasValue || hoverScaleY.HasValue)
+                        TransitionAnimator.AnimateTransformScale(fe,
+                            hoverScaleX ?? baseScaleX, hoverScaleY ?? baseScaleY, dur, delay, timing);
+                    if (hoverRotate.HasValue)
+                        TransitionAnimator.AnimateTransformRotate(fe, hoverRotate.Value, dur, delay, timing);
+                    if (hoverTx.HasValue || hoverTy.HasValue)
+                        TransitionAnimator.AnimateTransformTranslate(fe,
+                            hoverTx ?? baseTx, hoverTy ?? baseTy, dur, delay, timing);
+                }
+                catch { }
+            };
+
+            fe.PointerExited += (s, e) =>
+            {
+                try
+                {
+                    if (hoverOpacity.HasValue)
+                        TransitionAnimator.AnimateOpacity(fe, baseOpacity, dur, delay, timing);
+                    if (hoverColor.HasValue && hasBaseBrush)
+                        TransitionAnimator.AnimateBackgroundColor(fe, baseColor, dur, delay, timing);
+                    if (hoverScaleX.HasValue || hoverScaleY.HasValue)
+                        TransitionAnimator.AnimateTransformScale(fe, baseScaleX, baseScaleY, dur, delay, timing);
+                    if (hoverRotate.HasValue)
+                        TransitionAnimator.AnimateTransformRotate(fe, baseRotate, dur, delay, timing);
+                    if (hoverTx.HasValue || hoverTy.HasValue)
+                        TransitionAnimator.AnimateTransformTranslate(fe, baseTx, baseTy, dur, delay, timing);
+                }
+                catch { }
+            };
+        }
+
+        // Phase C.6: small set of helpers to read/write the Background property
+        // across UWP types that expose it (Control, Panel, Border, ContentPresenter).
+        // FrameworkElement itself has no Background, so we must dispatch.
+        private static Windows.UI.Xaml.Media.Brush GetBackgroundBrush(FrameworkElement fe)
+        {
+            if (fe is Windows.UI.Xaml.Controls.Control c) return c.Background;
+            if (fe is Windows.UI.Xaml.Controls.Panel p) return p.Background;
+            if (fe is Windows.UI.Xaml.Controls.Border b) return b.Background;
+            if (fe is Windows.UI.Xaml.Controls.ContentPresenter cp) return cp.Background;
+            return null;
+        }
+
+        private static void SetBackgroundBrush(FrameworkElement fe, Windows.UI.Xaml.Media.Brush brush)
+        {
+            if (fe is Windows.UI.Xaml.Controls.Control c) c.Background = brush;
+            else if (fe is Windows.UI.Xaml.Controls.Panel p) p.Background = brush;
+            else if (fe is Windows.UI.Xaml.Controls.Border b) b.Background = brush;
+            else if (fe is Windows.UI.Xaml.Controls.ContentPresenter cp) cp.Background = brush;
+        }
+
+        private static Windows.UI.Color? GetBackgroundColor(FrameworkElement fe)
+        {
+            var br = GetBackgroundBrush(fe) as Windows.UI.Xaml.Media.SolidColorBrush;
+            if (br != null) return br.Color;
+            return null;
+        }
+
+        // Try to read a value as a number (with optional unit). For opacity we
+        // just want 0..1 doubles.
+        private static bool TryPxOrDouble(string s, out double v)
+        {
+            v = 0;
+            if (string.IsNullOrWhiteSpace(s)) return false;
+            s = s.Trim();
+            // Strip "px" if present
+            if (s.EndsWith("px", StringComparison.OrdinalIgnoreCase))
+                s = s.Substring(0, s.Length - 2).Trim();
+            return double.TryParse(s, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out v);
+        }
+
+        // Parse a CSS color into a SolidColorBrush for hover background.
+        private static Windows.UI.Xaml.Media.SolidColorBrush TryParseCssColorToBrush(string css)
+        {
+            if (string.IsNullOrWhiteSpace(css)) return null;
+            try
+            {
+                var s = css.Trim();
+                byte a = 0xFF, r = 0, g = 0, b = 0;
+                if (s.StartsWith("#"))
+                {
+                    s = s.Substring(1);
+                    if (s.Length == 3)
+                    {
+                        r = Convert.ToByte(new string(s[0], 2), 16);
+                        g = Convert.ToByte(new string(s[1], 2), 16);
+                        b = Convert.ToByte(new string(s[2], 2), 16);
+                    }
+                    else if (s.Length == 6)
+                    {
+                        r = Convert.ToByte(s.Substring(0, 2), 16);
+                        g = Convert.ToByte(s.Substring(2, 2), 16);
+                        b = Convert.ToByte(s.Substring(4, 2), 16);
+                    }
+                    else if (s.Length == 8)
+                    {
+                        a = Convert.ToByte(s.Substring(0, 2), 16);
+                        r = Convert.ToByte(s.Substring(2, 2), 16);
+                        g = Convert.ToByte(s.Substring(4, 2), 16);
+                        b = Convert.ToByte(s.Substring(6, 2), 16);
+                    }
+                    return new Windows.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(a, r, g, b));
+                }
+                var l = s.ToLowerInvariant();
+                if (l == "black") return new Windows.UI.Xaml.Media.SolidColorBrush(Windows.UI.Colors.Black);
+                if (l == "white") return new Windows.UI.Xaml.Media.SolidColorBrush(Windows.UI.Colors.White);
+                if (l == "red") return new Windows.UI.Xaml.Media.SolidColorBrush(Windows.UI.Colors.Red);
+                if (l == "green") return new Windows.UI.Xaml.Media.SolidColorBrush(Windows.UI.Colors.Green);
+                if (l == "blue") return new Windows.UI.Xaml.Media.SolidColorBrush(Windows.UI.Colors.Blue);
+                if (l == "gray" || l == "grey") return new Windows.UI.Xaml.Media.SolidColorBrush(Windows.UI.Colors.Gray);
+                if (l == "purple") return new Windows.UI.Xaml.Media.SolidColorBrush(Windows.UI.Colors.Purple);
+                if (l == "orange") return new Windows.UI.Xaml.Media.SolidColorBrush(Windows.UI.Colors.Orange);
+                if (l == "yellow") return new Windows.UI.Xaml.Media.SolidColorBrush(Windows.UI.Colors.Yellow);
+                if (l == "crimson") return new Windows.UI.Xaml.Media.SolidColorBrush(
+                    Windows.UI.Color.FromArgb(0xFF, 0xDC, 0x14, 0x3C));
+                if (l == "transparent") return new Windows.UI.Xaml.Media.SolidColorBrush(Windows.UI.Colors.Transparent);
+            }
+            catch { }
+            return null;
+        }
+
+        // Parse a transform list like "scale(1.1) rotate(15deg) translate(10px,20px)"
+        // and pull out the values used by TransitionAnimator.
+        private static void ParseTransformForHover(string t, out double sx, out double sy, out double rot, out double tx, out double ty)
+        {
+            sx = 1; sy = 1; rot = 0; tx = 0; ty = 0;
+            if (string.IsNullOrWhiteSpace(t)) return;
+            var rx = new System.Text.RegularExpressions.Regex(@"(?<fn>[a-zA-Z]+)\s*\((?<args>[^)]*)\)");
+            foreach (System.Text.RegularExpressions.Match mm in rx.Matches(t))
+            {
+                var fn = (mm.Groups["fn"].Value ?? "").ToLowerInvariant();
+                var args = (mm.Groups["args"].Value ?? "").Trim();
+                var parts = args.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                if (fn == "scale")
+                {
+                    if (parts.Length >= 1) double.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out sx);
+                    if (parts.Length >= 2) double.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out sy);
+                    else sy = sx;
+                }
+                else if (fn == "rotate")
+                {
+                    if (parts.Length >= 1)
+                    {
+                        var a = parts[0].Trim();
+                        if (a.EndsWith("deg", StringComparison.OrdinalIgnoreCase)) a = a.Substring(0, a.Length - 3);
+                        double.TryParse(a, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out rot);
+                    }
+                }
+                else if (fn == "translate")
+                {
+                    if (parts.Length >= 1)
+                    {
+                        var a = parts[0].Trim();
+                        if (a.EndsWith("px", StringComparison.OrdinalIgnoreCase)) a = a.Substring(0, a.Length - 2);
+                        double.TryParse(a, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out tx);
+                    }
+                    if (parts.Length >= 2)
+                    {
+                        var b = parts[1].Trim();
+                        if (b.EndsWith("px", StringComparison.OrdinalIgnoreCase)) b = b.Substring(0, b.Length - 2);
+                        double.TryParse(b, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out ty);
+                    }
+                }
+            }
+        }
+
+        // Forward to css.Map["background"] || css.Map["background-color"], with
+        // a best-effort strip of "url(...)" / position keywords so we can get
+        // the color out of a "background: red url(...)" shorthand.
+        private static string ExtractBackgroundColor(Dictionary<string, string> map)
+        {
+            if (map == null) return null;
+            string v;
+            if (map.TryGetValue("background-color", out v) && !string.IsNullOrWhiteSpace(v)) return v;
+            if (map.TryGetValue("background", out v) && !string.IsNullOrWhiteSpace(v))
+            {
+                // Take the first token that looks like a color (starts with #, rgb(, or is a known name)
+                foreach (var part in v.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (part.StartsWith("#") || part.StartsWith("rgb", StringComparison.OrdinalIgnoreCase))
+                        return part;
+                }
+            }
+            return null;
+        }
+
+        private static string DictGet(Dictionary<string, string> d, string key)
+        {
+            if (d == null) return null;
+            string v;
+            return d.TryGetValue(key, out v) ? v : null;
         }
 
         private static void ApplyInlineStyles(FrameworkElement fe, LiteElement n)
@@ -5130,7 +5530,7 @@ namespace BrowserCore.Engine
                         var rect = new Rect(0, 0, fe.ActualWidth, fe.ActualHeight);
                         fe.Clip = new RectangleGeometry { Rect = rect };
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 };
 
                 var target = content;
@@ -5338,7 +5738,7 @@ namespace BrowserCore.Engine
             }
 
             var enumValue = Enum.ToObject(TextDecorationsType, decoValue);
-            try { TextBlockTextDecorationsProp?.SetValue(tb, enumValue); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            try { TextBlockTextDecorationsProp?.SetValue(tb, enumValue); } catch { /* swallow */ }
         }
 
         private static void ApplyLetterSpacing(FrameworkElement fe, string value)
@@ -5585,12 +5985,12 @@ namespace BrowserCore.Engine
 
             var tb = new TextBox { Width = 260, Margin = new Thickness(0, 0, 8, 0), PlaceholderText = "Search the web" };
             // Make the input clearly visible even without focus
-            try { tb.Background = new SolidColorBrush(Windows.UI.Colors.White); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-            try { tb.Foreground = new SolidColorBrush(Windows.UI.Colors.Black); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-            try { tb.BorderBrush = new SolidColorBrush(Windows.UI.Colors.Gray); tb.BorderThickness = new Thickness(1, 1, 1, 1); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-            try { tb.Height = 36; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            try { tb.Background = new SolidColorBrush(Windows.UI.Colors.White); } catch { /* swallow */ }
+            try { tb.Foreground = new SolidColorBrush(Windows.UI.Colors.Black); } catch { /* swallow */ }
+            try { tb.BorderBrush = new SolidColorBrush(Windows.UI.Colors.Gray); tb.BorderThickness = new Thickness(1, 1, 1, 1); } catch { /* swallow */ }
+            try { tb.Height = 36; } catch { /* swallow */ }
             // Focus automatically so user sees caret immediately
-            tb.Loaded += (s, e) => { try { tb.Focus(Windows.UI.Xaml.FocusState.Programmatic); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
+            tb.Loaded += (s, e) => { try { tb.Focus(Windows.UI.Xaml.FocusState.Programmatic); } catch { /* swallow */ } };
             var btn = new Button { Content = "Search", Width = 90, HorizontalAlignment = HorizontalAlignment.Left };
 
             btn.Click += (s, e) =>
@@ -5731,7 +6131,7 @@ namespace BrowserCore.Engine
                     && n.Attr.ContainsKey("content"));
                 if (m != null) return m.Attr["content"];
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return null;
         }
 
@@ -5823,7 +6223,7 @@ namespace BrowserCore.Engine
                             var op = SvgSetSourceAsync.Invoke(svg, new object[] { stream }) as IAsyncAction;
                             if (op != null)
                             {
-                                try { await op.AsTask(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                                try { await op.AsTask(); } catch { /* swallow */ }
                                 return svg;
                             }
                         }
@@ -5929,7 +6329,7 @@ namespace BrowserCore.Engine
                 }
 
                 var dw = 360.0;
-                try { dw = Window.Current?.Bounds.Width ?? 360.0; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                try { dw = Window.Current?.Bounds.Width ?? 360.0; } catch { /* swallow */ }
                 var preferred = PickSrcFromSrcset(srcset, dw);
                 if (!string.IsNullOrWhiteSpace(preferred)) candidateStrings.Add(preferred);
 
@@ -5999,10 +6399,10 @@ namespace BrowserCore.Engine
                 }
                 if (sn != null) headerText = CollapseWs(GatherText(sn) ?? "Details");
                 else headerText = CollapseWs(GatherText(n) ?? "Details");
-            } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            } catch { /* swallow */ }
             var btn = new Button { Content = new TextBlock { Text = headerText, FontWeight = Windows.UI.Text.FontWeights.SemiBold } };
             var content = new StackPanel { Orientation = Orientation.Vertical };
-            bool isOpen = false; try { if (n.Attr != null && n.Attr.ContainsKey("open")) isOpen = true; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            bool isOpen = false; try { if (n.Attr != null && n.Attr.ContainsKey("open")) isOpen = true; } catch { /* swallow */ }
             content.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
             LiteElement summaryNode = null;
             if (n.Children != null)
@@ -6030,8 +6430,8 @@ namespace BrowserCore.Engine
         private FrameworkElement MakeProgress(LiteElement n)
         {
             double value = 0, max = 1;
-            try { string s; if (n.Attr != null && n.Attr.TryGetValue("value", out s)) double.TryParse(s, out value); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-            try { string s; if (n.Attr != null && n.Attr.TryGetValue("max", out s)) double.TryParse(s, out max); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            try { string s; if (n.Attr != null && n.Attr.TryGetValue("value", out s)) double.TryParse(s, out value); } catch { /* swallow */ }
+            try { string s; if (n.Attr != null && n.Attr.TryGetValue("max", out s)) double.TryParse(s, out max); } catch { /* swallow */ }
             if (max <= 0) max = 1;
             if (value < 0) value = 0; if (value > max) value = max;
             var pb = new ProgressBar { Minimum = 0, Maximum = max, Value = value, Height = 4, Margin = new Thickness(0, 4, 0, 4) };
@@ -6042,12 +6442,12 @@ namespace BrowserCore.Engine
         private FrameworkElement MakeMeter(LiteElement n)
         {
             double value = 0, min = 0, max = 1, low = double.NaN, high = double.NaN, optimum = double.NaN;
-            try { string s; if (n.Attr != null && n.Attr.TryGetValue("value", out s)) double.TryParse(s, out value); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-            try { string s; if (n.Attr != null && n.Attr.TryGetValue("min", out s)) double.TryParse(s, out min); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-            try { string s; if (n.Attr != null && n.Attr.TryGetValue("max", out s)) double.TryParse(s, out max); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-            try { string s; if (n.Attr != null && n.Attr.TryGetValue("low", out s)) double.TryParse(s, out low); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-            try { string s; if (n.Attr != null && n.Attr.TryGetValue("high", out s)) double.TryParse(s, out high); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
-            try { string s; if (n.Attr != null && n.Attr.TryGetValue("optimum", out s)) double.TryParse(s, out optimum); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            try { string s; if (n.Attr != null && n.Attr.TryGetValue("value", out s)) double.TryParse(s, out value); } catch { /* swallow */ }
+            try { string s; if (n.Attr != null && n.Attr.TryGetValue("min", out s)) double.TryParse(s, out min); } catch { /* swallow */ }
+            try { string s; if (n.Attr != null && n.Attr.TryGetValue("max", out s)) double.TryParse(s, out max); } catch { /* swallow */ }
+            try { string s; if (n.Attr != null && n.Attr.TryGetValue("low", out s)) double.TryParse(s, out low); } catch { /* swallow */ }
+            try { string s; if (n.Attr != null && n.Attr.TryGetValue("high", out s)) double.TryParse(s, out high); } catch { /* swallow */ }
+            try { string s; if (n.Attr != null && n.Attr.TryGetValue("optimum", out s)) double.TryParse(s, out optimum); } catch { /* swallow */ }
             if (max <= min) { max = min + 1; }
             if (value < min) value = min; if (value > max) value = max;
             var pb = new ProgressBar { Minimum = min, Maximum = max, Value = value, Height = 4, Margin = new Thickness(0, 4, 0, 4) };
@@ -6058,7 +6458,7 @@ namespace BrowserCore.Engine
                     bool good = (optimum <= low) ? (value <= low) : (optimum >= high ? (value >= high) : (value >= low && value <= high));
                     if (!good) pb.Opacity = 0.7;
                 }
-            } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            } catch { /* swallow */ }
             return pb;
         }
 
@@ -6077,7 +6477,7 @@ namespace BrowserCore.Engine
                     try
                     {
                         double cw = 0, ch = 0;
-                        try { if (container != null) { cw = container.ActualWidth; ch = container.ActualHeight; } } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                        try { if (container != null) { cw = container.ActualWidth; ch = container.ActualHeight; } } catch { /* swallow */ }
 
                         Func<string, double?, double> pxOrPercent = (name, containerSize) =>
                         {
@@ -6095,7 +6495,7 @@ namespace BrowserCore.Engine
                                     double px; if (double.TryParse(raw.Replace("px", "").Trim(), out px)) return px;
                                 }
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                             return double.NaN;
                         };
 
@@ -6121,15 +6521,15 @@ namespace BrowserCore.Engine
                         // z-index affects stacking where overlapping occurs (mostly in Canvas); respect if provided
                         if (css.ZIndex.HasValue) Canvas.SetZIndex(fe, css.ZIndex.Value);
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 };
 
-                fe.Loaded += (s, e) => { try { place(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
-                fe.SizeChanged += (s, e) => { try { place(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
-                if (container != null) container.SizeChanged += (s, e) => { try { place(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); } };
+                fe.Loaded += (s, e) => { try { place(); } catch { /* swallow */ } };
+                fe.SizeChanged += (s, e) => { try { place(); } catch { /* swallow */ } };
+                if (container != null) container.SizeChanged += (s, e) => { try { place(); } catch { /* swallow */ } };
                 place();
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         // ---- List bullet helpers and CSS lookup ----
@@ -6508,7 +6908,7 @@ namespace BrowserCore.Engine
             bool suppress = reason != null;
             if (debugEnabled && suppress)
             {
-                try { System.Diagnostics.Debug.WriteLine("[TextSuppress] reason=" + reason + " len=" + trimmed.Length + " sample=" + trimmed.Substring(0, Math.Min(60, trimmed.Length)).Replace('\n',' ').Replace('\r',' ')); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/DomBasicRenderer.cs] empty catch empty catch"); }
+                try { System.Diagnostics.Debug.WriteLine("[TextSuppress] reason=" + reason + " len=" + trimmed.Length + " sample=" + trimmed.Substring(0, Math.Min(60, trimmed.Length)).Replace('\n',' ').Replace('\r',' ')); } catch { /* swallow */ }
             }
             return suppress;
         }

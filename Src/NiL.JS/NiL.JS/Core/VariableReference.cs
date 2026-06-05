@@ -1,11 +1,9 @@
-﻿using System;
+using System;
 using NiL.JS.Expressions;
 
 namespace NiL.JS.Core;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public abstract class VariableReference : Expression
 {
     internal VariableDescriptor _descriptor;

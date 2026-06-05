@@ -1,4 +1,4 @@
-п»їusing System;
+using System;
 using System.Collections.Generic;
 using NiL.JS.Core;
 using NiL.JS.BaseLibrary;
@@ -11,9 +11,7 @@ public enum IncrimentType
     Postincriment
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Increment : Expression
 {
     private IncrimentType _type;
@@ -237,7 +235,7 @@ public sealed class Increment : Expression
                 }
                 case PredictedType.Double:
                 {
-                    // РєСЂРѕРјРµ РєР°Рє double РѕРЅ РЅРёС‡РµРј Р±РѕР»СЊС€Рµ РѕРєР°Р·Р°С‚СЊСЃСЏ РЅРµ РјРѕР¶РµС‚. Р”Р°Р¶Рµ NaN СЌС‚Рѕ double
+                    // кроме как double он ничем больше оказаться не может. Даже NaN это double
                     break;
                 }
                 default:

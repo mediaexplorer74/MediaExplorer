@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Collections.Generic;
 using NiL.JS.Core;
@@ -6,9 +6,7 @@ using NiL.JS.Extensions;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Spread : Expression
 {
 

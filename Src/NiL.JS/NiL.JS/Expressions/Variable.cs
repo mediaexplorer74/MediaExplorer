@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
 using NiL.JS.Core;
-#if !PORTABLE
 using NiL.JS.Core.JIT;
-#endif
 
 namespace NiL.JS.Expressions;
 
@@ -25,9 +23,7 @@ internal sealed class RegularVariable : Variable
     }
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class GetArgumentsExpression : Variable
 {
     internal GetArgumentsExpression(int functionDepth)
@@ -71,9 +67,7 @@ internal enum ThrowMode
     ForceThrow,
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public class Variable : VariableReference
 {
     internal string _variableName;
@@ -147,7 +141,6 @@ public class Variable : VariableReference
         return _variableName;
     }
 
-#if !NETCORE
     internal override System.Linq.Expressions.Expression TryCompile(bool selfCompile, bool forAssign, Type expectedType, List<CodeNode> dynamicValues)
     {
         dynamicValues.Add(this);
@@ -160,7 +153,6 @@ public class Variable : VariableReference
             res = System.Linq.Expressions.Expression.Call(JITHelpers.JSObjectToInt32Method, res);
         return res;
     }
-#endif
     public override T Visit<T>(Visitor<T> visitor)
     {
         return visitor.Visit(this);

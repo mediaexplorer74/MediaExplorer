@@ -1,12 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using NiL.JS.Core.Interop;
 
 namespace NiL.JS.Core;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [Prototype(typeof(JSObject), true)]
 internal sealed class GlobalObject : JSObject
 {

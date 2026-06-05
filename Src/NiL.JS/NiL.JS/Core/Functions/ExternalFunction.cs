@@ -1,4 +1,4 @@
-п»їusing System;
+using System;
 using System.Linq;
 using System.Reflection;
 using NiL.JS.BaseLibrary;
@@ -7,23 +7,17 @@ using NiL.JS.Core.Interop;
 namespace NiL.JS.Core.Functions;
 
 /// <summary>
-/// РџСЂРµРґСЃС‚Р°РІР»СЏРµС‚ С„СѓРЅРєС†РёСЋ РїР»Р°С‚С„РѕСЂРјС‹ СЃ С„РёРєСЃРёСЂРѕРІР°РЅРЅРѕР№ СЃРёРіРЅР°С‚СѓСЂРѕР№.
+/// Представляет функцию платформы с фиксированной сигнатурой.
 /// </summary>
 [Prototype(typeof(Function), true)]
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class ExternalFunction : Function
 {
     public override string name
     {
         get
         {
-#if (PORTABLE || NETCORE || NETSTANDARD1_4)
             return System.Reflection.RuntimeReflectionExtensions.GetMethodInfo(_delegate).Name;
-#else
-            return _delegate.Method.Name;
-#endif
         }
     }
     
@@ -47,11 +41,7 @@ public sealed class ExternalFunction : Function
         if (_length == null)
             _length = new Number(0) { _attributes = JSValueAttributesInternal.ReadOnly | JSValueAttributesInternal.DoNotDelete | JSValueAttributesInternal.DoNotEnumerate };
 
-#if (PORTABLE || NETCORE || NETSTANDARD1_4)
         var paramCountAttrbt = ((Delegate)@delegate).GetMethodInfo().GetCustomAttributes(typeof(ArgumentsCountAttribute), false).ToArray();
-#else
-        var paramCountAttrbt = @delegate.Method.GetCustomAttributes(typeof(ArgumentsCountAttribute), false);
-#endif
         _length._iValue = paramCountAttrbt.Length > 0 ? ((ArgumentsCountAttribute)paramCountAttrbt[0]).Count : 1;
         
         if (@delegate == null)

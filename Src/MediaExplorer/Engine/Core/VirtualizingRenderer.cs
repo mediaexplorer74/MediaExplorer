@@ -524,7 +524,7 @@ namespace BrowserCore.Engine.Core
                             {
                                 img.Source = new Windows.UI.Xaml.Media.Imaging.BitmapImage(uri);
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/Core/VirtualizingRenderer.cs] empty catch empty catch"); }
+                            catch { }
                         }
                     }
                 }

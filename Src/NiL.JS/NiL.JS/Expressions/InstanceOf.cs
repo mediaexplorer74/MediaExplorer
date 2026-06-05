@@ -1,13 +1,11 @@
-﻿using System;
+using System;
 using NiL.JS.Core;
 using NiL.JS.BaseLibrary;
 using System.Collections.Generic;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class InstanceOf : Expression
 {
     protected internal override PredictedType ResultType

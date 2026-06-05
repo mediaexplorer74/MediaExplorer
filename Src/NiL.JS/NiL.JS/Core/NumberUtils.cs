@@ -1,4 +1,4 @@
-п»їusing System;
+using System;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 
@@ -22,10 +22,10 @@ public static class NumberUtils
     private static int _CachedDoubleStringsIndex = 0;
 
     /// <summary>
-    /// РџСЂРѕРІРµСЂСЏРµС‚ СЃРёРјРІРѕР» РЅР° РїСЂРёРЅР°РґР»РµР¶РЅРѕСЃС‚СЊ РґРёР°РїР°Р·РѕРЅСѓ С†РёС„СЂ
+    /// Проверяет символ на принадлежность диапазону цифр
     /// </summary>
     /// <param name="c"></param>
-    /// <remarks>РСЃРїРѕР»СЊР·РѕРІР°С‚СЊ РІРјРµСЃС‚Рѕ СЌС‚РѕР№ С„СѓРЅРєС†РёРё char.IsDigit РЅРµ РїРѕР»СѓС‡РёС‚СЃСЏ. Р’РµСЂСЃРёСЏ char СѓС‡РёС‚С‹РІР°РµС‚ СЂРµРіРёРѕРЅР°Р»СЊРЅС‹Рµ РѕСЃРѕР±РµРЅРЅРѕСЃС‚Рё, С‡С‚Рѕ РЅРµ РЅСѓР¶РЅРѕ</remarks>
+    /// <remarks>Использовать вместо этой функции char.IsDigit не получится. Версия char учитывает региональные особенности, что не нужно</remarks>
     /// <returns></returns>
     public static bool IsDigit(char c)
     {
@@ -780,9 +780,7 @@ public static class NumberUtils
         }
     }
 
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     internal static bool IsNegativeZero(double d)
     {
         return (((ulong)BitConverter.DoubleToInt64Bits(d)) & 0x800F_FFFF_FFFF_FFFF) == 0x8000_0000_0000_0000;

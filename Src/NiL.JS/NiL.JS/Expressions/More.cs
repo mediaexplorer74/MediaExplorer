@@ -1,11 +1,9 @@
-п»їusing System;
+using System;
 using NiL.JS.Core;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public class More : Expression
 {
     private bool _trueMore;
@@ -46,7 +44,7 @@ public class More : Expression
                         case JSValueType.Double:
                             {
                                 if (double.IsNaN(second._dValue))
-                                    return lessOrEqual; // РљРѕСЃС‚С‹Р»СЊ. Р”Р»СЏ РµРіРѕ СѓСЃС‚СЂР°РЅРµРЅРёСЏ РЅСѓР¶РЅРѕ РґРµР»Р°С‚СЊ РїРѕР»РЅРѕС†РµРЅРЅСѓСЋ СЂРµР°Р»РёР·Р°С†РёСЋ РѕРїРµСЂР°С‚РѕСЂР° MoreOrEqual.
+                                    return lessOrEqual; // Костыль. Для его устранения нужно делать полноценную реализацию оператора MoreOrEqual.
                                 else
                                     return first._iValue > second._dValue;
                             }
@@ -82,7 +80,7 @@ public class More : Expression
             case JSValueType.Double:
                 {
                     if (double.IsNaN(first._dValue))
-                        return lessOrEqual; // РљРѕСЃС‚С‹Р»СЊ. Р”Р»СЏ РµРіРѕ СѓСЃС‚СЂР°РЅРµРЅРёСЏ РЅСѓР¶РЅРѕ РґРµР»Р°С‚СЊ РїРѕР»РЅРѕС†РµРЅРЅСѓСЋ СЂРµР°Р»РёР·Р°С†РёСЋ РѕРїРµСЂР°С‚РѕСЂР° MoreOrEqual.
+                        return lessOrEqual; // Костыль. Для его устранения нужно делать полноценную реализацию оператора MoreOrEqual.
                     else
                         switch (second._valueType)
                         {
@@ -94,7 +92,7 @@ public class More : Expression
                             case JSValueType.Double:
                                 {
                                     if (double.IsNaN(first._dValue) || double.IsNaN(second._dValue))
-                                        return lessOrEqual; // РљРѕСЃС‚С‹Р»СЊ. Р”Р»СЏ РµРіРѕ СѓСЃС‚СЂР°РЅРµРЅРёСЏ РЅСѓР¶РЅРѕ РґРµР»Р°С‚СЊ РїРѕР»РЅРѕС†РµРЅРЅСѓСЋ СЂРµР°Р»РёР·Р°С†РёСЋ РѕРїРµСЂР°С‚РѕСЂР° MoreOrEqual.
+                                        return lessOrEqual; // Костыль. Для его устранения нужно делать полноценную реализацию оператора MoreOrEqual.
                                     else
                                         return first._dValue > second._dValue;
                                 }
@@ -221,7 +219,7 @@ public class More : Expression
                         goto case JSValueType.String;
                     if (first._valueType >= JSValueType.Object) // null
                     {
-                        first._iValue = 0; // С‚Р°РєРѕРµ РґРµР»Р°С‚СЊ РјРѕР¶РЅРѕ, РїРѕСЃРєРѕР»СЊРєСѓ С‚РёРї РЅРµ РјРµРЅСЏРµС‚СЃСЏ
+                        first._iValue = 0; // такое делать можно, поскольку тип не меняется
                         goto case JSValueType.Integer;
                     }
                     throw new NotImplementedException();

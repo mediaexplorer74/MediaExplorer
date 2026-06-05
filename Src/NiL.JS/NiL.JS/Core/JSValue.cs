@@ -1,4 +1,4 @@
-п»їusing System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -13,9 +13,7 @@ using NiL.JS.Backward;
 
 namespace NiL.JS.Core;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public enum PropertyScope
 {
     Common = 0,
@@ -24,14 +22,12 @@ public enum PropertyScope
     PrototypeOfSuperClass = 3
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public enum JSValueType
 {
     NotExists = 0,
     NotExistsInObject = 1,
-    Undefined = 3,                          // 000000000011 // Р·РЅР°С‡РµРЅРёРµ undefined РіРѕРІРѕСЂРёС‚ Рѕ С‚РѕРј, С‡С‚Рѕ СЌС‚РѕС‚ РѕР±СЉРµРєС‚, РІРѕРѕР±С‰Рµ-С‚Рѕ, РѕРїСЂРµРґРµР»С‘РЅ, РЅРѕ РІРѕС‚ РµРіРѕ Р·РЅР°С‡РµРЅРёРµ РЅРµС‚
+    Undefined = 3,                          // 000000000011 // значение undefined говорит о том, что этот объект, вообще-то, определён, но вот его значение нет
     Boolean = 4 | Undefined,                // 000000000111
     Integer = 8 | Undefined,                // 000000001011
     Double = 16 | Undefined,                // 000000010011
@@ -44,9 +40,7 @@ public enum JSValueType
     SpreadOperatorResult = 2048 | Undefined // 100000000011
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public enum EnumerationMode
 {
     KeysOnly = 0,
@@ -54,9 +48,7 @@ public enum EnumerationMode
     RequireValuesForWrite
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [Flags]
 internal enum JSValueAttributesInternal : uint
 {
@@ -78,9 +70,7 @@ internal enum JSValueAttributesInternal : uint
     ConstructingObject = 1 << 27
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [Flags]
 public enum JSAttributes
 {
@@ -121,31 +111,25 @@ internal sealed class ConstructableValue : JSValue
     }
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [DebuggerTypeProxy(typeof(JSObjectDebugView))]
 [DebuggerDisplay("Value = {debugValue()} ({ValueType})")]
 public class JSValue : IEnumerable<KeyValuePair<string, JSValue>>, IComparable<JSValue>
-#if !(PORTABLE || NETCORE)
 , ICloneable
-#endif
-#if !PORTABLE
 , IConvertible
-#endif
 {
     /*
-     * РљР»Р°СЃСЃ РІС‹РїРѕР»РЅСЏРµС‚ РґРІРµ СЂРѕР»Рё: РїСЂРµРґСЃС‚Р°РІР»СЏРµС‚ Р·РЅР°С‡РµРЅРёСЏ JS Рё СЏРІР»СЏРµС‚СЃСЏ РєРѕРЅС‚РµР№РЅРµСЂРѕРј Р·РЅР°С‡РµРЅРёР№ РІ СЃРІРѕР№СЃС‚РІР°С… РѕР±СЉРµРєС‚РѕРІ
-     * Рё РїРµСЂРµРјРµРЅРЅС‹С… РІ РєРѕРЅС‚РµРєС‚СЃРµ РІС‹РїРѕР»РЅРµРЅРёСЏ.
-     * РџСЂРµР№РјСѓС‰РµСЃС‚РІР° РѕС‚ С‚Р°РєРѕРіРѕ РїРѕРґС…РѕРґР° СЃСѓС‰РµСЃС‚РІРµРЅРЅС‹Рµ: РЅРµС‚ РЅРµРѕР±С…РѕРґРёРјРѕСЃС‚Рё СЃРѕР·РґР°РІР°С‚СЊ СЌС‚Рё СЃР°РјС‹Рµ РєРѕРЅС‚РµР№РЅРµСЂС‹ СЃРІРѕР№СЃС‚РІ
-     * СЃРѕ СЃРІРѕРёРјРё Р°С‚С‚СЂРёР±СѓС‚Р°РјРё, РЅРµС‚ РЅСѓР¶РґС‹ СЃРѕР·РґР°РІР°С‚СЊ РІРѕСЂРѕС… РєР»Р°СЃСЃРѕРІ РґР»СЏ СЂРµР°Р»РёР·Р°С†РёРё РѕРїРµСЂР°С‚РѕСЂР° РїСЂРёСЃРІР°РёРІР°РЅРёСЏ,
-     * С‡С‚РѕР±С‹ РїРѕРґРґРµСЂР¶РёРІР°С‚СЊ РІРµСЃСЊ С‚РѕС‚ Р±СѓРєРµС‚ РІРѕР·РјРѕР¶РЅС‹С… СЃР»СѓС‡Р°РµРІ lvalue. РћРґРёРЅ JSValue СѓРјРµРµС‚ РєРѕРїРёСЂРѕРІР°С‚СЊ Р·РЅР°С‡РµРЅРёРµ
-     * СЃ РґСЂСѓРіРѕРіРѕ JSValue'Р° Рё, РµСЃР»Рё РїРѕС‚СЂРµР±СѓРµС‚СЃСЏ, РїРµСЂРµС…РѕРґРёС‚СЊ РІ СЂРµР¶РёРј РїРѕСЃСЂРµРґРЅРёРєР°, РїРµСЂРµРЅР°РїСЂРІР»СЏСЏ РІС‹Р·РѕРІС‹ GetMember,
-     * SetMember Рё DeleteMember. РћРґРЅР°РєРѕ РµСЃС‚СЊ Рё РЅРµРґРѕСЃС‚Р°С‚РєРё - РЅРµРѕР±С…РѕРґРёРјРѕ СѓРєР°Р·С‹РІР°С‚СЊ, СЃ РєР°РєРѕР№ С†РµР»СЊСЋ Р·Р°РїСЂР°С€РёРІР°РµС‚СЃСЏ
-     * Р·РЅР°С‡РµРЅРёРµ. Р’ СЃР»СѓС‡Р°СЏС…, РєРѕРіРґР° Р·РЅР°С‡РµРЅРёРµ Р·Р°РїСЂР°С€РёРІР°РµС‚СЃСЏ РґР»СЏ Р·Р°РїРёСЃРё, РЅРµРѕР±С…РѕРґРёРјРѕ СѓР±РµРґРёС‚СЊСЃСЏ, С‡С‚Рѕ СЌС‚Р° РѕРїРµСЂР°С†РёСЏ
-     * РЅРµ РїРµСЂРµРїРёС€РµС‚ СЃРёСЃС‚РµРјРЅС‹Рµ Р·РЅР°С‡РµРЅРёСЏ. Рљ РїСЂРёРјРµСЂСѓ, РІ СЃРІРѕР№СЃС‚РІРµ РѕР±СЉРµРєС‚Р° РјРѕР¶РµС‚ РЅР°С…РѕРґРёС‚СЊСЃСЏ Р·РЅР°С‡РµРЅРёРµ null. Р”Р»СЏ РѕРїС‚РёРјРёР·Р°С†РёРё,
-     * СЌС‚Рѕ РјРѕР¶РµС‚ Р±С‹С‚СЊ СЃРёСЃС‚РµРјРЅР°СЏ РєРѕРЅСЃС‚Р°РЅС‚Р° JSValue.Null, РїРѕСЌС‚РѕРјСѓ РїРѕ Р·Р°РїСЂРѕСЃСѓ Р·РЅР°С‡РµРЅРёСЏ РґР»СЏ Р·Р°РїРёСЃРё РЅСѓР¶РЅРѕ РІРµСЂРЅСѓС‚СЊ
-     * РЅРѕРІС‹Р№ РѕР±СЉРµРєС‚, РєРѕС‚РѕСЂС‹Рј СЃР»РµРґСѓРµС‚ Р·Р°РјРµРЅРёС‚СЊ Р·РЅР°С‡РµРЅРёРµ СЃРІРѕР№СЃС‚РІР° РІ РѕР±СЉРµРєС‚Рµ.
+     * Класс выполняет две роли: представляет значения JS и является контейнером значений в свойствах объектов
+     * и переменных в контектсе выполнения.
+     * Преймущества от такого подхода существенные: нет необходимости создавать эти самые контейнеры свойств
+     * со своими аттрибутами, нет нужды создавать ворох классов для реализации оператора присваивания,
+     * чтобы поддерживать весь тот букет возможных случаев lvalue. Один JSValue умеет копировать значение
+     * с другого JSValue'а и, если потребуется, переходить в режим посредника, перенапрвляя вызовы GetMember,
+     * SetMember и DeleteMember. Однако есть и недостатки - необходимо указывать, с какой целью запрашивается
+     * значение. В случаях, когда значение запрашивается для записи, необходимо убедиться, что эта операция
+     * не перепишет системные значения. К примеру, в свойстве объекта может находиться значение null. Для оптимизации,
+     * это может быть системная константа JSValue.Null, поэтому по запросу значения для записи нужно вернуть
+     * новый объект, которым следует заменить значение свойства в объекте.
      */
 
     [AttributeUsage(AttributeTargets.Parameter | AttributeTargets.ReturnValue, AllowMultiple = false, Inherited = false)]
@@ -347,9 +331,9 @@ public class JSValue : IEnumerable<KeyValuePair<string, JSValue>>, IComparable<J
     [DoNotEnumerate]
     [NotConfigurable]
     [CLSCompliant(false)]
-#pragma warning disable CA1707 // РРґРµРЅС‚РёС„РёРєР°С‚РѕСЂС‹ РЅРµ РґРѕР»Р¶РЅС‹ СЃРѕРґРµСЂР¶Р°С‚СЊ СЃРёРјРІРѕР»С‹ РїРѕРґС‡РµСЂРєРёРІР°РЅРёСЏ
+#pragma warning disable CA1707 // Идентификаторы не должны содержать символы подчеркивания
     public virtual JSObject __proto__
-#pragma warning restore CA1707 // РРґРµРЅС‚РёС„РёРєР°С‚РѕСЂС‹ РЅРµ РґРѕР»Р¶РЅС‹ СЃРѕРґРµСЂР¶Р°С‚СЊ СЃРёРјРІРѕР»С‹ РїРѕРґС‡РµСЂРєРёРІР°РЅРёСЏ
+#pragma warning restore CA1707 // Идентификаторы не должны содержать символы подчеркивания
     {
         [return: ProtoConverterAttribute]
         [Hidden]
@@ -385,9 +369,7 @@ public class JSValue : IEnumerable<KeyValuePair<string, JSValue>>, IComparable<J
     public bool Exists
     {
         [Hidden]
-#if !NET40
         [MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
         get => _valueType >= JSValueType.Undefined;
     }
 
@@ -395,9 +377,7 @@ public class JSValue : IEnumerable<KeyValuePair<string, JSValue>>, IComparable<J
     public bool Defined
     {
         [Hidden]
-#if !NET40
         [MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
         get => _valueType > JSValueType.Undefined;
     }
 
@@ -405,9 +385,7 @@ public class JSValue : IEnumerable<KeyValuePair<string, JSValue>>, IComparable<J
     public bool IsNull
     {
         [Hidden]
-#if !NET40
         [MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
         get
         {
             return _valueType >= JSValueType.Object && _oValue == null;
@@ -418,18 +396,14 @@ public class JSValue : IEnumerable<KeyValuePair<string, JSValue>>, IComparable<J
     public bool IsNumber
     {
         [Hidden]
-#if !NET40
         [MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
         get
         { return _valueType == JSValueType.Integer || _valueType == JSValueType.Double; }
     }
 
     internal bool NeedClone
     {
-#if !NET40
         [MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
         get
         {
             return (_attributes & (JSValueAttributesInternal.ReadOnly | JSValueAttributesInternal.SystemObject)) == JSValueAttributesInternal.SystemObject;
@@ -438,9 +412,7 @@ public class JSValue : IEnumerable<KeyValuePair<string, JSValue>>, IComparable<J
 
     internal bool IsBox
     {
-#if !NET40
         [MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
         get
         {
             return _valueType >= JSValueType.Object && _oValue != null && _oValue != this;
@@ -521,21 +493,13 @@ public class JSValue : IEnumerable<KeyValuePair<string, JSValue>>, IComparable<J
         Function jsGetter = null;
         if (getter != null)
         {
-#if NET40
-            jsGetter = new MethodProxy(context, getter.Method, getter.Target);
-#else
             jsGetter = new MethodProxy(context, getter.GetMethodInfo(), getter.Target);
-#endif
         }
 
         Function jsSetter = null;
         if (setter != null)
         {
-#if NET40
-            jsSetter = new MethodProxy(context, setter.Method, setter.Target);
-#else
             jsSetter = new MethodProxy(context, setter.GetMethodInfo(), setter.Target);
-#endif
         }
 
         property._oValue = new PropertyPair(jsGetter, jsSetter);
@@ -726,9 +690,7 @@ public class JSValue : IEnumerable<KeyValuePair<string, JSValue>>, IComparable<J
     }
     #endregion
 
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     [Hidden]
     public static implicit operator JSValue(bool value)
     {
@@ -1264,8 +1226,7 @@ public class JSValue : IEnumerable<KeyValuePair<string, JSValue>>, IComparable<J
         return res.Exists;
     }
 
-    #region Р§Р»РµРЅС‹ IConvertible
-#if !(PORTABLE)
+    #region Члены IConvertible
     TypeCode IConvertible.GetTypeCode()
     {
         return TypeCode.Object;
@@ -1355,10 +1316,9 @@ public class JSValue : IEnumerable<KeyValuePair<string, JSValue>>, IComparable<J
     {
         return (ulong)Tools.JSObjectToInt64(this);
     }
-#endif
     #endregion
 
-    #region Р§Р»РµРЅС‹ IComparable<JSValue>
+    #region Члены IComparable<JSValue>
 
     [Hidden]
     public virtual int CompareTo(JSValue other)

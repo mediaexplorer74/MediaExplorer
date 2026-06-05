@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using NiL.JS.Expressions;
 using NiL.JS.Statements;
 
@@ -8,9 +8,7 @@ namespace NiL.JS.Core;
 /// AST nodes visitor.
 /// </summary>
 /// <typeparam name="T">Type of return value</typeparam>
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public abstract class Visitor<T>
 {
     internal protected abstract T Visit(CodeNode node);
@@ -314,12 +312,10 @@ public abstract class Visitor<T>
     {
         return Visit(node as Expression);
     }
-#if !(PORTABLE || NETCORE)
     internal protected virtual T Visit(Yield node)
     {
         return Visit(node as Expression);
     }
-#endif
     internal protected virtual T Visit(Break node)
     {
         return Visit(node as CodeNode);

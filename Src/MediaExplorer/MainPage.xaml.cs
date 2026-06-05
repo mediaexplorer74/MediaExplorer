@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Threading.Tasks;
@@ -118,7 +118,7 @@ namespace WEBVIEW
             if (ReaderCloseButton != null) ReaderCloseButton.Click += ReaderCloseButton_Click;
             if (ContentArea != null) ContentArea.ManipulationDelta += ContentArea_ManipulationDelta;
 
-            // Hardware/software Back button — browser navigation
+            // Hardware/software Back button � browser navigation
             try
             {
                 SystemNavigationManager.GetForCurrentView().BackRequested += (s, e) =>
@@ -138,7 +138,7 @@ namespace WEBVIEW
             }
             catch { }
 
-            // Bottom bar — mouse & touch
+            // Bottom bar � mouse & touch
             if (BarStrip != null)
             {
                 BarStrip.Tapped += BarStrip_Tapped;
@@ -285,7 +285,7 @@ namespace WEBVIEW
                 var elapsed = DateTime.Now - _holdingStart;
                 if (elapsed.TotalMilliseconds >= 500)
                 {
-                    // Long press — reuse existing AiOverlay + OpenRouter summary
+                    // Long press � reuse existing AiOverlay + OpenRouter summary
                     AiButton_Click(null, null);
                 }
             }
@@ -446,7 +446,7 @@ namespace WEBVIEW
                 }
                 else
                 {
-                    UpdateStatusMessage("Unknown about: page — " + address);
+                    UpdateStatusMessage("Unknown about: page � " + address);
                     return;
                 }
             }
@@ -552,18 +552,54 @@ namespace WEBVIEW
             if (element == null) { System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady SKIP element=null"); return; }
             if (_suppressRepaintHandler) { System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady SKIP suppressed"); return; }
             int seq = _renderSequence;
-            double w = 0, h = 0;
-            try { w = element.Width; h = element.Height; } catch { }
-            
-            // NaN guard: use ActualWidth/ActualHeight as fallback
-            bool hasNaN = double.IsNaN(w) || double.IsNaN(h) || double.IsInfinity(w) || double.IsInfinity(h);
-            if (hasNaN)
+            // Phase DIAG (issue E): this fires BEFORE the element is added to the
+            // visual tree, so Width/Height are *explicit* (NaN if not set) and
+            // ActualWidth/ActualHeight are *0* (no layout pass yet). The "0x0"
+            // reading here is meaningless — the element will be measured once
+            // ContentHost.Children.Add(element) runs. Log both numbers and a
+            // POST-MEASURE reading (one render-tick later) for comparison.
+            double wExp = double.NaN, hExp = double.NaN, wAct = 0, hAct = 0;
+            try { wExp = element.Width; hExp = element.Height; } catch { }
+            try { wAct = element.ActualWidth; hAct = element.ActualHeight; } catch { }
+            System.Diagnostics.Debug.WriteLine(
+                "[DIAG:REPAINT-PRE] seq=" + seq + " type=" + element.GetType().Name +
+                " explicit=(" + (double.IsNaN(wExp) ? "NaN" : wExp.ToString()) + "x" + (double.IsNaN(hExp) ? "NaN" : hExp.ToString()) + ")" +
+                " actual=(" + wAct + "x" + hAct + ")" +
+                " → this is PRE-MEASURE; will re-check after Add()");
+            // Also schedule a post-measure read so we can see the real size.
+            // We post to DispatcherQueue at Background priority to give the layout
+            // system a chance to measure us. Use a fresh local copy of element.
+            var elementRef = element;
+            try
             {
-                try { w = element.ActualWidth; h = element.ActualHeight; } catch { }
-                if (double.IsNaN(w) || double.IsInfinity(w)) w = 0;
-                if (double.IsNaN(h) || double.IsInfinity(h)) h = 0;
+                if (Windows.ApplicationModel.Core.CoreApplication.MainView?.Dispatcher != null)
+                {
+                    Windows.ApplicationModel.Core.CoreApplication.MainView.Dispatcher.RunAsync(
+                        Windows.UI.Core.CoreDispatcherPriority.Low, () =>
+                        {
+                            try
+                            {
+                                double w2 = elementRef.ActualWidth, h2 = elementRef.ActualHeight;
+                                System.Diagnostics.Debug.WriteLine(
+                                    "[DIAG:REPAINT-POST] type=" + elementRef.GetType().Name +
+                                    " actual=(" + w2 + "x" + h2 + ")");
+                            }
+                            catch { }
+                        });
+                }
             }
-            
+            catch { }
+            // Use the same NaN-guarded numbers for backward compat (the old log
+            // line). Prefer ActualWidth/ActualHeight when explicit is NaN.
+            double w = 0, h = 0;
+            if (!double.IsNaN(wExp) && !double.IsInfinity(wExp)) w = wExp;
+            if (!double.IsNaN(hExp) && !double.IsInfinity(hExp)) h = hExp;
+            if (double.IsNaN(w) || double.IsInfinity(w)) w = wAct;
+            if (double.IsNaN(h) || double.IsInfinity(h)) h = hAct;
+            // Final NaN/Inf guard
+            if (double.IsNaN(w) || double.IsInfinity(w)) w = 0;
+            if (double.IsNaN(h) || double.IsInfinity(h)) h = 0;
+            // Keep the existing [DIAG] line format for backward compat (other tools may filter it)
             System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady seq=" + seq + " currentSeq=" + _renderSequence + " elementSize=" + w + "x" + h + " type=" + element.GetType().Name);
             Ui(() =>
             {
@@ -673,7 +709,7 @@ namespace WEBVIEW
         {
             // Size change on mobile/emulator does not require full page re-navigation.
             // The initial render uses the current window size. Ignore subsequent changes
-            // to avoid infinite render loop (each render changes layout → fires SizeChanged).
+            // to avoid infinite render loop (each render changes layout > fires SizeChanged).
             // Future: re-evaluate CSS media queries without re-fetching HTML.
         }
 
@@ -961,11 +997,11 @@ namespace WEBVIEW
 
                 System.Diagnostics.Debug.WriteLine("[Snapshot] DONE");
                 UpdateStatusMessage("Snapshot saved: " + filename);
-                ShowToast("📷 Snapshot saved: " + filename, 3000);
+                ShowToast("?? Snapshot saved: " + filename, 3000);
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("[Snapshot] ERROR: " + ex.GetType().Name + " — " + ex.Message);
+                System.Diagnostics.Debug.WriteLine("[Snapshot] ERROR: " + ex.GetType().Name + " � " + ex.Message);
                 if (ex.InnerException != null)
                     System.Diagnostics.Debug.WriteLine("[Snapshot] Inner: " + ex.InnerException.Message);
                 UpdateStatusMessage("Snapshot failed: " + ex.Message, overrideStartup: true);
@@ -1093,7 +1129,7 @@ namespace WEBVIEW
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("[Snapshot] OUTER error: " + ex.GetType().Name + " — " + ex.Message);
+                System.Diagnostics.Debug.WriteLine("[Snapshot] OUTER error: " + ex.GetType().Name + " � " + ex.Message);
                 if (ex.InnerException != null)
                     System.Diagnostics.Debug.WriteLine("[Snapshot] Inner: " + ex.InnerException.Message);
                 UpdateStatusMessage("Snapshot failed: " + ex.Message, overrideStartup: true);
@@ -1132,7 +1168,7 @@ namespace WEBVIEW
 
             System.Diagnostics.Debug.WriteLine("[Snapshot] File saved successfully");
             UpdateStatusMessage("Full-page snapshot saved: " + filename, overrideStartup: true);
-            ShowToast("📷 Full-page snapshot saved: " + filename, 3000);
+            ShowToast("?? Full-page snapshot saved: " + filename, 3000);
         }
 
         private async Task SavePngAsync(RenderTargetBitmap bitmap, byte[] pixels, string filename)
@@ -1228,7 +1264,7 @@ namespace WEBVIEW
                 pkg.SetText(text);
                 Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
                 UpdateStatusMessage("Copied " + text.Length + " characters to clipboard.");
-                ShowToast("📋 Copied " + text.Length + " characters to clipboard", 2000);
+                ShowToast("?? Copied " + text.Length + " characters to clipboard", 2000);
             }
             catch (Exception ex)
             {
@@ -1642,7 +1678,7 @@ namespace WEBVIEW
                 // Try to evaluate as expression first
                 var result = _browser.EvaluateExpression(code);
                 if (result != null && result != "undefined")
-                    AppendDevToolsLog("← " + result);
+                    AppendDevToolsLog("< " + result);
                 else
                 {
                     // If expression returned nothing, try running as statement
@@ -1653,7 +1689,7 @@ namespace WEBVIEW
             }
             catch (Exception ex)
             {
-                AppendDevToolsLog("✕ " + ex.Message);
+                AppendDevToolsLog("? " + ex.Message);
             }
         }
 

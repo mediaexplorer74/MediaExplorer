@@ -1,13 +1,11 @@
-п»їusing System;
+using System;
 
 namespace NiL.JS.Core.Interop;
 
 /// <summary>
-/// РЎР»СѓР¶РёС‚ РґР»СЏ РїРµСЂРµРґР°С‡Рё РІ СЃСЂРµРґСѓ РІС‹РїРѕР»РЅРµРЅРёСЏ СЃРєСЂРёРїС‚Р° РёРЅС„РѕСЂРјР°С†РёРё Рѕ РєРѕР»РёС‡РµСЃС‚РІРµ РѕР¶РёРґР°РµРјС‹С… РїР°СЂР°РјРµС‚СЂРѕРІ РјРµС‚РѕРґР°.
+/// Служит для передачи в среду выполнения скрипта информации о количестве ожидаемых параметров метода.
 /// </summary>
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Constructor, AllowMultiple = false, Inherited = false)]
 internal sealed class ArgumentsCountAttribute : Attribute
 {

@@ -1,4 +1,4 @@
-п»їusing System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -9,23 +9,21 @@ using NiL.JS.Expressions;
 
 namespace NiL.JS.Core.Functions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [Prototype(typeof(Function), true)]
 internal class ConstructorProxy : Function
 {
     /// <summary>
-    /// РќР° РїРµСЂРІРѕРј РїСЂРѕС…РѕРґРµ Р±СѓРґСѓС‚ РІС‹Р±РёСЂР°С‚СЊСЃСЏ РјРµС‚РѕРґС‹ СЃРѕ СЃС‚СЂРѕРіРёРј СЃРѕРѕС‚РІРµС‚СЃС‚РІРёРµРј С‚РёРїРѕРІ
+    /// На первом проходе будут выбираться методы со строгим соответствием типов
     ///
-    /// РќР° РІС‚РѕСЂРѕРј РїСЂРѕС…РѕРґРµ Р±СѓРґСѓС‚ РІС‹Р±РёСЂР°С‚СЊСЃСЏ РјРµС‚РѕРґС‹, РґР»СЏ РєРѕС‚РѕСЂС‹С…
-    /// РїРѕР»СѓС‡РёС‚СЃСЏ РїСЂРµРѕР±СЂР°Р·РѕРІР°С‚СЊ РІС…РѕРґРЅС‹Рµ Р°СЂРіСѓРјРµРЅС‚С‹.
+    /// На втором проходе будут выбираться методы, для которых
+    /// получится преобразовать входные аргументы.
     ///
-    /// РќР° С‚СЂРµС‚СЊРµРј РїСЂРѕС…РѕРґРµ Р±СѓРґРµС‚ РІС‹Р±РёСЂР°С‚СЊСЃСЏ РїРµСЂРІС‹Р№ РјРµС‚РѕРґ,
-    /// РґР»СЏ РєРѕС‚РѕСЂРѕРіРѕ РїРѕР»СѓС‡РёС‚СЃСЏ СЃРіРµРЅРµСЂРёСЂРѕРІР°С‚СЊ РїР°СЂР°РјРµС‚СЂС‹ РїРѕ-СѓРјРѕР»С‡Р°РЅРёСЋ.
+    /// На третьем проходе будет выбираться первый метод,
+    /// для которого получится сгенерировать параметры по-умолчанию.
     ///
-    /// Р•СЃР»Рё РЅСѓР¶РµРЅ Р±РѕР»РµРµ СЃС‚СЂРѕРіРёР№ РїРѕРґР±РѕСЂ, С‚Рѕ РєРѕР»РёС‡РµСЃС‚РІРѕ РїСЂРѕС…РѕРґРѕРІ РЅСѓР¶РЅРѕ
-    /// СѓРјРµРЅСЊС€РёС‚СЊ РґРѕ РѕРґРЅРѕРіРѕ
+    /// Если нужен более строгий подбор, то количество проходов нужно
+    /// уменьшить до одного
     /// </summary>
     private const int passesCount = 3;
 
@@ -67,13 +65,8 @@ internal class ConstructorProxy : Function
         _staticProxy = staticProxy;
         _prototype = prototype;
 
-#if (PORTABLE || NETCORE)
-        if (_staticProxy._hostedType.GetTypeInfo().ContainsGenericParameters)
-            ExceptionHelper.Throw(new TypeError(_staticProxy._hostedType.Name + " can't be created because it's generic type."));
-#else
         if (_staticProxy._hostedType.GetTypeInfo().ContainsGenericParameters)
             ExceptionHelper.ThrowTypeError(_staticProxy._hostedType.Name + " can't be created because it's generic type.");
-#endif
         var withNewOnly = staticProxy._hostedType.GetTypeInfo().IsDefined(typeof(RequireNewKeywordAttribute), true);
         var withoutNewOnly = staticProxy._hostedType.GetTypeInfo().IsDefined(typeof(DisallowNewKeywordAttribute), true);
 
@@ -88,13 +81,8 @@ internal class ConstructorProxy : Function
         if (_length == null)
             _length = new Number(0) { _attributes = JSValueAttributesInternal.ReadOnly | JSValueAttributesInternal.DoNotDelete | JSValueAttributesInternal.DoNotEnumerate };
 
-#if (PORTABLE || NETCORE)
-        var ctors = staticProxy._hostedType.GetTypeInfo().DeclaredConstructors.Where(x => x.IsPublic).ToArray();
-        var ctorsL = new List<MethodProxy>(ctors.Length + (staticProxy._hostedType.GetTypeInfo().IsValueType ? 1 : 0));
-#else
         var ctors = staticProxy._hostedType.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
         var ctorsL = new List<MethodProxy>(ctors.Length + (staticProxy._hostedType.GetTypeInfo().IsValueType ? 1 : 0));
-#endif
         for (int i = 0; i < ctors.Length; i++)
         {
             if (ctors[i].IsStatic)
@@ -124,7 +112,7 @@ internal class ConstructorProxy : Function
         {
             var keyString = key.ToString();
 
-            if (keyString == "prototype") // Р’СЃРµ РїСЂРѕРєСЃРё-РїСЂРѕС‚РѕС‚РёРїС‹ read-only Рё non-configurable. Р­С‚Рѕ Рё РѕРїС‚РёРјРёР·Р°С†РёСЏ, Рё СѓСЃС‚СЂР°РЅРµРЅРёРµ РЅРµРѕР±С…РѕРґРёРјРѕСЃС‚Рё РЅР°РІРµС€РёРІР°РЅРёСЏ Р°С‚СЂРёР±СѓС‚РѕРІ
+            if (keyString == "prototype") // Все прокси-прототипы read-only и non-configurable. Это и оптимизация, и устранение необходимости навешивания атрибутов
                 return prototype;
 
             if (key._valueType != JSValueType.String)
@@ -144,7 +132,7 @@ internal class ConstructorProxy : Function
 
                 res = __proto__.GetProperty(key, forWrite, memberScope);
                 if (memberScope == PropertyScope.Own && (res._valueType != JSValueType.Property || (res._attributes & JSValueAttributesInternal.Field) == 0))
-                    return notExists; // РµСЃР»Рё РґР»СЏ Р·Р°РїРёСЃРё, С‚Рѕ РїРµСЂРІР°СЏ РІРµС‚РєР° РІСЃС‘ СЂР°Р·СЂСѓР»РёС‚ Рё СЃСЋРґР° РІС‹РїРѕР»РЅРµРЅРёРµ РЅРµ РїСЂРёРґС‘С‚
+                    return notExists; // если для записи, то первая ветка всё разрулит и сюда выполнение не придёт
 
                 return res;
             }
@@ -230,11 +218,7 @@ internal class ConstructorProxy : Function
         else
         {
             if ((arguments == null || arguments._iValue == 0)
-#if (PORTABLE || NETCORE)
 && _staticProxy._hostedType.GetTypeInfo().IsValueType)
-#else
-&& _staticProxy._hostedType.GetTypeInfo().IsValueType)
-#endif
             {
                 obj = Activator.CreateInstance(_staticProxy._hostedType);
             }
@@ -268,7 +252,7 @@ internal class ConstructorProxy : Function
         {
             if (res != null)
             {
-                // Р”Р»СЏ Number, Boolean Рё String
+                // Для Number, Boolean и String
                 if (res._valueType < JSValueType.Object)
                 {
                     var objc = (targetObject as ObjectWrapper ?? ConstructObject()) as ObjectWrapper;
@@ -280,10 +264,10 @@ internal class ConstructorProxy : Function
                 else if (res._oValue is JSValue)
                 {
                     res._oValue = res;
-                    // РќР° С‚РѕР№ СЃС‚РѕСЂРѕРЅРµ РїРѕРЅСЏС‚СЊ, РїРѕ new РёР»Рё РЅРµС‚ РІС‹Р·РІР°РЅ РєРѕРЅСЃС‚СЂСѓРєС‚РѕСЂ РЅРµ РїРѕР»СѓС‡РёС‚СЃСЏ,
-                    // РїРѕСЌС‚РѕРјСѓ РїРѕ СЃРѕРіР»Р°С€РµРЅРёСЋ С‚Р°РєРёРµ С‚РёРїС‹ СЃРµР±СЏ РЅР°СЃС‚СЂР°РёРІР°СЋС‚ С‚Р°Рє, РєР°Рє Р±СѓРґС‚Рѕ РѕРЅРё РїРѕ new,
-                    // Р° РІ oValue РїРёС€СѓС‚ СЌРєР·РµРјРїР»СЏСЂ Р°СЂРіСѓРјРµРЅС‚Р° РЅР° С‚РѕС‚ СЃР»СѓС‡Р°Р№, РµСЃР»Рё РІС‹Р·РІР°РЅ РєРѕРЅСЃС‚СЂСѓРєС‚РѕСЂ С‚РёРїР° РєР°Рє С„СѓРЅРєС†РёСЏ
-                    // СЃ РїРµСЂРµРґР°С‡РµР№ РІ РєР°С‡РµСЃС‚РІРµ Р°СЂРіСѓРјРµРЅС‚Р° СЃСѓС‰РµСЃС‚РІСѓСЋС‰РµРіРѕ СЌРєР·РµРјРїР»СЏСЂР°
+                    // На той стороне понять, по new или нет вызван конструктор не получится,
+                    // поэтому по соглашению такие типы себя настраивают так, как будто они по new,
+                    // а в oValue пишут экземпляр аргумента на тот случай, если вызван конструктор типа как функция
+                    // с передачей в качестве аргумента существующего экземпляра
                 }
             }
             else
@@ -363,11 +347,7 @@ internal class ConstructorProxy : Function
                             if (args[j] != null ?
                                 !_constructors[i]._parameters[j].ParameterType.IsAssignableFrom(args[j].GetType())
                                 :
-#if (PORTABLE || NETCORE)
-                                constructors[i]._parameters[j].ParameterType.GetTypeInfo().IsValueType)
-#else
                                 _constructors[i]._parameters[j].ParameterType.GetTypeInfo().IsValueType)
-#endif
                             {
                                 j = 0;
                                 args = null;

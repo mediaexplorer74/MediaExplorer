@@ -1,4 +1,4 @@
-п»їusing System;
+using System;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -111,7 +111,7 @@ public static class JSValueExtensions
         {
             case TypeCode.Boolean:
             {
-                return (T)(object)(bool)self; // РѕРїС‚РёРјРёР·Р°С‚РѕСЂ СЂР°Р·СЂСѓР»РёРІР°РµС‚ С‚Р°РєРѕР№ РєР°СЃРєР°Рґ РїСЂРµРѕР±СЂР°Р·РѕРІР°РЅРёР№
+                return (T)(object)(bool)self; // оптимизатор разруливает такой каскад преобразований
             }
 
             case TypeCode.Byte:

@@ -1,4 +1,4 @@
-ï»¿using System;
+using System;
 using System.Text;
 using System.Threading;
 using NiL.JS.Core.Interop;
@@ -64,7 +64,7 @@ public static class GlobalFunctions
         
         if (source._valueType == JSValueType.Double)
             return double.IsInfinity(source._dValue) || double.IsNaN(source._dValue) ?
-                Number.NaN : source._dValue == 0.0 ? (Number)0 : // +0 Ð¸ -0 Ð´Ð¾Ð»Ð¶Ð½Ñ‹ ÑÑ‚Ð°Ñ‚ÑŒ Ñ€Ð°Ð²Ð½Ñ‹Ð¼Ð¸
+                Number.NaN : source._dValue == 0.0 ? (Number)0 : // +0 è -0 äîëæíû ñòàòü ðàâíûìè
                 (Number)System.Math.Truncate(source._dValue);
 
         var index = 0;
@@ -86,7 +86,7 @@ public static class GlobalFunctions
             return source;
 
         if (source._valueType == JSValueType.Double)
-            return source._dValue == 0.0 ? (Number)0 : // +0 Ð¸ -0 Ð´Ð¾Ð»Ð¶Ð½Ñ‹ ÑÑ‚Ð°Ñ‚ÑŒ Ñ€Ð°Ð²Ð½Ñ‹Ð¼Ð¸
+            return source._dValue == 0.0 ? (Number)0 : // +0 è -0 äîëæíû ñòàòü ðàâíûìè
                 source;
         
         var arg = source.ToString().Trim(Tools.TrimChars);
@@ -100,75 +100,6 @@ public static class GlobalFunctions
     {
         return Uri.EscapeDataString(x[0].ToString());
     }
-#if !(PORTABLE || NETCORE || NETSTANDARD1_4)
-    internal static uint __pinvokeCallCount;
-    internal static JSValue __pinvoke(JSValue thisBind, Arguments args)
-    {
-        if (args == null)
-            return null;
-        var argsCount = args._iValue;
-        var threadsCount = 1;
-        if (argsCount == 0)
-            return null;
-        if (argsCount > 1)
-            threadsCount = Tools.JSObjectToInt32(args[1]);
-        var function = args[0]._oValue as Function;
-        Thread[] threads = null;
-        if (function != null && threadsCount > 0)
-        {
-            threads = new Thread[threadsCount];
-            for (var i = 0; i < threadsCount; i++)
-            {
-                (threads[i] = new Thread((o) =>
-                {
-                    var targs = new Arguments();
-                    targs._iValue = 1;
-                    targs[0] = (int)o;
-                    function.Call(null, targs);
-                }) { Name = "NiL.JS __pinvoke thread (" + __pinvokeCallCount + ":" + i + ")" }).Start(i);
-            }
-            __pinvokeCallCount++;
-        }
-
-        return Context.CurrentGlobalContext.ProxyValue(new
-        {
-            isAlive = new Func<Arguments, bool>((arg) =>
-            {
-                if (threads == null)
-                    return false;
-                argsCount = Tools.JSObjectToInt32(arg._iValue);
-                if (argsCount == 0)
-                {
-                    for (var i = 0; i < threads.Length; i++)
-                    {
-                        if (threads[i].IsAlive)
-                            return true;
-                    }
-                }
-                else
-                {
-                    var threadIndex = Tools.JSObjectToInt32(args[0]);
-                    if (threadIndex < threads.Length && threadIndex >= 0)
-                        return threads[threadIndex].IsAlive;
-                }
-                return false;
-            }),
-            wait = new Action(() =>
-            {
-                if (threads == null)
-                    return;
-                for (var i = 0; i < threads.Length; i++)
-                {
-                    if (threads[i].IsAlive)
-                    {
-                        Thread.Sleep(1);
-                        i = -1;
-                    }
-                }
-            })
-        });
-    }
-#endif
     internal static JSValue decodeURIComponent(JSValue thisBind, Arguments args)
     {
         var str = args[0].ToString();

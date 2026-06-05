@@ -120,6 +120,9 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NETCore.UniversalWindowsPlatform" Version="6.2.9" />
+    <PackageReference Include="Newtonsoft.Json">
+      <Version>13.0.4</Version>
+    </PackageReference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="App.xaml.cs">
@@ -139,6 +142,7 @@
     <Compile Include="Engine\CssMini.cs" />
     <Compile Include="Engine\CssParser.cs" />
     <Compile Include="Engine\TableRenderer.cs" />
+    <Compile Include="Engine\TransitionAnimator.cs" />
     <Compile Include="Engine\CustomHtmlEngine.cs" />
     <Compile Include="Engine\DomBasicRenderer.cs" />
     <Compile Include="Engine\FlexPanel.cs" />
@@ -245,6 +249,7 @@
     <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
     <Content Include="Assets\Wide310x150Logo.scale-200.png" />
     <Content Include="Html\test_rendering0.html" />
+    <Content Include="Html\test_transitions.html" />
   </ItemGroup>
   <ItemGroup>
     <ApplicationDefinition Include="App.xaml">

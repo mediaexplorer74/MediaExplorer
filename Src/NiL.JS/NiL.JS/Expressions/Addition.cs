@@ -1,17 +1,13 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using NiL.JS.Core;
-#if !PORTABLE
 using NiL.JS.Core.JIT;
-#endif
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Addition : Expression
 {
     protected internal override PredictedType ResultType
@@ -387,7 +383,6 @@ public sealed class Addition : Expression
             _this = new StringConcatenation([_left, _right]);
         }
     }
-#if !NETCORE
     internal override System.Linq.Expressions.Expression TryCompile(bool selfCompile, bool forAssign, Type expectedType, List<CodeNode> dynamicValues)
     {
         var ft = _left.TryCompile(false, false, null, dynamicValues);
@@ -408,7 +403,6 @@ public sealed class Addition : Expression
             return System.Linq.Expressions.Expression.Add(ft, st);
         return null;
     }
-#endif
     public override T Visit<T>(Visitor<T> visitor)
     {
         return visitor.Visit(this);

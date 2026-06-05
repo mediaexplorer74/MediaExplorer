@@ -8,15 +8,9 @@ using System.Runtime.InteropServices;
 
 namespace NiL.JS.Core.Interop;
 
-#if !(NETCORE || NETSTANDARD1_4)
-[Serializable]
-#endif
 internal abstract class Proxy : JSObject
 {
     internal Type _hostedType;
-#if !(NETCORE || NETSTANDARD1_4)
-    [NonSerialized]
-#endif
     internal StringMap<IList<MemberInfo>> _members;
     internal GlobalContext _context;
 
@@ -29,15 +23,10 @@ internal abstract class Proxy : JSObject
     {
         get
         {
-#if (PORTABLE || NETCORE)
-            if (_prototypeInstance == null && IsInstancePrototype && !_hostedType.GetTypeInfo().IsAbstract)
-            {
-#else
             if (_prototypeInstance == null && IsInstancePrototype && !_hostedType.GetTypeInfo().IsAbstract)
             {
                 try
                 {
-#endif
                     if (_instanceCtor != null)
                     {
                         if (_hostedType == typeof(JSObject))
@@ -67,13 +56,11 @@ internal abstract class Proxy : JSObject
                             };
                         }
                     }
-#if !(PORTABLE || NETCORE)
                 }
                 catch (COMException)
                 {
 
                 }
-#endif
             }
 
             return _prototypeInstance;
@@ -93,11 +80,7 @@ internal abstract class Proxy : JSObject
         _context = context;
         _hostedType = type;
 
-#if (PORTABLE || NETCORE || NETSTANDARD1_4)
         _instanceCtor = _hostedType.GetTypeInfo().DeclaredConstructors.Where(x => x.IsPublic).FirstOrDefault(x => x.GetParameters().Length == 0 && !x.IsStatic);
-#else
-        _instanceCtor = _hostedType.GetConstructor(BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy, null, Type.EmptyTypes, null);
-#endif
     }
 
     private void fillMembers()
@@ -111,15 +94,7 @@ internal abstract class Proxy : JSObject
             string prewName = null;
             IList<MemberInfo> temp = null;
             bool instanceAttribute = false;
-#if (PORTABLE || NETCORE)
-            var members = _hostedType.GetTypeInfo().DeclaredMembers
-                 .Union(_hostedType.GetRuntimeMethods())
-                 .Union(_hostedType.GetRuntimeProperties())
-                 .Union(_hostedType.GetRuntimeFields())
-                 .Union(_hostedType.GetRuntimeEvents()).ToArray();
-#else
             var members = _hostedType.GetMembers();
-#endif
             for (int i = 0; i < members.Length; i++)
             {
                 var member = members[i];
@@ -148,11 +123,7 @@ internal abstract class Proxy : JSObject
                             && ((property.GetGetMethod() ?? property.GetSetMethod()).Attributes & MethodAttributes.NewSlot) == 0)
                         {
                             property = parentProperty;
-#if (PORTABLE || NETCORE)
-                            parentProperty = property.DeclaringType.GetTypeInfo().BaseType?.GetRuntimeProperty(property.Name);
-#else
                             parentProperty = property.DeclaringType.GetTypeInfo().BaseType?.GetProperty(property.Name, BindingFlags.Public | BindingFlags.Instance);
-#endif
                         }
                     }
                     catch (AmbiguousMatchException)
@@ -171,13 +142,8 @@ internal abstract class Proxy : JSObject
 
                 if (member is FieldInfo fieldInfo && (!fieldInfo.IsPublic || fieldInfo.IsStatic != !IsInstancePrototype))
                     continue;
-#if (PORTABLE || NETCORE)
-                if ((members[i] is TypeInfo) && !(members[i] as TypeInfo).IsPublic)
-                    continue;
-#else
                 if (member is TypeInfo memberTypeInfo && !memberTypeInfo.IsPublic && !memberTypeInfo.IsNestedPublic)
                     continue;
-#endif
                 var method = member as MethodBase;
                 if (method != null)
                 {
@@ -206,11 +172,7 @@ internal abstract class Proxy : JSObject
                         while (parentMethod != null && parentMethod.DeclaringType != typeof(object) && (method.Attributes & MethodAttributes.NewSlot) == 0)
                         {
                             method = parentMethod;
-#if NETCORE
-                            parentMethod = method.DeclaringType.GetTypeInfo().BaseType?.GetMethod(method.Name, parameterTypes);
-#else
                             parentMethod = method.DeclaringType.GetTypeInfo().BaseType?.GetMethod(method.Name, BindingFlags.Public | BindingFlags.Instance, null, parameterTypes, null);
-#endif
                         }
                     }
 
@@ -227,11 +189,7 @@ internal abstract class Proxy : JSObject
                 {
                     membername = membername[0] == '.' ? membername : membername.Contains(".") ? membername.Substring(membername.LastIndexOf('.') + 1) : membername;
 
-#if (PORTABLE || NETCORE)
-                    if (members[i] is TypeInfo && membername.Contains("`"))
-#else
                     if (member is TypeInfo && membername.Contains('`'))
-#endif
                     {
                         membername = membername.Substring(0, membername.IndexOf('`'));
                     }
@@ -295,11 +253,7 @@ internal abstract class Proxy : JSObject
                         tempMembers.Remove("iterator");
                     }
                 }
-#if NET40
-                var toStringTag = _hostedType.GetCustomAttribute<ToStringTagAttribute>();
-#else
                 var toStringTag = _hostedType.GetTypeInfo().GetCustomAttribute<ToStringTagAttribute>();
-#endif
                 if (toStringTag != null)
                 {
                     if (_symbols == null)
@@ -432,11 +386,7 @@ internal abstract class Proxy : JSObject
         }
         else
         {
-#if PORTABLE || NETCORE || NETSTANDARD1_4
             switch (m[0].GetMemberType())
-#else
-            switch (m[0].MemberType)
-#endif
             {
                 case MemberTypes.Method:
                 {
@@ -485,13 +435,8 @@ internal abstract class Proxy : JSObject
                         _valueType = JSValueType.Property,
                         _oValue = new PropertyPair
                             (
-#if (PORTABLE || NETCORE)
-                                    pinfo.CanRead && pinfo.GetMethod != null ? new MethodProxy(_context, pinfo.GetMethod) : null,
-                                pinfo.CanWrite && pinfo.SetMethod != null && !pinfo.IsDefined(typeof(ReadOnlyAttribute), false) ? new MethodProxy(_context, pinfo.SetMethod) : null
-#else
                                     pinfo.CanRead && pinfo.GetGetMethod(false) != null ? new MethodProxy(_context, pinfo.GetGetMethod(false)) : null,
                                     pinfo.CanWrite && pinfo.GetSetMethod(false) != null && !pinfo.IsDefined(typeof(ReadOnlyAttribute), false) ? new MethodProxy(_context, pinfo.GetSetMethod(false)) : null
-#endif
 )
                     };
 
@@ -514,22 +459,11 @@ internal abstract class Proxy : JSObject
                         _oValue = new PropertyPair
                         (
                             null,
-#if (PORTABLE || NETCORE)
-new MethodProxy(_context, pinfo.AddMethod)
-#else
 new MethodProxy(_context, pinfo.GetAddMethod())
-#endif
 )
                     };
                     break;
                 }
-#if (PORTABLE || NETCORE)
-                case MemberTypes.TypeInfo:
-                {
-                    r = GetConstructor((m[0] as TypeInfo).AsType());
-                    break;
-                }
-#else
                 case MemberTypes.NestedType:
                 case MemberTypes.TypeInfo:
                 {
@@ -538,7 +472,6 @@ new MethodProxy(_context, pinfo.GetAddMethod())
                 }
                 default:
                     throw new NotImplementedException("Convertion from " + m[0].GetMemberType() + " not implemented");
-#endif
             }
         }
 

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Windows.UI;
 
@@ -149,7 +149,7 @@ namespace BrowserCore.Engine
                         if (string.Equals(mt.Groups[1].Value, el.Tag, StringComparison.OrdinalIgnoreCase)) return true;
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/CssMini.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 return false;
             }
 

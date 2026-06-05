@@ -1,13 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using NiL.JS.Core;
 using NiL.JS.Statements;
 
 namespace NiL.JS.Expressions;
 
-#if !NETCORE
 [Serializable]
-#endif
 public abstract class Expression : CodeNode
 {
     internal Expression _left;

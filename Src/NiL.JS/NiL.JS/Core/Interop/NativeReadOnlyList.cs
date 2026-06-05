@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -7,7 +7,6 @@ using NiL.JS.Extensions;
 
 namespace NiL.JS.Core.Interop;
 
-#if !NET40
 internal static class NativeReadOnlyListCtors
 {
     public static readonly string ReadOnlyInterfaceName = typeof(IReadOnlyList<>).FullName;
@@ -140,4 +139,3 @@ public sealed class NativeReadOnlyList<T> : CustomType, IIterable
         return _list.GetEnumerator().AsIterator();
     }
 }
-#endif

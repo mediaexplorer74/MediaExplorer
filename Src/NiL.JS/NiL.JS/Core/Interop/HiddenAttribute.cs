@@ -1,13 +1,11 @@
-п»їusing System;
+using System;
 
 namespace NiL.JS.Core.Interop;
 
 /// <summary>
-/// Р§Р»РµРЅ, РїРѕРјРµС‡РµРЅРЅС‹Р№ РґР°РЅРЅС‹Рј Р°С‚С‚СЂРёР±СѓС‚РѕРј, РЅРµ Р±СѓРґРµС‚ РґРѕСЃС‚СѓРїРµРЅ РёР· СЃС†РµРЅР°СЂРёСЏ.
+/// Член, помеченный данным аттрибутом, не будет доступен из сценария.
 /// </summary>
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [AttributeUsage(AttributeTargets.All, AllowMultiple = false, Inherited = false)]
 public sealed class HiddenAttribute : Attribute
 {

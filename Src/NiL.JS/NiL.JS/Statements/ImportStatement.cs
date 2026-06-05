@@ -1,4 +1,4 @@
-﻿using NiL.JS.Core;
+using NiL.JS.Core;
 using NiL.JS.Expressions;
 using System.Collections.Generic;
 using System.Text;

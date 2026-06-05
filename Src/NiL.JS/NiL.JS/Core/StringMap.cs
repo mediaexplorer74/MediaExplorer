@@ -1,4 +1,4 @@
-п»їusing System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -28,9 +28,7 @@ internal sealed class StringMapDebugView<TValue>
     }
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [DebuggerDisplay("Count = {Count}")]
 [DebuggerTypeProxy(typeof(StringMapDebugView<>))]
 public class StringMap<TValue> : IDictionary<string, TValue>
@@ -38,7 +36,7 @@ public class StringMap<TValue> : IDictionary<string, TValue>
     [StructLayout(LayoutKind.Sequential)]
     private struct Record
     {
-        // РџРѕСЂСЏРґРѕРє РїРѕР»РµР№ РЅРµ РјРµРЅСЏС‚СЊ!
+        // Порядок полей не менять!
         public int hash;
         public string key;
         public int next;
@@ -189,7 +187,7 @@ public class StringMap<TValue> : IDictionary<string, TValue>
             while (index >= 0);
         }
 
-        // РЅРµ РЅР°С€Р»Рё
+        // не нашли
 
         if (allowIncrease)
         {
@@ -275,7 +273,7 @@ public class StringMap<TValue> : IDictionary<string, TValue>
     {
         if (_eicount == _existsedIndexes.Length)
         {
-            // РЈРІРµР»РёС‡РёРІР°РµРј СЂР°Р·РјРµСЂ РјР°СЃСЃРёРІР° СЃ Р·Р°РЅСЏС‚С‹РјРё РЅРѕРјРµСЂР°РјРё
+            // Увеличиваем размер массива с занятыми номерами
             var newEI = new int[_existsedIndexes.Length << 1];
             Array.Copy(_existsedIndexes, newEI, _existsedIndexes.Length);
             _existsedIndexes = newEI;

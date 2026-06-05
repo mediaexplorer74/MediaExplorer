@@ -1,13 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using NiL.JS.Core;
 using NiL.JS.Core.Interop;
 
 namespace NiL.JS.BaseLibrary;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [Prototype(typeof(Array))]
 public abstract class TypedArray : JSObject
 {

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using NiL.JS.BaseLibrary;
@@ -7,9 +7,7 @@ using NiL.JS.Extensions;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class MemberDescriptor
 {
     internal Expression _name;
@@ -35,9 +33,7 @@ public sealed class MemberDescriptor
     }
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class ClassDefinition : EntityDefinition
 {
     private sealed class ClassConstructor : Function

@@ -1,12 +1,10 @@
-﻿using System;
+using System;
 using NiL.JS.Core;
 using NiL.JS.Core.Interop;
 
 namespace NiL.JS.BaseLibrary;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Uint8Array : TypedArray
 {
     protected override JSValue this[int index]

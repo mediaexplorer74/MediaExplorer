@@ -1,13 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using NiL.JS.Core;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class SetProperty : Expression
 {
     private JSValue _propertyNameTempContainer;
@@ -92,9 +90,7 @@ public sealed class SetProperty : Expression
         return value;
     }
 
-#if !NET40
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-#endif
     private static JSValue safeGet(JSValue temp, CodeNode source, Context context)
     {
         temp.Assign(source.Evaluate(context));

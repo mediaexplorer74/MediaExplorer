@@ -5,9 +5,7 @@ using NiL.JS.Core.Functions;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class LogicalAssignment : Expression
 {
     private readonly OperationType _logicalOp;

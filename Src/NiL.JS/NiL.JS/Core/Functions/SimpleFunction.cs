@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using NiL.JS.BaseLibrary;
 using NiL.JS.Core.Interop;
 using NiL.JS.Expressions;
@@ -22,7 +22,7 @@ internal sealed class SimpleFunction : Function
         var result = notExists;
         notExists._valueType = JSValueType.NotExists;
 
-        if (_functionDefinition._parameters.Length == arguments.Length // из-за необходимости иметь возможность построить аргументы, если они потребуются
+        if (_functionDefinition._parameters.Length == arguments.Length // ��-�� ������������� ����� ����������� ��������� ���������, ���� ��� �����������
             && arguments.Length < 9)
         {
             return fastInvoke(targetObject, arguments, initiator);
@@ -33,13 +33,13 @@ internal sealed class SimpleFunction : Function
 
     private JSValue fastInvoke(JSValue targetObject, Expression[] arguments, Context initiator)
     {
-#if DEBUG && !(PORTABLE || NETCORE)
+#if DEBUG
         if (_functionDefinition.trace)
             System.Console.WriteLine("DEBUG: Run \"" + _functionDefinition.Reference.Name + "\"");
 #endif
         var body = _functionDefinition._body;
         targetObject = correctTargetObject(targetObject, body._strict);
-        if (_functionDefinition.recursionDepth > _functionDefinition.parametersStored) // рекурсивный вызов.
+        if (_functionDefinition.recursionDepth > _functionDefinition.parametersStored) // ����������� �����.
         {
             storeParameters();
             _functionDefinition.parametersStored++;
@@ -74,7 +74,7 @@ internal sealed class SimpleFunction : Function
             else
                 initParametersFast(arguments, initiator, internalContext);
 
-            // Эта строка обязательно должна находиться после инициализации параметров
+            // ��� ������ ����������� ������ ���������� ����� ������������� ����������
             _functionDefinition.recursionDepth++;
 
             internalContext._strict |= body._strict;
@@ -93,7 +93,7 @@ internal sealed class SimpleFunction : Function
             }
             finally
             {
-#if DEBUG && !(PORTABLE || NETCORE)
+#if DEBUG
                 if (_functionDefinition.trace)
                     System.Console.WriteLine("DEBUG: Exit \"" + _functionDefinition.Reference.Name + "\"");
 #endif
@@ -120,7 +120,7 @@ internal sealed class SimpleFunction : Function
                 a4 = null,
                 a5 = null,
                 a6 = null,
-                a7 = null; // Вместо кучи, выделяем память на стеке
+                a7 = null; // ������ ����, �������� ������ �� �����
 
         var argumentsCount = arguments.Length;
         if (_functionDefinition._parameters.Length != argumentsCount)
@@ -131,13 +131,13 @@ internal sealed class SimpleFunction : Function
             return;
 
         /*
-         * Да, от этого кода можно вздрогнуть, но по ряду причин лучше сделать не получится.
-         * Такая она цена оптимизации
+         * ��, �� ����� ���� ����� ����������, �� �� ���� ������ ����� ������� �� ���������.
+         * ����� ��� ���� �����������
          */
 
         /*
-         * Эти два блока нельзя смешивать. Текущие значения параметров могут быть использованы для расчёта новых. 
-         * Поэтому заменять значения можно только после полного расчёта новых значений
+         * ��� ��� ����� ������ ���������. ������� �������� ���������� ����� ���� ������������ ��� ������� �����. 
+         * ������� �������� �������� ����� ������ ����� ������� ������� ����� ��������
          */
 
         a0 = Tools.EvalExpressionSafe(initiator, arguments[0]);
