@@ -1,15 +1,28 @@
 # MediaExplorer / WEBVIEW — Plan 04: Pragmatic Path to v1.0
 
-> **Project:** MediaExplorer 0.42.6 (codename "WebView") — retro UWP museum browser for W10M
+> **Project:** MediaExplorer 0.42.8 (codename "WebView") — retro UWP museum browser for W10M
 > **Hardware target:** Lumia 950/1020 (Snapdragon 810, 3 GB RAM, 5" 1440p)
 > **Test environment:** x86 emulator (primary) → ARM device (validation)
 > **Author note:** Plan 04 is the first plan written with explicit *honesty constraints* —
 > it distinguishes between what is achievable, what is a trap, and what the project
 > actually needs to feel finished. Read the Honest Assessment section before the phases.
-> **Last updated:** 2026-06-05 (post-session 3.26)
+> **Last updated:** 2026-06-05 (post-session 3.39c)
 
 > **Recent changes (TL;DR):**
-> - 2026-06-04..05 — Phase C.6 (Basic CSS Transitions) implemented: `TransitionAnimator.cs`, hover overrides (`CssComputed.Hover`), `AttachHoverTransition` wiring in `DomBasicRenderer`, and test pages (`Html/test_transitions.html`, extended `Html/test.html`). See `Doc/Summary_4_05.md` for details.
+> - 2026-06-04..05 — Phase C.6 (Basic CSS Transitions) implemented. See `Doc/Summary_4_05.md`.
+> - 2026-06-05 — Phase C.6 follow-up (multi-property comma-separated transitions, smooth background from no-brush, % translate). See `Doc/Summary_4_06.md`.
+> - 2026-06-05 (session 3.29) — Codebase verification. See `Doc/Summary_4_08.md`.
+> - 2026-06-05 (session 3.30) — Live Nokia test: System.import OK (589KB). Page renders but no D3. Root cause: `System` was read-only anonymous type → `Dictionary<string, object>`. Proxy.cs null-guard. See `Doc/Summary_4_08.md`.
+> - 2026-06-05 (session 3.31) — Polyfill overwrites `System.import` → removed `System` pre-definition entirely. Standalone `__sysImport` host function. Inline `System.import(...)` → `__sysImport(...)` intercept in `RunScriptsAsync` loop. Build 0 errors. See `Doc/Summary_4_08.md`.
+> - 2026-06-05 (session 3.32) — `__sysImport` was fire-and-forget `Task.Run` → System.register calls happen but `execute()` never called (SystemJS expects script `onload`). Fixed: synchronous fetch with `.GetAwaiter().GetResult()`, plus post-`RunInline` force-execute of System.registry entries. Build 0 errors. See `Doc/Summary_4_08.md`.
+> - 2026-06-05 (session 3.33) — Polyfill's System constructor produces object with 0 enumerable properties in NiL.JS (no `register`, no `registry`). Abandoned polyfill repair approach; replaced `globalThis.System` entirely with minimal SystemJS (register, registry, import) via JS snippet before legacy chunk runs. Build 0 errors. See `Doc/Summary_4_09.md`.
+> - 2026-06-05 (session 3.34) — Chunk's `System.register` never called. Root cause: NiL.JS can't parse 589KB file at once (3 JSExceptions during parse). Fix: split chunk into individual `System.register(...)` calls, evaluate each via SafeEval. Inline parenthesis-matcher in C#. Build 0 errors. See `Doc/Summary_4_10.md`.
+> - 2026-06-05 (session 3.34a) — **Live test FAIL**: `split chunk into 0 System.register calls` despite `IndexOf = 0`. Root cause: paren matcher doesn't skip `//`, `/* */`, `/regex/`, or `` ` `` — `()` inside them corrupt depth counter. See `Doc/Summary_4_10.md` §4.1.
+> - 2026-06-05 (session 3.35) — **Fixed**: enhanced paren matcher with regex/comment/template skipping + `afterExprPrefix` heuristic. **Live test PASS**: `split chunk into 1 System.register calls` — module registered and executed. Page renders. See `Doc/Summary_4_11.md`.
+> - 2026-06-05 (session 3.36) — **Phase S**: JS execution timeout via NiL.JS DebuggerCallback (7s), graceful error page try/catch in NavigateAsync, RenderPipeline LayoutEngine guard. Build 0 errors.
+> - 2026-06-05 (session 3.37) — **Phase V**: smooth AppBar lerp animation (CubicEase 150ms), loading progress bar (Chrome-style top bar), welcome page rewrite (name+quotes+links), error recovery button. Build 0 errors.
+> - 2026-06-05 (session 3.39b) — D3 polyfill evolution: `window.Map=Map$` fails (window disconnected), bare `Map=Map$` fails (HostMapType read-only), `_nil.Eval("(function(){})")` throws InvalidOperationException. Key: `_nil.Eval("try{...}catch(e){}")` works for function defs. New approach: try-catch wrapper evals + text replacement (`class extends Map` → `class extends __MapPolyfill`). Build 0 errors.
+> - 2026-06-05 (session 3.39c) — D3 polyfill finalization: abandoned separate `_nil.Eval` polyfill calls (still unreliable); prepend polyfill via string prefix instead. Analysis of actual minified d3.js revealed `super()` in comma-expression context (`if(super(),...)`), `new Map` without parens (`{value:new Map}`), and InternSet's `super.add()`. Fixes: comma-expression `super()` → `(this._d={},this.size=0)`, `super.add(` redirect, `new Map`/`new Set` → polyfill (all forms), constructors accept entries/values, `forEach` accepts `thisArg`. **0 NiL.JS JSExceptions during d3.js eval** (previously 3). Still `d3=d3_missing` — JS-level runtime error caught by try/catch. Build 0 errors. See `Doc/Summary_4_15.md`.
 
 ---
 
@@ -71,10 +84,38 @@ The Nokia Design Archive uses D3.js v7. Making it render correctly needs:
 | Full DOM event system (addEventListener on SVG, input) | ❌ Stubs only | 5–10 days |
 | Canvas 2D API | ❌ Not started | 10–20 days |
 | SVG DOM manipulation via JS | ❌ Not started | 10–15 days |
-| CSS transitions driven by JS | ❌ Partial (C.6 planned) | 1 day |
+| CSS transitions driven by JS | ✅ C.6 done (3.26) | Done |
 | D3 data binding (enter/exit/update) via DOM mutations | ❌ Untested | Unknown |
+| ES module (`type="module"`) execution | 🔄 Bypassed via nomodule legacy path (3.28) | Done |
+| SystemJS fallback loader | ✅ Chunk splitting fixed (regex/comment/template skipping). Module registers (`registry entries: 1`) and executes (`force-exec: 1 declared`). JS phase completes without errors. | Done |
 
-**Total estimate for Nokia Archive to actually render:** 30–55 additional days of focused work.
+**Latest (3.39c — D3 polyfill finalization, 2026-06-05):** Iterating on the polyfill approach revealed multiple constraints:
+1. `window.Map = Map$` fails — `window` in SafeEval is disconnected from global scope
+2. `Map = Map$` fails — HostMapType is read-only (assign silently ignored)
+3. `_nil.Eval("(function(){...})()")` throws `InvalidOperationException: Unable to get this-binding for Global Context`
+4. Even `_nil.Eval("(function(){})")` throws the same error
+5. `_nil.Eval("try{ (function(){}) }catch(e){}")` works (same mechanism that lets SafeEval handle 279KB d3.js)
+6. `class extends Map` fails because HostMapType doesn't implement NiL.JS prototype interfaces
+
+**Approach abandoned after 3.39b:** `_nil.Eval("try{...}catch(e){}")` polyfill definitions still unreliable. **Final approach:** Prepending polyfill JS code directly via string concatenation (no separate `_nil.Eval` calls) + text-replace `extends Map/Set` → removed, `super.*()` → `.call(this,)`, `new Map/Set` → `new __MapPolyfill`/`__SetPolyfill` in content string before eval.
+
+**Key analysis of actual minified d3.js v7.9.0:**
+- `extends Map{constructor(t,n=N){if(super(),...` — **`super()` in comma-expression context** → replacing with `;` causes syntax error. Fixed: comma-expression `(this._d={},this.size=0)`.
+- `{value:new Map}` — **`new Map` without parens**. Fixed: `new Map` → `new __MapPolyfill` (all forms).
+- InternSet's `add(value){super.add(intern_set(this,value))}` — needed `super.add(` redirect.
+
+**Polyfill improvements:**
+- `__MapPolyfill(entries)`, `__SetPolyfill(values)` constructors accept optional initial data
+- `forEach(fn, thisArg)` — added `thisArg` support
+- `super.add(` → `__SetPolyfill.prototype.add.call(this,`
+
+**Result:** `hasMap=True hasSet=True` confirmed. **0 NiL.JS JSExceptions during d3.js eval** (previously 3). Still `d3=d3_missing` — some JS-level runtime error caught by `try{...}catch(e){}`. Next: live test on emulator with new fixes. See `Doc/Summary_4_15.md`.
+
+**Total remaining estimate for Nokia Archive to render:** 20–40 days (reduced from 30–55
+via legacy bypass, still gated by DOM event system + D3 data binding).
+
+**Total remaining estimate for Nokia Archive to render:** 20–40 days (reduced from 30–55
+via legacy bypass, still gated by DOM event system + D3 data binding).
 
 **Recommendation:** Accept Nokia Archive as a "stretch goal that may never be reached" and
 redirect to making the browser excellent for its real audience — simple to moderate sites on
@@ -394,6 +435,18 @@ which is handled by XAML's animation system anyway.
 - New `Html/test_transitions.html` (registered as Content) with 11 demo cases.
 - Build 0 errors. See `Doc/Summary_4_05.md` for details.
 
+**Follow-up (3.27):** ✅ Multi-property comma-separated transitions.
+- `CssComputed.TransitionSpec` + `TransitionList` store parsed multi-property entries.
+- `CssLoader.ParseTransition` parses all comma-segments (reuses existing `SplitTopLevelCommas`).
+- `AttachHoverTransition` rewritten: iterates `TransitionList`, resolves per-property
+  timing via `TransitionSpecForProp()`. Backward-compat via `TransitionSpecForAnim` struct.
+- Smooth background: when no base brush exists, sets `Transparent` brush before
+  animating (no jump). PointerExited animates back to `Transparent`.
+- `%` in `translate()`: `ParseTransformForHover` accepts `elemW`/`elemH`, computes
+  `(pct/100)*elemSize`. Hover values parsed inside `PointerEntered` (sizes known).
+- Test page expanded (+3 cases: multi-dur, no-base-bg, % translate). Build 0 errors.
+  See `Doc/Summary_4_06.md` for details.
+
 ### Testing
 
 After each C.x sub-phase: navigate to `about:test`, check the corresponding T-C-xxx row.
@@ -403,12 +456,12 @@ Log result in `Doc/Perf_Baseline.md`.
 
 ---
 
-## Phase S: Stability & Robustness
+## Phase S: Stability & Robustness ✅ `DONE (sessions 3.27 + 3.36)`
 
 > **Priority: 🔴 Required for v1.0**
 > **Effort: 2–3 days / ~300 lines**
 
-### S.1 — NaN/Infinity guards (systematic)
+### S.1 — NaN/Infinity guards (systematic) ✅ `DONE (3.27)`
 
 `elementSize=NaNxNaN` in logs indicates invalid sizes leak into `VirtualizingRenderer`.
 
@@ -429,27 +482,22 @@ new GridLength(SanitizeSize(colWidth, 1)) // fallback to 1px not 0
 Add `[DIAG:NaN source={property}]` log when a value is sanitized so you can trace
 which CSS property produced it.
 
-### S.2 — JS execution timeout
+### S.2 — JS execution timeout ✅ `DONE (3.36 — DebuggerCallback approach)`
 
-NiL.JS can loop forever. Wrap each `_nil.Eval()` call:
+NiL.JS can loop forever. Wrap each `_nil.Eval()` call with a 7s timeout:
 
 ```csharp
-// JavaScriptEngine.cs
-private async Task EvalWithTimeout(string code, int timeoutMs = 5000)
-{
-    using var cts = new CancellationTokenSource(timeoutMs);
-    try
-    {
-        await Task.Run(() => _nil.Eval(code), cts.Token);
-    }
-    catch (OperationCanceledException)
-    {
-        DevToolsLogger.Log("[JS:TIMEOUT] Script exceeded 5000ms — abandoned");
-    }
-}
+// JavaScriptEngine.cs — SafeEval timeout via NiL.JS DebuggerCallback
+// NiL.JS contexts are not thread-safe, so Task.Run + CancellationToken
+// would corrupt state. Instead, use the synchronous DebuggerCallback:
+//  1. Enable Context.Debugging = true before Eval
+//  2. Register a DebuggerCallback that checks elapsed time
+//  3. If >= 7000ms, throw TimeoutException
+//  4. In finally, restore Debugging flag + unregister callback
+// TimeoutException propagates to outer catch → returns JSValue.Undefined
 ```
 
-### S.3 — DOM node cap
+### S.3 — DOM node cap ✅ `DONE (3.27)`
 
 Enforce the 10 000 node limit from Plan 01. In `HtmlParser`:
 
@@ -468,7 +516,7 @@ LiteElement CreateNode(...)
 }
 ```
 
-### S.4 — CSS rule cap
+### S.4 — CSS rule cap ✅ `DONE (3.27)`
 
 Verify the existing rule cap (5 000) is enforced. Add:
 ```csharp
@@ -479,13 +527,14 @@ if (_rules.Count >= MaxRules)
 }
 ```
 
-### S.5 — Graceful error page
+### S.5 — Graceful error page ✅ `DONE (3.36)`
 
-When `NavigateAsync` throws any unhandled exception, show the styled error page
-(from Phase 11) instead of crashing or showing blank. Ensure the try-catch in
-`NavigateAsync` always calls `ShowErrorPage(url, ex.Message)`.
+When `NavigateAsync` throws any unhandled exception, show the error overlay
+(via existing `ShowGlobalError`) instead of crashing. The try-catch in
+`_browser.NavigateAsync(address)` logs `[DIAG:EXCEPTION]` and calls
+`ShowGlobalError("Navigation failed: " + ex.Message)`.
 
-### S.6 — Cascade/Layout exception guards (from Plan_03 Phase 17.5)
+### S.6 — Cascade/Layout exception guards ✅ `DONE (3.36)`
 
 `OverflowException`/`ExecutionEngineException` were partially fixed in Plan_00 but may recur
 on new sites. Ensure every entry into `CascadeIntoComputedStyles` and `PerformLayout` has
@@ -613,55 +662,38 @@ having a reference image to diff against after a CSS change.
 These are the small things that make a browser feel like a real browser rather than
 a debug tool. Most are already partially implemented.
 
-### V.1 — Smooth AppBar animation
+### V.1 — Smooth AppBar animation ✅ `DONE (3.37)`
 
-Replace the current instant `BottomBar.Height = 52/24` toggle with a proper
-`DoubleAnimation` over 150ms using the `EasingFunction = CubicEase`. The previous
-attempt failed because of a UWP layout pass conflict. Use a clip animation on the
-BottomBar's `RenderTransform.Y` instead of animating `Height`:
+Replaced direct `BottomBar.Height = 52/24` with a manual async lerp using
+`CubicEase` over 150ms (10 steps × 15ms). Avoids Storyboard+UWP layout
+conflict by setting `BottomBar.Height` directly in step increments.
+`ExpandBar/CollapseBar` delegate to `AnimateBarHeight(target)`.
 
-```csharp
-// Animate TranslateTransform.Y from +28 to 0 (collapse from bottom)
-// instead of animating Height (which conflicts with UWP layout engine)
-var tt = new TranslateTransform();
-BottomBar.RenderTransform = tt;
-var anim = new DoubleAnimation { To = 0, Duration = TimeSpan.FromMilliseconds(150),
-    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-tt.BeginAnimation(TranslateTransform.YProperty, anim);
-```
+### V.2 — Page loading progress indicator ✅ `DONE (3.37)`
 
-### V.2 — Page loading progress indicator
+Added a thin 3px `Border` (`#FF0078D7`) at the top of the content area.
+On `LoadingChanged(true)`: visibility Visible, fills from 0→~80% over 2s
+via async lerp. On `LoadingChanged(false)`: snaps to 100%, 200ms hold,
+fade out over 200ms (8 steps). Guarded by `_loadProgressActive` flag.
 
-The existing `ProgressRing` shows while loading. Improve it:
-- Show a thin top progress bar (like Chrome/Firefox) that fills from 0% to 100%
-- Use `_resources.ActiveFetchCount` to estimate progress (reduce from max → 0)
-- Auto-hide with 300ms fade after render completes
+### V.3 — Omnibox improvements ⏳ `DEFERRED`
 
-```csharp
-// MainPage.xaml: thin 3px border at top of content area
-// Width animates from 0 to ContentArea.ActualWidth proportionally
-// Timer fires every 200ms during load to update progress
-```
+Not yet implemented. Requires page title tracking from the render engine
+and URL scheme coloring (RichEditBox vs TextBox). Will revisit after v1.0.
 
-### V.3 — Omnibox improvements
+### V.4 — Better empty state ✅ `DONE (3.37)`
 
-- Show page title (not URL) in collapsed bar
-- Show full URL only when expanded and focused
-- On focus: select all text (Ctrl+A behavior)
-- Display scheme (https://) in gray, host in white, path in lighter gray
+Replaced `Html/welcome.html` (former "Image Test Suite") with a proper
+welcome page: dark theme, app name + tagline, description, 4 quick links
+(`about:test`, `httpbin.org/html`, `text.npr.org`, `about:blank`), and a
+random museum quote per visit (8 quotes from Berners-Lee/Gates/Kay/etc.).
+CSS fallback in `ShowWelcomeAsync` also updated (dark bg, white title).
 
-### V.4 — Better empty state
+### V.5 — Error recovery button ✅ `DONE (3.37)`
 
-When the welcome page is showing (no navigation yet), display:
-- App name + version
-- A short one-sentence description
-- Quick links: about:test, httpbin.org/html, text.npr.org
-- A randomly chosen "museum quote" about the web/technology from a small embedded list
-
-### V.5 — Error recovery button
-
-When an error page is shown, add a "Try in POOR mode" button. One tap switches to
-POOR rendering mode and retries the URL. This is the museum browser's escape hatch.
+Added "Try in POOR mode" button to `MessageOverlay`. Stored `_lastFailedAddress`
+in `NavigateAsync`. On click: switches `RenderMode = "Poor"`, hides overlay,
+re-triggers navigation. Button visible only when `isError && _lastFailedAddress != null`.
 
 ---
 
@@ -850,20 +882,134 @@ Session 3.27 ✅ (partial, ~10 min):
     audit) deferred to next session — larger refactors.
   - Build 0 errors.
 
-Session 3.28: Phase T+ — JS compat matrix Section F, CSS coverage grid Section G
+Session 3.27: Phase C.6 follow-up — multi-property comma-separated transitions,
+               smooth background from no-brush (Transparent → animate),
+               % in translate(50%), «all» fix (comment + code confirmed).
+               Support: TransitionList in CssComputed, ParseTransition parses
+               all comma-segments, AttachHoverTransition iterates specs,
+               TransitionSpecForProp resolves per-property timing.
+               Parser: SplitTopLevelCommas reuse (was duplicate).
+               Tests: test_transitions.html expanded (+3 cases: multi-dur,
+               no-base-bg, % translate). Build 0 errors. ✅
 
-Session 3.29: Phase V — AppBar animation + progress bar + omnibox improvements
+Session 3.28: Nokia Design Archive analysis + JS compat fix.
+               Problem: type="module" scripts use ES2020+ syntax (async
+               generators, import.meta) that NiL.JS can't evaluate;
+               nomodule scripts were ignored.
+               Fix: JavaScriptEngine.RunScriptsAsync skips type="module"
+               scripts; nomodule scripts execute normally (inverse of
+               browser behavior → loads ES5 legacy bundle via SystemJS).
+               Added: globalThis/global as real NiL.JS scope object
+               (SafeEval("this")), System.import host function (Task.Run
+               → FetchScriptStringAsync → RunInline), DIAG logging.
+               Build 0 errors. ✅
+               Note: Code written in autopilot (no emulator). Never
+               live-tested. System.import and System.register format
+               behavior unknown.
 
-Session 3.30: Phase V — Error recovery button + welcome page polish
+Session 3.29: Codebase verification + legacy site support assessment.
+               Verified all 3.27/3.28 changes present in code.
+               Build 0 errors. ✅ Summary_4_08.md.
+               Key finding: System.import host function compiles but
+               has never been executed. Next: live test on emulator.
 
-Session 3.31: Full regression run
+Session 3.30: Live Nokia Archive test — **two runs**:
+                Run 1: app crashed on CSS phase (race condition, not JS).
+                Run 2: full render! System.import OK: 589152 bytes fetched
+                and executed. Page renders 73 boxes + text but no D3.
+                Root cause: System was read-only anonymous type.
+                Fix: System → Dictionary<string, object>; Proxy.cs null-guard.
+                Build 0 errors. ✅ Summary_4_08.md.
+
+Session 3.31: Live Nokia re-test with Dictionary fix:
+                Polyfill still couldn't extend System — polyfill overwrites
+                System.import with DOM-based version. New approach:
+                removed System pre-def entirely; standalone __sysImport
+                host function; inline System.import(...) → __sysImport(...)
+                intercept in RunScriptsAsync loop. Build 0 errors. ✅
+
+Session 3.32: Live Nokia with __sysImport intercept — WORKS:
+                `[DIAG:EXEC] len=82 preview="__sysImport(...)"` confirmed.
+                `[DIAG:System.import] OK: 589152 bytes`. Modules call
+                System.register(...) but execute() never invoked
+                (__sysImport was fire-and-forget Task.Run).
+                Fix: synchronous fetch GetAwaiter().GetResult();
+                post-RunInline force-execute System.registry entries.
+                Build 0 errors. Ready for next live test. ✅
+
+Session 3.33: Polyfill's System broken (0 enumerable keys, no register/registry).
+                 Replaced globalThis.System with minimal SystemJS (own register,
+                 registry._entries, import→__sysImport) before legacy chunk runs.
+                 Force-execute module.declare()→execute() after chunk.
+                 Build 0 errors. See Doc/Summary_4_09.md. ✅
+
+Session 3.34: Chunk's System.register never called (3 JSExceptions during parse).
+                 Root cause: NiL.JS can't parse 589KB as single Eval().
+                 Fix: split chunk into individual System.register(...) calls,
+                 evaluate each separately via SafeEval. Inline C# parenthesis-
+                 matcher. Build 0 errors. See Doc/Summary_4_10.md.
+
+Session 3.34a (live test FAIL): split chunk into 0 System.register calls.
+                 Root cause: paren matcher doesn't skip comments/regex/templates.
+                 Enhanced matcher with comment/regex/template skipping.
+                 Build 0 errors. See Doc/Summary_4_10.md §4.1.
+
+Session 3.35 (live test PASS): split chunk into 1 System.register calls.
+                 Module registered (_modId=1) and executed (force-exec: 1 declared).
+                 JS phase DONE, page renders 1024×1024.
+                 Next: Phase S — JS timeout + error page + cascade/layout guards.
+                 ✅ DONE. See Doc/Summary_4_11.md.
+
+Session 3.36: Phase S — JS timeout (DebuggerCallback 7s) + graceful error page
+                  + RenderPipeline LayoutEngine guard
+                  ✅ DONE. See `Doc/Summary_4_12.md`.
+
+Session 3.37: Phase V — AppBar animation (async lerp CubicEase) + progress bar
+                  + welcome page rewrite + error recovery button
+                  ✅ DONE. See `Doc/Summary_4_12.md`.
+
+Session 3.38: D3.js debugging R1 — discovered RunInline's silent `catch { /* swallow */ }`.
+                  External scripts (d3.js, polyfills) now bypass RunInline → direct SafeEval.
+                  Build 0 errors. ✅ See `Doc/Summary_4_14.md`.
+
+Session 3.39: D3.js debugging R2–R5 — 5 polyfill approach iterations.
+                    Discovered HostMapType/HostSetType are empty C# marker objects (silently
+                    break `class extends Map/Set`). Approaches tried:
+                    (1) `window.Map = Map$` — fails (window disconnected from global scope)
+                    (2) bare `Map = Map$` — fails (HostMapType read-only, assign ignored)
+                    (3) `_nil.Eval("(function(){...})()")` — fails (InvalidOperationException)
+                    (4) `_nil.Eval("(function(){})")` step-by-step — fails (same error)
+                    (5) try-catch wrapper evals + text replacement — works in code, pending test.
+                    Key discovery: `_nil.Eval("try{...}catch(e){}")` works for function definitions.
+                    Build 0 errors. ✅ See `Doc/Summary_4_14.md`.
+
+Session 3.39b: D3 polyfill iteration (continued).
+                    Attempted `_nil.Eval("try{...}catch(e){}")` for polyfill definitions →
+                    still unreliable. Shifted to string-prepend approach: polyfill JS code as
+                    string prefix + text replacements before eval.
+                    Build 0 errors. ✅
+
+Session 3.39c: D3 polyfill finalization (current session).
+                    Analysis of actual minified d3.js v7.9.0 revealed:
+                    - `super()` in comma-expression context: `if(super(),...)`
+                      Fixed: `(this._d={},this.size=0)` instead of semicolon-separated
+                    - `new Map` without parens: `{value:new Map}`
+                      Fixed: `new Map` → `new __MapPolyfill` (all forms)
+                    - `super.add(` for InternSet → `__SetPolyfill.prototype.add.call(this,`
+                    - Constructors accept entries/values
+                    - `forEach` accepts `thisArg`
+                    Result: **0 NiL.JS JSExceptions during d3.js eval** (previously 3).
+                    Still `d3=d3_missing` — JS-level error caught by try/catch.
+                    Build 0 errors. ✅ See `Doc/Summary_4_15.md`.
+
+Session 3.40: Live test with final polyfill + full regression run
                 T-H-001..008: all visual pass
                 T-C-001..017: target 12/17 pass (T-C-015 now implementable)
                 T-J-001..010: target 7/10 pass
                 T-S-001,004,005,007,008: all "acceptable" visually
                 → If criteria met: TAG v1.0-museum
 
-Session 3.32+: Phase 7 (Service Worker) — optional, post-v1.0
+Session 3.33+: Phase 7 (Service Worker) — optional, post-v1.0
 ```
 
 ### Test ID mapping in test.html
@@ -879,7 +1025,7 @@ Session 3.32+: Phase 7 (Service Worker) — optional, post-v1.0
 | T-C-012 | @media queries | ✅ (3.22) |
 | T-C-013 | transform: translate() | ✅ |
 | T-C-014 | grid-template-areas | ✅ (3.21) |
-| T-C-015 | CSS Transitions (hover, manual) | ✅ — Phase C.6 (3.26) |
+| T-C-015 | CSS Transitions (hover, manual) | ✅ — Phase C.6 (3.26) + multi-prop, smooth-bg, % translate (3.27) |
 | T-C-016 | CSS custom properties (--var) | 🟡 Broken at runtime; debug logs removed in 3.25; resume when runtime testing possible |
 | T-C-017 | `clamp()` | 🆕 — Phase C.5 (3.25) |
 
@@ -957,6 +1103,7 @@ but chokes on the main UWP project (needs WindowsXaml SDK targets from full MSBu
 
 ---
 
-*Plan v4.0 — 2026-06-04*
-*Based on: Plan_01 (v1.0), Plan_02 (v2.2), Plan_03 (v3.5), sessions 2.01–3.27*
-*Next session: 3.27 (cont.) — Phase S remainder: S.2 JS timeout, S.5 error page, S.6 cascade/layout try/catch audit*
+*Plan v4.8 — 2026-06-05*
+*Based on: Plan_01 (v1.0), Plan_02 (v2.2), Plan_03 (v3.5), sessions 2.01–3.39*
+*Next session: 3.40 — Live D3 test with final polyfill (commma-expression, super.add, new Map/Set full coverage) + full regression run*
+*Summary files: Summary_4_05.md (C.6 initial), Summary_4_06.md (SafeEval guards), Summary_4_07.md (C.6 follow-up + Nokia), Summary_4_08.md (codebase verification + live test + __sysImport), Summary_4_09.md (minimal SystemJS replacement), Summary_4_10.md (chunk splitting + live test), Summary_4_11.md (regex/comment matcher fix), Summary_4_12.md (Phase S + Phase V), Summary_4_14.md (D3 root cause: HostMapType)*

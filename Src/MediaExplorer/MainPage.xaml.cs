@@ -71,6 +71,10 @@ namespace WEBVIEW
         private bool _startupStatusPinned;
         private bool _suppressBarCollapse = false;
         private bool _suppressRepaintHandler = false;
+        private bool _animatingBar = false;
+        private string _lastFailedAddress;
+        private string _pageTitle;
+        private bool _loadProgressActive = false;
         public MainPage()
         {
             InitializeComponent();
@@ -176,7 +180,7 @@ namespace WEBVIEW
             if (BottomBar != null)
                 BottomBar.SizeChanged += (s, e) =>
                 {
-                    try { BottomBar.Clip = new RectangleGeometry { Rect = new Rect(0, 0, BottomBar.ActualWidth, BottomBar.ActualHeight) }; }
+                    try { if (!_animatingBar) BottomBar.Clip = new RectangleGeometry { Rect = new Rect(0, 0, BottomBar.ActualWidth, BottomBar.Height) }; }
                     catch { }
                 };
 
@@ -209,6 +213,20 @@ namespace WEBVIEW
             {
                 if (LoadingRing != null) LoadingRing.IsActive = loading;
                 if (LoadingOverlay != null) LoadingOverlay.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
+                if (loading)
+                {
+                    if (LoadProgressBar != null)
+                    {
+                        LoadProgressBar.Visibility = Visibility.Visible;
+                        LoadProgressBar.Width = 0;
+                        LoadProgressBar.Opacity = 1;
+                        AnimateLoadProgress();
+                    }
+                }
+                else
+                {
+                    FadeOutLoadProgress();
+                }
             });
             _browser.RepaintReady += (s, element) => Engine_RepaintReady(element);
 
@@ -248,10 +266,9 @@ namespace WEBVIEW
         {
             if (_barExpanded) return;
             _barExpanded = true;
-            if (BottomBar != null) BottomBar.Height = 52;
             if (BarStrip != null) BarStrip.IsHitTestVisible = false;
             if (BarContent != null) BarContent.IsHitTestVisible = true;
-            UpdateBarClip();
+            AnimateBarHeight(52);
         }
 
         private void CollapseBar()
@@ -259,17 +276,10 @@ namespace WEBVIEW
             if (!_barExpanded || _suppressBarCollapse) return;
             if (_appBarMode == "Full") return;
             _barExpanded = false;
-            if (_appBarMode == "Hided")
-            {
-                if (BottomBar != null) BottomBar.Height = 6;
-            }
-            else
-            {
-                if (BottomBar != null) BottomBar.Height = 24;
-            }
+            double target = _appBarMode == "Hided" ? 6 : 24;
             if (BarStrip != null) BarStrip.IsHitTestVisible = true;
             if (BarContent != null) BarContent.IsHitTestVisible = false;
-            UpdateBarClip();
+            AnimateBarHeight(target);
         }
 
         // --- Magic Bubble (long-tap triggers existing AI summary) ---
@@ -302,9 +312,78 @@ namespace WEBVIEW
             try
             {
                 if (BottomBar != null)
-                    BottomBar.Clip = new RectangleGeometry { Rect = new Rect(0, 0, BottomBar.ActualWidth, BottomBar.ActualHeight) };
+                {
+                    double w = BottomBar.ActualWidth;
+                    if (w <= 0) try { w = Window.Current.Bounds.Width; } catch { w = 360; }
+                    BottomBar.Clip = new RectangleGeometry { Rect = new Rect(0, 0, w, BottomBar.Height) };
+                }
             }
             catch { }
+        }
+
+        // V.1 — Smooth Height animation with cubic ease out (avoids Storyboard layout conflict)
+        private async void AnimateBarHeight(double targetHeight)
+        {
+            if (_animatingBar)
+            {
+                BottomBar.Height = targetHeight;
+                UpdateBarClip();
+                return;
+            }
+            _animatingBar = true;
+            try
+            {
+                double startHeight = BottomBar.Height;
+                if (Math.Abs(startHeight - targetHeight) < 0.5) return;
+                int steps = 10;
+                for (int i = 1; i <= steps; i++)
+                {
+                    double t = (double)i / steps;
+                    t = 1 - Math.Pow(1 - t, 3);
+                    double h = startHeight + (targetHeight - startHeight) * t;
+                    BottomBar.Height = h;
+                    UpdateBarClip();
+                    await Task.Delay(15);
+                }
+                BottomBar.Height = targetHeight;
+                UpdateBarClip();
+            }
+            finally { _animatingBar = false; }
+        }
+
+        // V.2 — Progress bar fill animation (stops at ~80%, jumps to 100% on complete)
+        private async void AnimateLoadProgress()
+        {
+            _loadProgressActive = true;
+            if (LoadProgressBar == null || ContentArea == null) return;
+            double maxWidth = ContentArea.ActualWidth;
+            if (maxWidth <= 0) try { maxWidth = Window.Current.Bounds.Width; } catch { maxWidth = 360; }
+            for (int i = 1; _loadProgressActive && i <= 40; i++)
+            {
+                double t = (double)i / 40;
+                double fill = 0.03 + 0.77 * (1 - Math.Pow(1 - t, 2));
+                LoadProgressBar.Width = maxWidth * fill;
+                await Task.Delay(50);
+            }
+        }
+
+        private async void FadeOutLoadProgress()
+        {
+            _loadProgressActive = false;
+            if (LoadProgressBar == null) return;
+            await Task.Delay(200);
+            if (_loadProgressActive) return;
+            try { if (ContentArea != null) LoadProgressBar.Width = ContentArea.ActualWidth; } catch { }
+            await Task.Delay(100);
+            int steps = 8;
+            for (int i = 1; i <= steps; i++)
+            {
+                double t = (double)i / steps;
+                LoadProgressBar.Opacity = 1 - t;
+                await Task.Delay(25);
+            }
+            LoadProgressBar.Visibility = Visibility.Collapsed;
+            LoadProgressBar.Opacity = 1;
         }
 
         private void BarStrip_Tapped(object sender, TappedRoutedEventArgs e)
@@ -422,6 +501,7 @@ namespace WEBVIEW
 
         private async Task NavigateAsync(string address)
         {
+            _lastFailedAddress = address;
             System.Diagnostics.Debug.WriteLine("[DIAG] MainPage.NavigateAsync START seq=" + _renderSequence + " address=" + address);
             CollapseBar();
             if (string.IsNullOrWhiteSpace(address))
@@ -460,7 +540,15 @@ namespace WEBVIEW
             }
             ClearStartupStatus();
             ResetContentHost();
-            await _browser.NavigateAsync(address);
+            try
+            {
+                await _browser.NavigateAsync(address);
+            }
+            catch (Exception ex)
+            {
+                try { System.Diagnostics.Debug.WriteLine("[DIAG] MainPage.NavigateAsync EXCEPTION: " + ex.GetType().Name + ": " + ex.Message); } catch { }
+                ShowGlobalError("Navigation failed: " + ex.Message);
+            }
             System.Diagnostics.Debug.WriteLine("[DIAG] MainPage.NavigateAsync DONE");
         }
 
@@ -519,10 +607,10 @@ namespace WEBVIEW
                 _suppressRepaintHandler = false;
                 if (elt == null || IsEffectivelyEmpty(elt) || ContentHost == null || ContentHost.Children == null)
                 {
-                    var sp = new StackPanel { Margin = new Thickness(12) };
-                    sp.Children.Add(new TextBlock { Text = "Welcome", FontSize = 20, FontWeight = Windows.UI.Text.FontWeights.SemiBold });
-                    sp.Children.Add(new TextBlock { Text = "Type a URL in the bar above and press Enter.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
-                    elt = new Border { Background = new SolidColorBrush(Windows.UI.Colors.White), Child = sp };
+                    var sp = new StackPanel { Margin = new Thickness(24) };
+                    sp.Children.Add(new TextBlock { Text = "MediaExplorer", FontSize = 26, FontWeight = Windows.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Windows.UI.Colors.White) });
+                    sp.Children.Add(new TextBlock { Text = "Type a URL in the bar above and press Enter.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0), Foreground = new SolidColorBrush(Windows.UI.Colors.Gray) });
+                    elt = new Border { Background = new SolidColorBrush(Color.FromArgb(255, 26, 26, 26)), Child = sp };
                 }
                 Ui(() =>
                 {
@@ -718,6 +806,8 @@ namespace WEBVIEW
             UpdateStatusMessage("Error: " + (message ?? string.Empty), overrideStartup: true);
             try { if (LoadingRing != null) LoadingRing.IsActive = false; } catch { }
             try { if (LoadingOverlay != null) LoadingOverlay.Visibility = Visibility.Collapsed; } catch { }
+            try { if (LoadProgressBar != null) { LoadProgressBar.Visibility = Visibility.Collapsed; LoadProgressBar.Opacity = 1; } } catch { }
+            _loadProgressActive = false;
             ShowMessageOverlay(message, "Aw, Snap!", "Important", isError: true);
         }
 
@@ -737,6 +827,9 @@ namespace WEBVIEW
                     if (Enum.TryParse<Symbol>(icon, out var sym))
                         MessageOverlayIcon.Symbol = sym;
                 }
+                if (ErrorRetryPoor != null)
+                    ErrorRetryPoor.Visibility = isError && !string.IsNullOrWhiteSpace(_lastFailedAddress)
+                        ? Visibility.Visible : Visibility.Collapsed;
             });
         }
 
@@ -750,6 +843,17 @@ namespace WEBVIEW
         }
 
         private void MessageClose_Click(object sender, RoutedEventArgs e) => HideMessageOverlay();
+
+        // V.5 — Switch to POOR mode and retry failed navigation
+        private void ErrorRetryPoor_Click(object sender, RoutedEventArgs e)
+        {
+            HideMessageOverlay();
+            RenderMode = "Poor";
+            if (!string.IsNullOrWhiteSpace(_lastFailedAddress))
+            {
+                var _ = NavigateAsync(_lastFailedAddress);
+            }
+        }
 
         // ========== Toast Notifications ==========
         public void ShowToast(string message, int durationMs = 5000)

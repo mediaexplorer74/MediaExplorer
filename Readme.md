@@ -1,4 +1,4 @@
-# MediaExplorer 0.42.6 - dev branch
+# MediaExplorer 0.42.8 - dev branch
 
 ![](/Images/logo.png)
 
@@ -71,6 +71,6 @@ Include: URL, what you expected, what you got. Screenshots help.
 
 As is. No support. RnD only. DIY.
 
-[m][e] June 05, 2026
+[m][e] June 6, 2026
 
 ![](/Images/footer.png)

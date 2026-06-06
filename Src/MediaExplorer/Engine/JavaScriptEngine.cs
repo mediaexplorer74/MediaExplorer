@@ -2655,6 +2655,11 @@ if (mHrefSet.Success)
                 if (string.IsNullOrEmpty(tag)) return JSValue.Undefined;
                 return JSValue.Marshal(new JsDomElement(_engine, new LiteElement(tag)));
             }
+            public JSValue createElementNS(string ns, string tag)
+            {
+                if (string.IsNullOrEmpty(tag)) return JSValue.Undefined;
+                return JSValue.Marshal(new JsDomElement(_engine, new LiteElement(tag)));
+            }
             public string title
             {
                 get { return _engine._pageTitle ?? string.Empty; }
@@ -2752,16 +2757,40 @@ if (mHrefSet.Success)
             public object importNode(object node, bool deep) { return null; }
             public object adoptNode(object node) { return null; }
             public object createDocumentFragment() { return null; }
-            public object createTextNode(string data) { return null; }
+            public object createTextNode(string data)
+            {
+                var t = new LiteElement("#text") { Text = data ?? "" };
+                return new JsDomText(_engine, t);
+            }
             public object createComment(string data) { return null; }
             public object createAttribute(string name) { return null; }
             public object createEvent(string type) { return null; }
             public object createRange() { return null; }
             public object caretPositionFromPoint(double x, double y) { return null; }
             public object elementsFromPoint(double x, double y) { return new object[0]; }
-            public object querySelector(string selector) { return null; }
+            public object querySelector(string selector)
+            {
+                if (_engine._domRoot == null) return null;
+                var doc = new JsDocument(_engine, _engine._domRoot);
+                return doc.querySelector(selector);
+            }
             public object getElementsByName(string name) { return new object[0]; }
-            public object[] getElementsByClassName(string className) { return new object[0]; }
+            public object[] getElementsByClassName(string className)
+            {
+                if (_engine._domRoot == null || string.IsNullOrEmpty(className)) return new object[0];
+                var list = new List<object>();
+                foreach (var n in _engine._domRoot.Descendants())
+                {
+                    if (n.IsText) continue;
+                    string cls; if (n.Attr != null && n.Attr.TryGetValue("class", out cls) && !string.IsNullOrEmpty(cls))
+                    {
+                        var parts = cls.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                        for (int i = 0; i < parts.Length; i++)
+                            if (string.Equals(parts[i], className, StringComparison.Ordinal)) { list.Add(new JsDomElement(_engine, n)); break; }
+                    }
+                }
+                return list.ToArray();
+            }
             public object[] getElementsByTagNameNS(string ns, string tag) { return new object[0]; }
             public object getElementByIdNS(string ns, string id) { return null; }
         }
@@ -2968,11 +2997,16 @@ if (mHrefSet.Success)
             // Create host window once and reuse for all aliases
             var hostWindow = new HostWindow(this);
 
-            // Core globals — window, self, globalThis, global all point to same HostWindow
+            // Core globals — window, self, globalThis, global
             _nil.DefineVariable("window").Assign(JSValue.Marshal(hostWindow));
             _nil.DefineVariable("self").Assign(JSValue.Marshal(hostWindow));
-            _nil.DefineVariable("globalThis").Assign(JSValue.Marshal(hostWindow));
-            _nil.DefineVariable("global").Assign(JSValue.Marshal(hostWindow));
+            // globalThis and global: use a real NiL.JS object so polyfills
+            // like SystemJS can write properties (e.g. globalThis.System = ...).
+            // SafeEval("this") returns the global scope object.
+            JSValue globalScope;
+            try { globalScope = SafeEval("this"); if (globalScope == null) globalScope = SafeEval("({})"); } catch { try { globalScope = SafeEval("({})"); } catch { globalScope = JSValue.Marshal(new Dictionary<string,object>()); } }
+            _nil.DefineVariable("globalThis").Assign(globalScope);
+            _nil.DefineVariable("global").Assign(globalScope);
             _nil.DefineVariable("top").Assign(JSValue.Marshal(hostWindow));
             _nil.DefineVariable("parent").Assign(JSValue.Marshal(hostWindow));
 
@@ -3362,6 +3396,275 @@ if (mHrefSet.Success)
                 });
             })));
 
+            // WeakRef stub — prevents JSException when modern JS tries to use WeakRef.
+            // Returns a simple { deref: () => target } wrapper.
+            _nil.DefineVariable("WeakRef").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
+            {
+                var target = args.Length >= 1 ? args[0] : JSValue.Undefined;
+                return JSValue.Marshal(new
+                {
+                    deref = new Func<Arguments, JSValue>(a => target)
+                });
+            })));
+
+            // __sysImport — standalone host function for SystemJS dynamic loading.
+            // We do NOT pre-define System here — let the Vite polyfill create it
+            // as a real JS object (so .register, .resolve etc. work).
+            // System.import calls are intercepted in RunScriptsAsync and forwarded
+            // to __sysImport (bypasses polyfill's DOM-based import).
+            // NOTE: synchronous fetch — blocks JS thread so System.register and
+            // module execute() complete before Phase3 finishes. Otherwise SystemJS
+            // never triggers execute() because no script onload event fires.
+            var sysEngine = this;
+            // __diagLog — host function that writes to Debug.WriteLine (bypasses console.log regex limitation)
+            _nil.DefineVariable("__diagLog").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
+            {
+                if (args.Length > 0 && args[0] != null)
+                {
+                    var msg = args[0].ToString();
+                    try { System.Diagnostics.Debug.WriteLine(msg); DevToolsLogger.Log(msg); } catch { }
+                }
+                return JSValue.Undefined;
+            })));
+            _nil.DefineVariable("__sysImport").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
+            {
+                if (args.Length == 0) return JSValue.Undefined;
+                var url = args[0]?.ToString();
+                if (string.IsNullOrWhiteSpace(url)) return JSValue.Undefined;
+                var resolved = JavaScriptEngine.Resolve(sysEngine._ctx?.BaseUri, url);
+                if (resolved == null) return JSValue.Undefined;
+                try { System.Diagnostics.Debug.WriteLine("[DIAG:System.import] fetching " + resolved); DevToolsLogger.Log("[DIAG:System.import] fetching " + resolved); } catch { }
+                try
+                {
+                    var txt = sysEngine.FetchScriptStringAsync(resolved, sysEngine._ctx?.BaseUri).GetAwaiter().GetResult();
+                    if (!string.IsNullOrEmpty(txt))
+                    {
+                        try { System.Diagnostics.Debug.WriteLine("[DIAG:System.import] OK: " + txt.Length + " bytes from " + resolved); DevToolsLogger.Log("[DIAG:System.import] OK: " + txt.Length + " bytes from " + resolved); } catch { }
+                        // Use SafeEval directly (no IIFE wrapping) to create System
+                        // in the global context, then run the chunk — avoids RunInline's
+                        // IIFE scope isolation issue with globalThis.
+                        var sysInject = @"
+if (typeof __diagLog === 'function') { __diagLog('[DIAG:SYS] __diagLog accessible'); }
+var __sys = { _reg: { _entries: {}, _modId: 0 } };
+(function(r){
+    r.set = function(k,v) { this._entries[k] = v; };
+    r.get = function(k) { return this._entries[k]; };
+    r.forEach = function(fn) { for(var k in this._entries) fn(this._entries[k], k); };
+})(__sys._reg);
+__sys.registry = __sys._reg;
+__sys.register = function(deps, declare) {
+    if (typeof __diagLog === 'function') { __diagLog('[DIAG:SYS] register ENTERED typeof this=' + typeof this + ' has_reg=' + (typeof this._reg !== 'undefined')); }
+    try {
+        var r = this._reg;
+        var url = 'mod:' + (++r._modId);
+        r.set(url, { deps: deps || [], declare: declare, execute: null, url: url });
+        if (typeof __diagLog === 'function') { __diagLog('[DIAG:SYS] register OK url=' + url); }
+    } catch(e) {
+        if (typeof __diagLog === 'function') { __diagLog('[DIAG:SYS] register ERROR: ' + (e.message||e)); }
+    }
+};
+__sys.import = function(url) { return typeof __sysImport === 'function' ? __sysImport(url) : undefined; };
+__sys.resolve = function() { return ''; };
+__sys.instantiate = function() { return undefined; };
+var System = __sys;
+globalThis.System = __sys;
+";
+                        try { System.Diagnostics.Debug.WriteLine("[DIAG:SYS] creating System via SafeEval (" + sysInject.Length + " bytes)..."); } catch { }
+                        try { sysEngine.SafeEval(sysInject); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] SafeEval(sysInject) OK"); } catch (Exception ex) { try { System.Diagnostics.Debug.WriteLine("[DIAG:SYS] SafeEval(sysInject) exception: " + ex.GetType().Name + " - " + ex.Message); } catch { } }
+                        // Verify System exists
+                        try { var sysOk = sysEngine.SafeEval("typeof globalThis.System.register === 'function' ? 'fn' : 'no'"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] System.register = " + (sysOk?.ToString() ?? "null")); } catch { }
+                        // Mark System with a test prop to detect context reset
+                        try { sysEngine.SafeEval("globalThis.System.__ctxTest = 42;"); } catch { }
+                        // DIRECT TEST: can we call System.register with a minimal module?
+                        try { sysEngine.SafeEval(
+                            "(function(){" +
+                            "var S=globalThis.System;" +
+                            "if(typeof __diagLog==='function')__diagLog('[DIAG:SYS] direct_test before register');" +
+                            "S.register([],function(e,ctx){" +
+                            "if(typeof __diagLog==='function')__diagLog('[DIAG:SYS] direct_test declare called');" +
+                            "return {execute:function(){" +
+                            "if(typeof __diagLog==='function')__diagLog('[DIAG:SYS] direct_test execute called');" +
+                            "}};" +
+                            "});" +
+                            "if(typeof __diagLog==='function')__diagLog('[DIAG:SYS] direct_test after register');" +
+                            "})();"
+                        ); } catch (Exception ex) { try { System.Diagnostics.Debug.WriteLine("[DIAG:SYS] direct_test exception: " + ex.GetType().Name + " - " + ex.Message); } catch { } }
+                        // Check registry after direct test
+                        try { var rcAfter = sysEngine.SafeEval("(function(){var r=globalThis.System._reg;if(!r||!r._entries)return'no-reg';var c=0;for(var k in r._entries)c++;return c+'';})()"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] direct_test _entries count=" + (rcAfter?.ToString() ?? "null")); } catch { }
+                        try { var modIdAfter = sysEngine.SafeEval("globalThis.System._reg?._modId+'' || 'none'"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] direct_test _modId=" + (modIdAfter?.ToString() ?? "null")); } catch { }
+                        try { System.Diagnostics.Debug.WriteLine("[DIAG:SYS] running chunk via SafeEval (" + txt.Length + " bytes)..."); } catch { }
+                        // Debug: what does the actual chunk start with?
+                        try { var pfx = txt.Length > 80 ? txt.Substring(0, 80) : txt; System.Diagnostics.Debug.WriteLine("[DIAG:SYS] chunk prefix: '" + pfx.Replace("\0","\\0").Replace("\r","\\r").Replace("\n","\\n") + "'"); } catch { }
+                        try { var sysIdx = txt.IndexOf("System.register(", StringComparison.Ordinal); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] IndexOf 'System.register(' = " + sysIdx); } catch { }
+                        try { var lowerIdx = txt.IndexOf("system.register(", StringComparison.OrdinalIgnoreCase); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] IndexOf (ignore case) 'system.register(' = " + lowerIdx); } catch { }
+                        // Split chunk into individual System.register(...) calls to
+                        // avoid NiL.JS parse failures on the full 589KB file.
+                        // The paren matcher must skip //line comments, /*block comments*/,
+                        // template literals, and strings so parens inside them don't
+                        // throw off the depth counter.
+                        var sysCalls = new List<string>();
+                        int sysPos = 0;
+                        while (sysPos < txt.Length)
+                        {
+                            int rIdx = txt.IndexOf("System.register(", sysPos, StringComparison.Ordinal);
+                            if (rIdx < 0) break;
+                            int pStart = rIdx + "System.register".Length;
+                            if (pStart >= txt.Length || txt[pStart] != '(') { sysPos = rIdx + 1; continue; }
+                            int depth = 1;
+                            int i = pStart + 1;
+                            bool inStr = false;
+                            char strChar = '\0';
+                            bool inTmpl = false;
+                            bool inLineCmt = false;
+                            bool inBlockCmt = false;
+                            bool inRegex = false;
+                            bool inRegexClass = false;
+                            // Heuristic: after ( [ , ; : { = ! & | ? + - * / % ~ ^ < > the next / starts a regex
+                            bool afterExprPrefix = true;
+                            while (i < txt.Length && depth > 0)
+                            {
+                                char c = txt[i];
+                                if (inBlockCmt)
+                                {
+                                    if (c == '*' && i + 1 < txt.Length && txt[i + 1] == '/') { inBlockCmt = false; i += 2; }
+                                    else i++;
+                                    continue;
+                                }
+                                if (inLineCmt)
+                                {
+                                    if (c == '\n' || c == '\r') inLineCmt = false;
+                                    i++;
+                                    continue;
+                                }
+                                if (inRegex)
+                                {
+                                    if (inRegexClass)
+                                    {
+                                        if (c == '\\') i += 2;
+                                        else if (c == ']') inRegexClass = false;
+                                        i++;
+                                    }
+                                    else
+                                    {
+                                        if (c == '[') { inRegexClass = true; i++; }
+                                        else if (c == '\\') i += 2;
+                                        else if (c == '/')
+                                        {
+                                            inRegex = false; afterExprPrefix = false; i++;
+                                            // consume optional flags
+                                            while (i < txt.Length && ((txt[i] >= 'a' && txt[i] <= 'z') || (txt[i] >= 'A' && txt[i] <= 'Z'))) i++;
+                                        }
+                                        else i++;
+                                    }
+                                    continue;
+                                }
+                                if (inStr)
+                                {
+                                    if (c == '\\') i += 2;
+                                    else { if (c == strChar) { inStr = false; afterExprPrefix = false; } i++; }
+                                    continue;
+                                }
+                                if (inTmpl)
+                                {
+                                    if (c == '\\') i += 2;
+                                    else { if (c == '`') { inTmpl = false; afterExprPrefix = false; } i++; }
+                                    continue;
+                                }
+                                // Not in any comment/string/template/regex
+                                if (c == '/' && i + 1 < txt.Length)
+                                {
+                                    if (txt[i + 1] == '/') { inLineCmt = true; i += 2; continue; }
+                                    if (txt[i + 1] == '*') { inBlockCmt = true; i += 2; continue; }
+                                    // standalone / : regex or division
+                                    if (afterExprPrefix) { inRegex = true; i++; afterExprPrefix = false; continue; }
+                                    else { afterExprPrefix = true; i++; continue; }
+                                }
+                                if (c == '(') { depth++; afterExprPrefix = true; i++; continue; }
+                                if (c == ')') { depth--; afterExprPrefix = false; i++; continue; }
+                                if (c == '"') { inStr = true; strChar = '"'; i++; continue; }
+                                if (c == '\'') { inStr = true; strChar = '\''; i++; continue; }
+                                if (c == '`') { inTmpl = true; i++; continue; }
+                                if (c == '[' || c == '{' || c == ',' || c == ';' || c == ':') { afterExprPrefix = true; i++; continue; }
+                                if (c == ']' || c == '}') { afterExprPrefix = false; i++; continue; }
+                                // operators that make the next / a regex
+                                if ("=!&|?+-*%^<>\u007e".IndexOf(c) >= 0) { afterExprPrefix = true; i++; continue; }
+                                // letters, digits, underscore, dollar, dot make the next / a division
+                                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '$' || c == '.') { afterExprPrefix = false; i++; continue; }
+                                i++;
+                            }
+                            if (depth == 0) { sysCalls.Add(txt.Substring(rIdx, i - rIdx)); sysPos = i; }
+                            else { sysPos = rIdx + 1; }
+                        }
+                        try { System.Diagnostics.Debug.WriteLine("[DIAG:SYS] split chunk into " + sysCalls.Count + " System.register calls"); } catch { }
+                        int sysCallIdx = 0;
+                        foreach (var call in sysCalls)
+                        {
+                            sysCallIdx++;
+                            try
+                            {
+                                var result = sysEngine.SafeEval(call);
+                                try { System.Diagnostics.Debug.WriteLine("[DIAG:SYS] call #" + sysCallIdx + " OK (" + call.Length + " bytes)"); } catch { }
+                            }
+                            catch (Exception ex)
+                            {
+                                try { System.Diagnostics.Debug.WriteLine("[DIAG:SYS] call #" + sysCallIdx + " FAIL: " + ex.GetType().Name + " - " + (ex.Message ?? "")); } catch { }
+                            }
+                        }
+                        // Check if context was reset (test prop lost)
+                        try { var ctxTest = sysEngine.SafeEval("globalThis.System.__ctxTest === 42 ? 'ok' : 'LOST'"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] ctxTest=" + (ctxTest?.ToString() ?? "null")); } catch { }
+                        // Also check if System variable resolves in eval
+                        try { var sysVarTest = sysEngine.SafeEval("typeof System !== 'undefined' ? 'defined' : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] System var=" + (sysVarTest?.ToString() ?? "null")); } catch { }
+                        // Check from C# if System was created
+                        try { var s = sysEngine.SafeEval("typeof globalThis.System !== 'undefined' ? 'ok' : 'missing'"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] globalThis.System after chunk: " + (s?.ToString() ?? "null")); } catch { }
+                        // Check _modId (incremented on each register call)
+                        try { var modId = sysEngine.SafeEval("globalThis.System && globalThis.System._reg ? (globalThis.System._reg._modId+'') : 'no-reg'"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] _modId=" + (modId?.ToString() ?? "null")); } catch { }
+                        // Check registry entry count
+                        try { var rc = sysEngine.SafeEval("(function(){var S=globalThis.System;if(!S||!S.registry||!S.registry._entries)return'no-reg';var c=0;for(var k in S.registry._entries)c++;return c+'';})()"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] registry entries: " + (rc?.ToString() ?? "null")); } catch { }
+                        // Force-execute all registered modules with diagnostics
+                        try { sysEngine.SafeEval(@"
+(function(){
+    var S = globalThis.System;
+    if (!S || !S.registry) { return; }
+    var _e = S.registry._entries;
+    if (!_e) { return; }
+    var count = 0, ecount = 0;
+    for(var url in _e) {
+        ecount++;
+        var m = _e[url];
+        if (m && typeof m.declare === 'function') {
+            count++;
+            try {
+                var _export = function(n,v){};
+                var _ctx = { meta: { url: url } };
+                var declared = m.declare(_export, _ctx);
+                if (declared && typeof declared.execute === 'function') {
+                    declared.execute();
+                }
+            } catch(e) {
+                var _d = typeof __diagLog === 'function' ? __diagLog : function(){};
+                try { _d('[DIAG:SYS] EXEC FAIL url=' + url + ' ' + (e.message||e)); } catch(ee) {}
+            }
+        }
+    }
+    var _d2 = typeof __diagLog === 'function' ? __diagLog : function(){};
+    try { _d2('[DIAG:SYS] force-exec: ' + ecount + ' entries, ' + count + ' declared'); } catch(ee) {}
+})();"); } catch { }
+                        // Flush microtasks so Svelte onMount / Promise callbacks fire before Phase 4
+                        try { sysEngine.FlushMicrotasks(); } catch { }
+                        // Diagnostics: check globals and DOM after execution
+                        try { var d3check = sysEngine.SafeEval("typeof d3 !== 'undefined' ? 'd3_defined' : 'd3_missing'"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec d3=" + (d3check?.ToString() ?? "null")); } catch { }
+                        try { var mc = sysEngine.SafeEval("typeof Map"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec typeof Map=" + (mc?.ToString() ?? "null")); } catch { }
+                        try { var sc = sysEngine.SafeEval("typeof Set"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec typeof Set=" + (sc?.ToString() ?? "null")); } catch { }
+                        try { var bodyCheck = sysEngine.SafeEval("(function(){if(!document||!document.body)return'no_body';var c=0;try{c=document.body.children.length}catch(e){}return'body_children='+c+' tag='+(document.body.tagName||'');})()"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec " + (bodyCheck?.ToString() ?? "null")); } catch { }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    try { System.Diagnostics.Debug.WriteLine("[DIAG:System.import] fetch exception for " + resolved + ": " + ex.GetType().Name + " - " + ex.Message); } catch { }
+                }
+                return JSValue.Undefined;
+            })));
+
             // ===== ES polyfills via NiL.JS eval =====
             try
             {
@@ -3376,6 +3679,70 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
 ");
             }
             catch { System.Diagnostics.Debug.WriteLine("[NiLJS] Polyfill injection failed"); }
+        }
+
+        private static void DiagInspectSystemJS(JavaScriptEngine sysEngine)
+        {
+            try
+            {
+                // Polyfills-legacy sets System on globalThis (not as a NiL.JS global variable)
+                var sysVal = sysEngine.SafeEval("globalThis.System");
+                if (sysVal == null || sysVal.IsNull || sysVal.ValueType == NiL.JS.Core.JSValueType.Undefined)
+                {
+                    System.Diagnostics.Debug.WriteLine("[DIAG:SYS] globalThis.System is undefined/null");
+                    DevToolsLogger.Log("[DIAG:SYS] globalThis.System is undefined/null");
+                    return;
+                }
+                // Log System object keys (safe typeof check, avoid Object.keys which crashes on polyfilled System)
+                var sysKeysStr = "unknown";
+                try { sysKeysStr = sysEngine.SafeEval("(function(){ var k='',s=globalThis.System; for(var n in s) k+=','+n; return k.substring(1); })()")?.ToString() ?? "null"; } catch { sysKeysStr = "(safeEval failed)"; }
+                System.Diagnostics.Debug.WriteLine("[DIAG:SYS] System keys: " + sysKeysStr);
+                DevToolsLogger.Log("[DIAG:SYS] System keys: " + sysKeysStr);
+                // Check registry (safe iteration, no Object.keys)
+                var registryVal = sysEngine.SafeEval("globalThis.System && globalThis.System.registry ? (function(){ var k='',r=globalThis.System.registry; for(var n in r) k+=','+n; return k.substring(1); })() : null");
+                if (registryVal == null || registryVal.IsNull || registryVal.ValueType == NiL.JS.Core.JSValueType.Undefined)
+                {
+                    System.Diagnostics.Debug.WriteLine("[DIAG:SYS] System.registry missing or null");
+                    DevToolsLogger.Log("[DIAG:SYS] System.registry missing or null");
+                    // Try to create a minimal registry on System so module execution can proceed
+                    sysEngine.SafeEval("if (globalThis.System && !globalThis.System.registry) { globalThis.System.registry = {}; globalThis.System.registry._entries = {}; globalThis.System.registry.forEach = function(fn) { for (var k in globalThis.System.registry._entries) fn(globalThis.System.registry._entries[k], k); }; globalThis.System.registry.set = function(k,v) { globalThis.System.registry._entries[k] = v; }; globalThis.System.registry.get = function(k) { return globalThis.System.registry._entries[k]; }; }");
+                    System.Diagnostics.Debug.WriteLine("[DIAG:SYS] registry polyfill injected");
+                    DevToolsLogger.Log("[DIAG:SYS] registry polyfill injected");
+                    return;
+                }
+                var keysStr = registryVal.ToString();
+                System.Diagnostics.Debug.WriteLine("[DIAG:SYS] registry keys: " + keysStr);
+                DevToolsLogger.Log("[DIAG:SYS] registry keys: " + keysStr);
+                // For each key, check entry structure
+                var keys = keysStr.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var k in keys)
+                {
+                    var trimmedKey = k.Trim().Trim('"').Trim('\'');
+                    if (string.IsNullOrEmpty(trimmedKey)) continue;
+                    try
+                    {
+                        var entryInfo = sysEngine.SafeEval(@"
+(function(k){
+    var e = System.registry[k] || System.registry._entries && System.registry._entries[k];
+    if (!e) return 'key=' + k + ' NOT_FOUND';
+    var hasExec = typeof e.execute === 'function';
+    var hasDecl = typeof e.declare === 'function';
+    var typeStr = typeof e;
+    var ownKeys = ''; try { for(var n in e) ownKeys+=','+n; ownKeys=ownKeys.substring(1); } catch(ex){ ownKeys='(iter error)'; }
+    return 'key=' + k + ' type=' + typeStr + ' hasExec=' + hasExec + ' hasDecl=' + hasDecl + ' ownKeys=[' + ownKeys + ']';
+})('" + trimmedKey.Replace("'", "\\'") + @"')");
+                        var info = entryInfo?.ToString() ?? "null";
+                        System.Diagnostics.Debug.WriteLine("[DIAG:SYS] " + info);
+                        DevToolsLogger.Log("[DIAG:SYS] " + info);
+                    }
+                    catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[DIAG:SYS] C# inspect exception: " + ex.Message);
+                DevToolsLogger.Log("[DIAG:SYS] C# inspect exception: " + ex.Message);
+            }
         }
 
         private void _nilSyncDocument()
@@ -3665,7 +4032,38 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                     // Serialize calls into NiL.JS: only one thread may Eval at a time
                     lock (_nilEvalLock)
                     {
-                        return _evalContext.Eval(code);
+                        // Phase S.2: JS execution timeout via NiL.JS DebuggerCallback.
+                        // This fires on each expression evaluation step, letting us abort
+                        // tight loops (while(true){}) after timeoutMs.
+                        const int timeoutMs = 7000;
+                        var start = Environment.TickCount;
+                        var oldDebug = _evalContext.Debugging;
+                        _evalContext.Debugging = true;
+                        Exception timeoutEx = null;
+                        DebuggerCallback cb = (ctx, e) =>
+                        {
+                            if (timeoutEx == null && Environment.TickCount - start >= timeoutMs)
+                            {
+                                timeoutEx = new TimeoutException("JS execution exceeded " + timeoutMs + "ms (hash=" + _diagCodeHash + ")");
+                            }
+                            if (timeoutEx != null) throw timeoutEx;
+                        };
+                        _evalContext.DebuggerCallback += cb;
+                        try
+                        {
+                            return _evalContext.Eval(code);
+                        }
+                        finally
+                        {
+                            _evalContext.Debugging = oldDebug;
+                            _evalContext.DebuggerCallback -= cb;
+                            if (timeoutEx != null)
+                            {
+                                try { DevToolsLogger.Log("[JS:TIMEOUT] Script exceeded " + timeoutMs + "ms — abandoned (hash=" + _diagCodeHash + ")"); } catch { }
+                                _niljsSafeEvalFailed = true;
+                                _diagSafeEvalFails++;
+                            }
+                        }
                     }
                 }
             }
@@ -4844,10 +5242,21 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                 var type = n.Attr != null && n.Attr.ContainsKey("type") ? (n.Attr["type"] ?? "").Trim().ToLowerInvariant() : "";
                 var treatAsDefer = hasDefer || type == "module";
 
+                // Phase T+ / Nokia Design Archive compat:
+                // Skip ES module scripts — NiL.JS doesn't support modern ESM syntax
+                // (async generators, import.meta, etc.). Vite-built SPAs ship a
+                // legacy bundle via <script nomodule> that uses ES5 + SystemJS.
+                if (type == "module") continue;
+
+                // Execute <script nomodule> — inverse of browser behavior.
+                // In modern browsers the nomodule attribute suppresses execution,
+                // but our engine needs the legacy (ES5) fallback instead.
                 if (hasAsync) asyncs.Add(n);
                 else if (treatAsDefer) deferred.Add(n);
                 else immediate.Add(n);
             }
+
+            try { System.Diagnostics.Debug.WriteLine("[DIAG:RUNSCRIPTS] classified: immediate=" + immediate.Count + " deferred=" + deferred.Count + " async=" + asyncs.Count + " baseUri=" + baseUri); } catch { }
 
             // Helper to fetch script content (parallelizable)
             // Returns: Content, ResolvedUri, IsModule, IsInline, ShouldRun
@@ -4868,6 +5277,9 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                     var resolved = Resolve(baseUri, src) ?? Resolve(_ctx?.BaseUri, src);
                     if (resolved == null) return Tuple.Create<string, Uri, bool, bool, bool>(null, null, false, false, false);
 
+                    string nomodule = null; node.Attr?.TryGetValue("nomodule", out nomodule);
+                    try { System.Diagnostics.Debug.WriteLine("[DIAG:FETCH] PreFetch external script src=\"" + src + "\" resolved=\"" + resolved + "\" nomodule=" + (nomodule != null) + " isModule=" + isModule + " allowExt=" + _allowExternalScripts); } catch { }
+
                     if (isModule) return Tuple.Create<string, Uri, bool, bool, bool>(null, resolved, true, false, true); // Modules handled in exec
 
                     if (!_allowExternalScripts) return Tuple.Create<string, Uri, bool, bool, bool>(null, resolved, false, false, false);
@@ -4876,9 +5288,10 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                     try
                     {
                         var txt = await FetchScriptStringAsync(resolved, baseUri);
+                        try { System.Diagnostics.Debug.WriteLine("[DIAG:FETCH] PreFetch result len=" + (txt?.Length ?? -1) + " uri=\"" + resolved + "\""); } catch { }
                         return Tuple.Create<string, Uri, bool, bool, bool>(txt, resolved, false, false, true);
                     }
-                    catch { return Tuple.Create<string, Uri, bool, bool, bool>(null, resolved, false, false, false); }
+                    catch (Exception ex) { try { System.Diagnostics.Debug.WriteLine("[DIAG:FETCH] PreFetch exception for \"" + resolved + "\": " + ex.GetType().Name + " - " + ex.Message); } catch { } return Tuple.Create<string, Uri, bool, bool, bool>(null, resolved, false, false, false); }
                 }
                 else
                 {
@@ -4912,9 +5325,13 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                     return;
                 }
 
-                if (content == null) return;
+                if (content == null) { try { System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] content is null, skipping. uri=\"" + resolved + "\" isInline=" + isInline); } catch { } return; }
 
                 int len = content.Length;
+                string preview = len > 120 ? content.Substring(0, 120) + "…" : content;
+                preview = preview.Replace("\r", " ").Replace("\n", " ");
+                try { System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] len=" + len + " isInline=" + isInline + " isModule=" + isModule + " uri=\"" + resolved + "\" preview=\"" + preview + "\""); } catch { }
+
                 if (_pageScriptBytesUsed + len > _pageScriptByteBudget)
                 {
                      if (!isInline || len > TinyInlineFreeThreshold)
@@ -4925,8 +5342,78 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                 }
                 if (len > TinyInlineFreeThreshold) Interlocked.Add(ref _pageScriptBytesUsed, len);
 
-                try { RunInline(content, new JsContext { BaseUri = resolved }); }
-                catch (Exception ex) { try { System.Diagnostics.Debug.WriteLine($"[Diag] RunInline exception: {ex}"); } catch { /* swallow */ } }
+                // Phase DIAG: external scripts bypass RunInline's silent catch + IIFE wrapping
+                // which can break UMD globals (d3.js). Use SafeEval directly with error logging.
+                // Wrapping in JS try-catch to survive internal NiL.JS partial evaluation failures.
+                if (!isInline)
+                {
+                    // Polyfill ES6 features BEFORE d3.js v7 (which uses class extends Map/Set, Symbol, typed arrays)
+                    // NiL.JS's HostMapType/HostSetType are C# marker objects that don't support extends or iteration.
+                    // Use C# API: _nil.Eval() creates the constructor JSValue, then _nil.DefineVariable().Assign()
+                    // bypasses JS-level read-only protection on built-in globals (bare Map = Map$ silently fails).
+                    if (resolved != null && resolved.AbsoluteUri != null && resolved.AbsoluteUri.Contains("d3js.org"))
+                    {
+                        try { System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] preparing polyfill prefix for " + resolved.AbsoluteUri); } catch { }
+                        // Build polyfill as JS string → prepend to content, run in same SafeEval.
+                        // NiL.JS cannot create functions via separate _nil.Eval() calls (InvalidOperationException).
+                        // But function definitions inside a large SafeEval("try{...}catch(e){}") work fine
+                        // (same mechanism that lets 279KB d3.js eval execute without C# crash).
+                        string polyfillPrefix = @"
+var __MapPolyfill = function(entries) { this._d = {}; this.size = 0; if (entries) for (var __mpe_i = 0; __mpe_i < entries.length; ++__mpe_i) this.set(entries[__mpe_i][0], entries[__mpe_i][1]); };
+__MapPolyfill.__polyfilled = true;
+__MapPolyfill.prototype.set = function(k, v) { var s = typeof k + '|' + k; if (!this._d.hasOwnProperty(s)) this.size++; this._d[s] = v; return this; };
+__MapPolyfill.prototype.get = function(k) { var s = typeof k + '|' + k; return this._d.hasOwnProperty(s) ? this._d[s] : void 0; };
+__MapPolyfill.prototype.has = function(k) { return this._d.hasOwnProperty(typeof k + '|' + k); };
+__MapPolyfill.prototype.delete = function(k) { var s = typeof k + '|' + k; if (this._d.hasOwnProperty(s)) { delete this._d[s]; this.size--; return true; } return false; };
+__MapPolyfill.prototype.clear = function() { this._d = {}; this.size = 0; };
+__MapPolyfill.prototype.forEach = function(fn, thisArg) { for (var k in this._d) if (this._d.hasOwnProperty(k)) fn.call(thisArg || this, this._d[k], k, this); };
+__MapPolyfill.prototype.entries = function() { var a = []; for (var k in this._d) if (this._d.hasOwnProperty(k)) { var p = k.indexOf('|'); a.push([k.substring(p + 1), this._d[k]]); } return a; };
+var __SetPolyfill = function(values) { this._d = {}; this.size = 0; if (values) for (var __spe_i = 0; __spe_i < values.length; ++__spe_i) this.add(values[__spe_i]); };
+__SetPolyfill.__polyfilled = true;
+__SetPolyfill.prototype.add = function(v) { var s = typeof v + '|' + v; if (!this._d.hasOwnProperty(s)) this.size++; this._d[s] = v; return this; };
+__SetPolyfill.prototype.has = function(v) { return this._d.hasOwnProperty(typeof v + '|' + v); };
+__SetPolyfill.prototype.delete = function(v) { var s = typeof v + '|' + v; if (this._d.hasOwnProperty(s)) { delete this._d[s]; this.size--; return true; } return false; };
+__SetPolyfill.prototype.clear = function() { this._d = {}; this.size = 0; };
+__SetPolyfill.prototype.forEach = function(fn, thisArg) { for (var k in this._d) if (this._d.hasOwnProperty(k)) fn.call(thisArg || this, this._d[k], k, this); };
+if (typeof Symbol === 'undefined') { var __id = 0; var Symbol = function(k){ return '__Symbol_' + (k||'') + '_' + (++__id) }; Symbol.iterator = '__Symbol_iterator'; Symbol.toStringTag = '__Symbol_toStringTag'; Symbol.species = '__Symbol_species'; Symbol.for = function(k){ return '__Symbol_for_' + k }; }
+";
+                        // Text-replace: strip extends Map/Set + redirect super.*() to polyfill methods.
+                        // NiL.JS cannot handle `class extends` with ANY parent (HostObject or JS function).
+                        // Strategy: remove extends clause, replace super() with comma-expression storage init,
+                        // replace super.get/set/has/delete/add with polyfill calls,
+                        // replace new Map/Set instantiation with polyfill constructors.
+                        // Note: super() may appear in comma-expression context:  if(super(),...)  — must use comma, not semicolon.
+                        bool hasExtendsMap = content.IndexOf("extends Map", StringComparison.Ordinal) >= 0;
+                        bool hasExtendsSet = content.IndexOf("extends Set", StringComparison.Ordinal) >= 0;
+                        content = polyfillPrefix + content
+                            .Replace("extends Map{", "{")
+                            .Replace("extends Map ", "{ ")
+                            .Replace("extends Set{", "{")
+                            .Replace("extends Set ", "{ ")
+                            .Replace("super.get(", "__MapPolyfill.prototype.get.call(this,")
+                            .Replace("super.set(", "__MapPolyfill.prototype.set.call(this,")
+                            .Replace("super.has(", "__MapPolyfill.prototype.has.call(this,")
+                            .Replace("super.delete(", "__MapPolyfill.prototype.delete.call(this,")
+                            .Replace("super.add(", "__SetPolyfill.prototype.add.call(this,")
+                            .Replace("super()", "(this._d={},this.size=0)")
+                            .Replace("new Map", "new __MapPolyfill")
+                            .Replace("new Set", "new __SetPolyfill")
+                            // Replace computed property names with Symbol.* → string keys
+                            // NiL.JS cannot parse [Symbol.iterator]/[Symbol.toStringTag] in class bodies
+                            // even inside try{}catch(e){}, because it's a parse-level error, not runtime.
+                            .Replace("[Symbol.iterator]", "['__Symbol_iterator']")
+                            .Replace("[Symbol.toStringTag]", "['__Symbol_toStringTag']")
+                            .Replace("[Symbol.species]", "['__Symbol_species']");
+                        try { System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] polyfill strip-extends done hasMap=" + hasExtendsMap + " hasSet=" + hasExtendsSet); } catch { }
+                    }
+                    try { System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] eval " + resolved); _nilSyncDocument(); SafeEval("try{ " + content + " }catch(e){ try { console.log('d3js-err:'+e.message) }catch(_){} }"); }
+                    catch (Exception ex) { try { System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] SafeEval error for " + resolved + ": " + ex.GetType().Name + " - " + ex.Message); } catch { } }
+                }
+                else
+                {
+                    try { RunInline(content, new JsContext { BaseUri = resolved }); }
+                    catch (Exception ex) { try { System.Diagnostics.Debug.WriteLine($"[Diag] RunInline exception: {ex}"); } catch { /* swallow */ } }
+                }
             }
 
             // 1) Immediate: Parallel Fetch, Sequential Exec
@@ -4934,6 +5421,19 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
             for (int i = 0; i < immediate.Count; i++)
             {
                 var res = await immTasks[i];
+                // Nokia compat: Vite polyfill overwrites System.import with its
+                // own DOM-based version. Intercept inline System.import(...) calls
+                // and forward to our standalone __sysImport (FetchScriptStringAsync
+                // + RunInline) so the legacy chunk actually loads.
+                if (res != null && res.Item4 && res.Item1 != null)
+                {
+                    var trimmed = res.Item1.TrimStart();
+                    if (trimmed.StartsWith("System.import("))
+                    {
+                        var newContent = "__sysImport" + trimmed.Substring("System.import".Length);
+                        res = Tuple.Create(newContent, res.Item2, res.Item3, res.Item4, res.Item5);
+                    }
+                }
                 await Execute(immediate[i], res);
             }
 
@@ -5173,6 +5673,7 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
 
                     if (!resp.IsSuccessStatusCode)
                     {
+                        try { System.Diagnostics.Debug.WriteLine("[DIAG:FETCH] managed-first HTTP " + (int)resp.StatusCode + " for " + uri); } catch { }
                         // If X/Twitter host => bail quietly (avoids WinRT 0x80072EFD spam)
                         if (isXHost(host)) return null;
 
@@ -5183,6 +5684,7 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                         var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
                         string enc = null; try { enc = string.Join(",", resp.Content.Headers.ContentEncoding); } catch { /* swallow */ }
                         var result = DecodeBytes(bytes, enc);
+                        try { System.Diagnostics.Debug.WriteLine("[DIAG:FETCH] managed-first OK: " + (result?.Length ?? 0) + " bytes from " + uri); } catch { }
                         return result;
                     }
                 }
@@ -5230,11 +5732,16 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                     return null; // bail � do not try further paths
                 }
 
-                if (!resp.IsSuccessStatusCode) return null;
+                if (!resp.IsSuccessStatusCode)
+                {
+                    try { System.Diagnostics.Debug.WriteLine("[DIAG:FETCH] generic HTTP " + (int)resp.StatusCode + " for " + uri); } catch { }
+                    return null;
+                }
 
                 var b2 = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
                 string enc2 = null; try { enc2 = string.Join(",", resp.Content.Headers.ContentEncoding); } catch { /* swallow */ }
                 var result = DecodeBytes(b2, enc2);
+                try { System.Diagnostics.Debug.WriteLine("[DIAG:FETCH] generic OK: " + (result?.Length ?? 0) + " bytes from " + uri); } catch { }
                 return result;
             }
             catch
@@ -8893,14 +9400,165 @@ public bool Execute(string code)
         private sealed class JsDomText : JsDomNodeBase
         {
             public JsDomText(JavaScriptEngine e, LiteElement n) : base(e, n) { }
-            public string nodeType => "text";
+            public int nodeType => 3;
+            public string nodeName => "#text";
             public string data { get { return _node.Text ?? ""; } set { _node.Text = value ?? ""; } }
+            public string nodeValue { get { return data; } set { data = value; } }
+            public string textContent { get { return data; } set { data = value; } }
+            public object parentNode
+            {
+                get
+                {
+                    var p = _node.Parent;
+                    return p != null ? new JsDomElement(_e, p) : null;
+                }
+            }
+            public object nextSibling
+            {
+                get
+                {
+                    var p = _node.Parent;
+                    if (p == null) return null;
+                    var idx = p.Children.IndexOf(_node);
+                    if (idx < 0 || idx >= p.Children.Count - 1) return null;
+                    for (int i = idx + 1; i < p.Children.Count; i++)
+                        if (p.Children[i] != null) return new JsDomElement(_e, p.Children[i]);
+                    return null;
+                }
+            }
+            public object previousSibling
+            {
+                get
+                {
+                    var p = _node.Parent;
+                    if (p == null) return null;
+                    var idx = p.Children.IndexOf(_node);
+                    if (idx <= 0) return null;
+                    for (int i = idx - 1; i >= 0; i--)
+                        if (p.Children[i] != null) return new JsDomElement(_e, p.Children[i]);
+                    return null;
+                }
+            }
+            public object ownerDocument => new HostDocument(_e);
         }
 
         private sealed class JsDomElement : JsDomNodeBase
         {
             public JsDomElement(JavaScriptEngine e, LiteElement n) : base(e, n) { }
             public string tagName => (_node.Tag ?? "").ToUpperInvariant();
+            public string nodeName => (_node.Tag ?? "").ToUpperInvariant();
+
+            public string nodeType => _node.IsText ? "3" : "1";
+            public string textContent
+            {
+                get { return CollectText(_node); }
+                set
+                {
+                    _node.RemoveAllChildren();
+                    if (!string.IsNullOrEmpty(value))
+                    {
+                        var t = new LiteElement("#text") { Text = value };
+                        _node.Children.Add(t);
+                    }
+                    _e.RequestRepaint();
+                }
+            }
+            public string className
+            {
+                get
+                {
+                    if (_node.Attr == null) return null;
+                    string v; return _node.Attr.TryGetValue("class", out v) ? v : null;
+                }
+                set
+                {
+                    _node.SetAttribute("class", value ?? "");
+                    _e.RequestRepaint();
+                }
+            }
+            public object parentNode
+            {
+                get
+                {
+                    var p = _node.Parent;
+                    return p != null ? new JsDomElement(_e, p) : null;
+                }
+            }
+            public object nextSibling
+            {
+                get
+                {
+                    var p = _node.Parent;
+                    if (p == null) return null;
+                    var idx = p.Children.IndexOf(_node);
+                    if (idx < 0 || idx >= p.Children.Count - 1) return null;
+                    for (int i = idx + 1; i < p.Children.Count; i++)
+                        if (!p.Children[i].IsText) return new JsDomElement(_e, p.Children[i]);
+                    return null;
+                }
+            }
+            public object previousSibling
+            {
+                get
+                {
+                    var p = _node.Parent;
+                    if (p == null) return null;
+                    var idx = p.Children.IndexOf(_node);
+                    if (idx <= 0) return null;
+                    for (int i = idx - 1; i >= 0; i--)
+                        if (!p.Children[i].IsText) return new JsDomElement(_e, p.Children[i]);
+                    return null;
+                }
+            }
+            public object firstChild
+            {
+                get
+                {
+                    if (_node.Children == null || _node.Children.Count == 0) return null;
+                    for (int i = 0; i < _node.Children.Count; i++)
+                        if (_node.Children[i] != null) return new JsDomElement(_e, _node.Children[i]);
+                    return null;
+                }
+            }
+            public object lastChild
+            {
+                get
+                {
+                    if (_node.Children == null || _node.Children.Count == 0) return null;
+                    for (int i = _node.Children.Count - 1; i >= 0; i--)
+                        if (_node.Children[i] != null) return new JsDomElement(_e, _node.Children[i]);
+                    return null;
+                }
+            }
+            public object[] children
+            {
+                get
+                {
+                    if (_node.Children == null || _node.Children.Count == 0) return new object[0];
+                    var list = new List<object>();
+                    for (int i = 0; i < _node.Children.Count; i++)
+                    {
+                        var ch = _node.Children[i];
+                        if (ch != null && !ch.IsText) list.Add(new JsDomElement(_e, ch));
+                    }
+                    return list.ToArray();
+                }
+            }
+            public object[] childNodes
+            {
+                get
+                {
+                    if (_node.Children == null || _node.Children.Count == 0) return new object[0];
+                    var list = new List<object>();
+                    for (int i = 0; i < _node.Children.Count; i++)
+                    {
+                        var ch = _node.Children[i];
+                        if (ch != null) list.Add(new JsDomElement(_e, ch));
+                    }
+                    return list.ToArray();
+                }
+            }
+            public object ownerDocument => new HostDocument(_e);
 
             // inside class JsDomElement
             public string id
@@ -9171,6 +9829,128 @@ public bool Execute(string code)
                 _e.RequestRepaint();
             }
 
+            public void insertBefore(object newChild, object refChild)
+            {
+                if (!_e.SandboxAllows(SandboxFeature.DomMutation, "element.insertBefore")) return;
+                var jNew = newChild as JsDomNodeBase;
+                var jRef = refChild as JsDomNodeBase;
+                if (jNew == null) return;
+                if (jRef == null) { _node.Children.Add(jNew._node); }
+                else
+                {
+                    var idx = _node.Children.IndexOf(jRef._node);
+                    if (idx < 0) _node.Children.Add(jNew._node);
+                    else _node.Children.Insert(idx, jNew._node);
+                }
+                try
+                {
+                    lock (_e._mutationLock) { _e._pendingMutations.Add(new InternalMutationRecord { Type = "childList", Target = _node, Added = new List<LiteElement> { jNew._node } }); }
+                }
+                catch { }
+                _e.RequestRepaint();
+            }
+
+            public void replaceChild(object newChild, object oldChild)
+            {
+                if (!_e.SandboxAllows(SandboxFeature.DomMutation, "element.replaceChild")) return;
+                var jNew = newChild as JsDomNodeBase;
+                var jOld = oldChild as JsDomNodeBase;
+                if (jNew == null || jOld == null) return;
+                var idx = _node.Children.IndexOf(jOld._node);
+                if (idx < 0) return;
+                _node.Children[idx] = jNew._node;
+                try
+                {
+                    lock (_e._mutationLock) { _e._pendingMutations.Add(new InternalMutationRecord { Type = "childList", Target = _node, Removed = new List<LiteElement> { jOld._node }, Added = new List<LiteElement> { jNew._node } }); }
+                }
+                catch { }
+                _e.RequestRepaint();
+            }
+
+            public void remove()
+            {
+                if (!_e.SandboxAllows(SandboxFeature.DomMutation, "element.remove")) return;
+                var p = _node.Parent;
+                if (p == null) return;
+                p.Children.Remove(_node);
+                var removed = new List<LiteElement> { _node };
+                try
+                {
+                    lock (_e._mutationLock) { _e._pendingMutations.Add(new InternalMutationRecord { Type = "childList", Target = p, Removed = removed }); }
+                }
+                catch { }
+                _e.RequestRepaint();
+            }
+
+            public bool contains(object other)
+            {
+                var j = other as JsDomNodeBase;
+                if (j == null || j._node == null) return false;
+                if (j._node == _node) return true;
+                foreach (var d in _node.Descendants())
+                    if (d == j._node) return true;
+                return false;
+            }
+
+            public object cloneNode(bool deep)
+            {
+                if (deep) return CloneTree(_node) != null ? new JsDomElement(_e, CloneTree(_node)) : null;
+                var c = new LiteElement(_node.Tag);
+                try
+                {
+                    if (_node.Attr != null) c.CopyAttributesFrom(_node);
+                }
+                catch { }
+                return new JsDomElement(_e, c);
+            }
+
+            public bool matches(string selector)
+            {
+                if (string.IsNullOrWhiteSpace(selector)) return false;
+                return JsDocument.MatchesSimpleSelector(_node, selector);
+            }
+
+            public object[] getElementsByTagName(string tag)
+            {
+                if (string.IsNullOrEmpty(tag) || _node == null) return new object[0];
+                var list = new List<object>();
+                foreach (var n in _node.Descendants())
+                    if (!n.IsText && string.Equals(n.Tag, tag, StringComparison.OrdinalIgnoreCase))
+                        list.Add(new JsDomElement(_e, n));
+                return list.ToArray();
+            }
+            public object[] getElementsByClassName(string className)
+            {
+                if (string.IsNullOrEmpty(className) || _node == null) return new object[0];
+                var list = new List<object>();
+                foreach (var n in _node.Descendants())
+                {
+                    if (n.IsText) continue;
+                    string cls; if (n.Attr != null && n.Attr.TryGetValue("class", out cls) && !string.IsNullOrEmpty(cls))
+                    {
+                        var parts = cls.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                        for (int i = 0; i < parts.Length; i++)
+                            if (string.Equals(parts[i], className, StringComparison.Ordinal)) { list.Add(new JsDomElement(_e, n)); break; }
+                    }
+                }
+                return list.ToArray();
+            }
+
+            public void setAttributeNS(string ns, string name, string value)
+            {
+                setAttribute(name, value);
+            }
+
+            public string getAttributeNS(string ns, string name)
+            {
+                return getAttribute(name);
+            }
+
+            public bool hasChildNodes()
+            {
+                return _node.Children != null && _node.Children.Count > 0;
+            }
+
             public object querySelector(string sel) { return new JsDocument(_e, _node).querySelector(sel); }
             public object[] querySelectorAll(string sel) { return new JsDocument(_e, _node).querySelectorAll(sel); }
 
@@ -9309,8 +10089,8 @@ public bool Execute(string code)
                 self.RequestRepaint();
             }
 
-
         }
+
     }
 
     // ------------------- Host interface + context (stable) -------------------

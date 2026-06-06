@@ -71,6 +71,14 @@ namespace BrowserCore.Engine
         public event EventHandler<bool> LoadingChanged;
 
         public bool EnableJavaScript { get; set; } = true;
+
+        /// <summary>
+        /// Timeout (ms) for the entire JS execution phase (RunScriptsAsync).
+        /// Default 60s allows heavy scripts like D3.js to initialize.
+        /// Increase for JS-heavy SPAs, decrease for simple text sites.
+        /// </summary>
+        public int JsPhaseTimeoutMs { get; set; } = 60000;
+
         public void ApplySafeMode()
         {
             if (SafeMode)
@@ -1497,15 +1505,15 @@ namespace BrowserCore.Engine
                     try
                     {
                         var jsTask = js.RunScriptsAsync(dom, baseUri);
-                        if (await Task.WhenAny(jsTask, Task.Delay(15000)) == jsTask)
+                        if (await Task.WhenAny(jsTask, Task.Delay(JsPhaseTimeoutMs)) == jsTask)
                         {
                             await jsTask;
                             var m2 = "[DIAG] RenderAsync Phase3 JS DONE"; System.Diagnostics.Debug.WriteLine(m2); DevToolsLogger.Log(m2);
                         }
                         else
                         {
-                            System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase3 JS TIMEOUT (15s)");
-                            DevToolsLogger.Log("[DIAG] RenderAsync Phase3 JS TIMEOUT (15s)");
+                            try { System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase3 JS TIMEOUT (" + JsPhaseTimeoutMs + "ms)"); } catch { }
+                            try { DevToolsLogger.Log("[DIAG] RenderAsync Phase3 JS TIMEOUT (" + JsPhaseTimeoutMs + "ms)"); } catch { }
                         }
                     }
                     catch (Exception ex) { var m3 = "[DIAG] RenderAsync Phase3 JS EXC " + ex.Message; System.Diagnostics.Debug.WriteLine(m3); DevToolsLogger.Log(m3); }

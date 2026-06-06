@@ -102,6 +102,8 @@ namespace BrowserCore.Engine
                 case HtmlTag.Ol:
                     return await MakeListAsync(n, true, baseUri, onNavigate, js, ct);
 
+                case HtmlTag.Svg:
+                    return RenderInlineSvg(n);
                 case HtmlTag.Img:
                     return await MakeImageAsync(n, baseUri, ct);
                 case HtmlTag.Picture:

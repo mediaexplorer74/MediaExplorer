@@ -88,6 +88,16 @@ namespace BrowserCore.Api
             set => _engine.RenderModeString = value;
         }
 
+        /// <summary>
+        /// Timeout (ms) for the JS execution phase — delegates to CustomHtmlEngine.
+        /// Default 60000ms (60s). Increase for JS-heavy SPAs, decrease for text sites.
+        /// </summary>
+        public int JsPhaseTimeoutMs
+        {
+            get => _engine.JsPhaseTimeoutMs;
+            set => _engine.JsPhaseTimeoutMs = value;
+        }
+
         public BrowserHost()
         {
             _resources = new ResourceManager(new Windows.Web.Http.HttpClient());

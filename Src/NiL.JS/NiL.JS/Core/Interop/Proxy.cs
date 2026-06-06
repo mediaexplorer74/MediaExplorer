@@ -109,7 +109,9 @@ internal abstract class Proxy : JSObject
                 var property = member as PropertyInfo;
                 if (property != null)
                 {
-                    if ((property.GetSetMethod(true) ?? property.GetGetMethod(true)).IsStatic != !(IsInstancePrototype ^ instanceAttribute))
+                    var accessor = property.GetSetMethod(true) ?? property.GetGetMethod(true);
+                    if (accessor == null) continue;
+                    if (accessor.IsStatic != !(IsInstancePrototype ^ instanceAttribute))
                         continue;
                     if ((property.GetSetMethod(true) == null || !property.GetSetMethod(true).IsPublic)
                         && (property.GetGetMethod(true) == null || !property.GetGetMethod(true).IsPublic))
