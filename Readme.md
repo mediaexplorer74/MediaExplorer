@@ -1,4 +1,4 @@
-# MediaExplorer 0.42.8 - dev branch
+# MediaExplorer 0.50.0 - dev branch
 
 ![](/Images/logo.png)
 

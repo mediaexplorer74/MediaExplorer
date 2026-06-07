@@ -1,16 +1,18 @@
-﻿using System;
+using System;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Documents;
 using Windows.UI.Xaml.Media.Animation;
+using System.Threading.Tasks;
 using System.Reflection;
+
+using Windows.Storage.Streams;
 
 namespace BrowserCore.Engine
 {
-    internal static class RendererStyles
+        internal static class RendererStyles
     {
-        // Minimal CSS color parser for shadow colors (hex, rgb/rgba, a few names)
         private static SolidColorBrush TryParseCssColor(string css)
         {
             if (string.IsNullOrWhiteSpace(css)) return null;
@@ -77,7 +79,7 @@ namespace BrowserCore.Engine
                             var p = part.Trim();
                             // Skip direction/angle
                             if (p.IndexOf("deg", StringComparison.OrdinalIgnoreCase) >= 0 || p.StartsWith("to ", StringComparison.OrdinalIgnoreCase)) continue;
-                            
+
                             // Try to parse color (might have percentage at end e.g. "#000 0%")
                             var colorPart = p.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)[0];
                             var brush = TryParseCssColor(colorPart);
@@ -88,7 +90,7 @@ namespace BrowserCore.Engine
                 }
 
                 // Try named colors via reflection
-                var props = typeof(Windows.UI.Colors).GetRuntimeProperties();
+                var props = System.Reflection.TypeExtensions.GetProperties(typeof(Windows.UI.Colors));
                 foreach (var p in props)
                 {
                     if (string.Equals(p.Name, s, StringComparison.OrdinalIgnoreCase) && p.PropertyType == typeof(Windows.UI.Color))
@@ -669,10 +671,10 @@ namespace BrowserCore.Engine
                                 if (string.IsNullOrEmpty(text) && tb.Inlines != null && tb.Inlines.Count > 0)
                                 {
                                     var sb = new System.Text.StringBuilder();
-                                    foreach (var inline in tb.Inlines)
-                                    {
-                                        var run = inline as Run; if (run != null && !string.IsNullOrEmpty(run.Text)) sb.Append(run.Text);
-                                    }
+foreach (var inline in tb.Inlines)
+                                     {
+                                         var run = inline as Run; if (run != null && !string.IsNullOrEmpty(run.Text)) sb.Append(run.Text);
+                                     }
                                     text = sb.ToString();
                                 }
                                 var shadow = new TextBlock
@@ -688,12 +690,12 @@ namespace BrowserCore.Engine
                                 };
                                 host.Children.Add(shadow);
                                 host.Children.Add(tb); // keep original on top so underline remains visible
-                                panelParent.Children.Insert(idx, host);
-                            }
-                        }
-                    }
-                }
-                catch { /* swallow */ }
+panelParent.Children.Insert(idx, host);
+                             }
+                         }
+                     }
+                 }
+                 catch { /* swallow */ }
 
                 // text-decoration: underline/line-through (best-effort)
                 try
@@ -706,7 +708,7 @@ namespace BrowserCore.Engine
                         {
                             try
                             {
-                                var prop = tb.GetType().GetRuntimeProperty("TextDecorations");
+                                var prop = tb.GetType().GetProperty("TextDecorations");
                                 if (prop != null && prop.CanWrite)
                                 {
                                     var t = prop.PropertyType; // avoid compile-time dependency
@@ -765,7 +767,7 @@ namespace BrowserCore.Engine
                         else double.TryParse(s, out px);
                         if (px > 0)
                         {
-                            try { var pi = tb.GetType().GetRuntimeProperty("TextIndent"); if (pi != null && pi.CanWrite) pi.SetValue(tb, px); else { var m = tb.Margin; tb.Margin = new Thickness(m.Left + px, m.Top, m.Right, m.Bottom); } }
+                             try { var pi = tb.GetType().GetProperty("TextIndent"); if (pi != null && pi.CanWrite) pi.SetValue(tb, px); else { var m = tb.Margin; tb.Margin = new Thickness(m.Left + px, m.Top, m.Right, m.Bottom); } }
                             catch { var m = tb.Margin; tb.Margin = new Thickness(m.Left + px, m.Top, m.Right, m.Bottom); }
                         }
                     }
@@ -780,7 +782,7 @@ namespace BrowserCore.Engine
                         int n; if (int.TryParse((lc ?? "").Trim(), out n) && n > 0)
                         {
                             tb.TextTrimming = TextTrimming.CharacterEllipsis;
-                            try { var prop = tb.GetType().GetRuntimeProperty("MaxLines"); if (prop != null && prop.CanWrite) prop.SetValue(tb, n); else { var lh = tb.LineHeight > 0 ? tb.LineHeight : (tb.FontSize * 1.4); if (lh > 0) tb.Height = lh * n; } }
+                             try { var prop = tb.GetType().GetProperty("MaxLines"); if (prop != null && prop.CanWrite) prop.SetValue(tb, n); else { var lh = tb.LineHeight > 0 ? tb.LineHeight : (tb.FontSize * 1.4); if (lh > 0) tb.Height = lh * n; } }
                             catch { var lh = tb.LineHeight > 0 ? tb.LineHeight : (tb.FontSize * 1.4); if (lh > 0) tb.Height = lh * n; }
                         }
                     }
@@ -865,7 +867,7 @@ namespace BrowserCore.Engine
                         if (s.EndsWith("px")) { double.TryParse(s.Substring(0, s.Length - 2), out px); }
                         else if (s.EndsWith("em")) { double v; if (double.TryParse(s.Substring(0, s.Length - 2), out v)) px = v * (rtb.FontSize > 0 ? rtb.FontSize : 16); }
                         else double.TryParse(s, out px);
-                        try { var pi = rtb.GetType().GetRuntimeProperty("TextIndent"); if (pi != null && pi.CanWrite) pi.SetValue(rtb, px); } catch { /* swallow */ }
+                         try { var pi = rtb.GetType().GetProperty("TextIndent"); if (pi != null && pi.CanWrite) pi.SetValue(rtb, px); } catch { /* swallow */ }
                     }
                 }
                 catch { /* swallow */ }
@@ -877,7 +879,7 @@ namespace BrowserCore.Engine
                     {
                         int n; if (int.TryParse((lc ?? "").Trim(), out n) && n > 0)
                         {
-                            try { var prop = rtb.GetType().GetRuntimeProperty("MaxLines"); if (prop != null && prop.CanWrite) prop.SetValue(rtb, n); } catch { /* swallow */ }
+                             try { var prop = rtb.GetType().GetProperty("MaxLines"); if (prop != null && prop.CanWrite) prop.SetValue(rtb, n); } catch { /* swallow */ }
                         }
                     }
                 }
@@ -1124,7 +1126,7 @@ namespace BrowserCore.Engine
                     var current = double.IsNaN(element.Height) ? element.ActualHeight : element.Height;
                     if (double.IsNaN(current) || Math.Abs(current - desired) > Eps)
                         element.Height = desired;
-                }
+}
             }
         }
 
@@ -1242,7 +1244,10 @@ namespace BrowserCore.Engine
         /// Public helper: create ImageBrush from an already-resolved absolute URL.
         /// Used by DomBasicRenderer.Finish() as fallback when WrapWithBoxes didn't wrap.
         /// </summary>
-        public static ImageBrush TryMakeImageBrushFromUrl(string absoluteUrl, CssComputed css)
+        // Added static ImageLoader delegate to allow background images to use the same async loader as <img>
+public static Func<Uri, Task<IRandomAccessStream>> ImageLoader { get; set; }
+
+public static ImageBrush TryMakeImageBrushFromUrl(string absoluteUrl, CssComputed css)
         {
             if (string.IsNullOrWhiteSpace(absoluteUrl)) return null;
             try
@@ -1262,7 +1267,29 @@ namespace BrowserCore.Engine
                 catch { }
 
                 var uri = new Uri(imageUrl, UriKind.Absolute);
-                var brush = new ImageBrush { ImageSource = new Windows.UI.Xaml.Media.Imaging.BitmapImage(uri) };
+                ImageSource imgSrc = null;
+                // Try the shared ImageLoader (used for <img>) for better cookie handling and caching
+                if (ImageLoader != null)
+                {
+                    try
+                    {
+                    var stream = ImageLoader(uri).ConfigureAwait(false).GetAwaiter().GetResult();
+                    if (stream != null)
+                    {
+                        var bmp = new Windows.UI.Xaml.Media.Imaging.BitmapImage();
+                        // SetSourceAsync returns IAsyncAction; block synchronously without UI context capture
+                        bmp.SetSourceAsync(stream).AsTask().ConfigureAwait(false).GetAwaiter().GetResult();
+                        imgSrc = bmp;
+                    }
+                    }
+                    catch { /* ignore and fall back */ }
+                }
+                if (imgSrc == null)
+                {
+                    // Fall back to direct URI loading (may lack cookies)
+                    imgSrc = new Windows.UI.Xaml.Media.Imaging.BitmapImage(uri);
+                }
+                var brush = new ImageBrush { ImageSource = imgSrc };
 
                 // Apply repeat/size/position from css
                 if (css != null)
@@ -1357,6 +1384,7 @@ namespace BrowserCore.Engine
         }
     }
 }
+
 
 
 

@@ -26,6 +26,11 @@ public sealed class ParseInfo
     public int BreaksCount;
     public int ContiniesCount;
 
+    // Depth guard to prevent StackOverflowException on deeply nested expressions (e.g. minified d3.js)
+    public int ParserDepth;
+    public static int MaxParserDepth = 100;
+    public static bool VerboseParser;
+
     public bool Strict => (CodeContext & CodeContext.Strict) != 0;
     public bool AllowDirectives => (CodeContext & CodeContext.AllowDirectives) != 0;
 

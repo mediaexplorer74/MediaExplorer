@@ -1,0 +1,1 @@
+var G0=e=>{throw TypeError(e)};

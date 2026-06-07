@@ -23,6 +23,9 @@
 > - 2026-06-05 (session 3.37) — **Phase V**: smooth AppBar lerp animation (CubicEase 150ms), loading progress bar (Chrome-style top bar), welcome page rewrite (name+quotes+links), error recovery button. Build 0 errors.
 > - 2026-06-05 (session 3.39b) — D3 polyfill evolution: `window.Map=Map$` fails (window disconnected), bare `Map=Map$` fails (HostMapType read-only), `_nil.Eval("(function(){})")` throws InvalidOperationException. Key: `_nil.Eval("try{...}catch(e){}")` works for function defs. New approach: try-catch wrapper evals + text replacement (`class extends Map` → `class extends __MapPolyfill`). Build 0 errors.
 > - 2026-06-05 (session 3.39c) — D3 polyfill finalization: abandoned separate `_nil.Eval` polyfill calls (still unreliable); prepend polyfill via string prefix instead. Analysis of actual minified d3.js revealed `super()` in comma-expression context (`if(super(),...)`), `new Map` without parens (`{value:new Map}`), and InternSet's `super.add()`. Fixes: comma-expression `super()` → `(this._d={},this.size=0)`, `super.add(` redirect, `new Map`/`new Set` → polyfill (all forms), constructors accept entries/values, `forEach` accepts `thisArg`. **0 NiL.JS JSExceptions during d3.js eval** (previously 3). Still `d3=d3_missing` — JS-level runtime error caught by try/catch. Build 0 errors. See `Doc/Summary_4_15.md`.
+> - 2026-06-06 (session 3.40) — **Strategic pivot: URL rewrite d3.v7 → d3.v5.** Log analysis showed `let/const → var` text replacement did not help (3 JSExceptions returned + new InvalidOperationException from `;let{` → `;var {` destructuring). Text-replacement approach abandoned — too many ES6+ features (for...of, default params, destructuring, template literals). Added `TryRewriteD3jsUrl` URL rewrite in `FetchScriptStringAsync` targeting d3.v5 (ES5). Removed broken `;let{` → `;var {` replacement. d3.v5.min.js (v5.16.0, 248KB) confirmed live. Build 0 errors. See `Doc/Summary_4_16.md`.
+> - 2026-06-06 (session 3.41) — **NiL.JS parser depth StackOverflow root cause found & fixed.** Created `NilJsTest` test harness. Added depth guard (`state.ParserDepth` + `MaxParserDepth=100`) with vicinity info to prevent fatal StackOverflow. Fixed `JSException(Error)` constructor null-ref crash during parsing (`Context.CurrentGlobalContext` is null before execution). **Key fix:** made comma operator parsing **iterative** instead of recursive — d3.v5's long comma chains (`t.X=...,t.Y=...,t.Z=...`) caused depth 300+ → StackOverflow. Now both d3.v5.min.js (248KB) and d3.v4.min.js (222KB) parse & execute at max depth ~25. Build 0 errors. See `Doc/Summary_4_17.md`.
+> - 2026-06-06 (session 3.42) — **Log analysis + revert d3js.org skip + DOM stubs.** Live test revealed `d3=d3_missing` (was `d3_defined` in 3.41). Root cause: d3js.org skip prevented the `d3` global from being defined — d3.v5's `var d3={...}` happens before any DOM access that throws, so the global persists even through SafeEval catch. Reverted skip in both `Execute` and immediate loop. Added `namespaceURI` (SVG/XHTML namespaces) and `ownerDocument` to JsDomElement. Retained 4.17's DOM stubs (`parentElement`, `closest`, `nextElementSibling`, `previousElementSibling`, `scrollIntoView`, `createDocumentFragment`, globals). Build 0 errors. See `Doc/Summary_4_18.md`.
 
 ---
 
@@ -111,8 +114,23 @@ The Nokia Design Archive uses D3.js v7. Making it render correctly needs:
 
 **Result:** `hasMap=True hasSet=True` confirmed. **0 NiL.JS JSExceptions during d3.js eval** (previously 3). Still `d3=d3_missing` — some JS-level runtime error caught by `try{...}catch(e){}`. Next: live test on emulator with new fixes. See `Doc/Summary_4_15.md`.
 
-**Total remaining estimate for Nokia Archive to render:** 20–40 days (reduced from 30–55
-via legacy bypass, still gated by DOM event system + D3 data binding).
+**Session 3.41 (2026-06-06) — NiL.JS parser depth StackOverflow fixed.**
+**d3.v5.min.js now parses and executes successfully.** The 248KB ES5 bundle was hitting recursive comma-operator depth 300+ → fatal StackOverflow. Root cause: `parseContinuation` called `Parse(processComma:true)` which recursed for each comma in long chains `a,b,c,...,z` (~100+ comma items in d3's geo projection section).
+
+**Fix:** comma parsing made iterative — all operands collected in a `while` loop at the same stack level, then chained into a left-associative tree. With this fix, d3.v5 max depth is ~25 (was 300+). Both d3.v5.min.js and d3.v4.min.js parse & execute cleanly with default `MaxParserDepth=100`. See `Doc/Summary_4_17.md`.
+
+**Session 3.42 (2026-06-06) — Log analysis + revert d3js.org skip + DOM stubs.**
+Live test of 4.17 changes showed `d3=d3_missing` (was `d3_defined` in 4.17). Root cause: d3js.org skip prevented the `d3` global definition — d3.v5's `var d3={...}` executes before any DOM access that throws, so the global persists through SafeEval catch. Reverted skip in both `Execute` and immediate loop. Added `namespaceURI` (SVG/XHTML) and `ownerDocument` to JsDomElement to reduce DOM exceptions. Retained 4.17's stubs. Build 0 errors. See `Doc/Summary_4_18.md`.
+
+**Next:**
+- Verify `d3=d3_defined` on UWP emulator build.
+- Diagnose and fix `document.querySelectorAll` / `document.createElement` for‑of iteration crash (return proper JS iterable). 
+- Add missing DOM stubs (`ownerDocument`, `namespaceURI` already added) and ensure `querySelectorAll` returns a `NativeList` (JS array).
+- Added `document.getElementsByClassName` support; host‑function now returns a `NativeList` iterator‑compatible collection. 
+- Extend NilJsTest harness to use `JavaScriptEngine` for DOM‑dependent tests.
+- Continue binary‑search of `main‑BE‑aXEfW.js` to isolate any remaining JS syntax issues after IIFE.
+- Update documentation to reflect new tasks and findings.
+
 
 **Total remaining estimate for Nokia Archive to render:** 20–40 days (reduced from 30–55
 via legacy bypass, still gated by DOM event system + D3 data binding).
@@ -1002,12 +1020,33 @@ Session 3.39c: D3 polyfill finalization (current session).
                     Still `d3=d3_missing` — JS-level error caught by try/catch.
                     Build 0 errors. ✅ See `Doc/Summary_4_15.md`.
 
-Session 3.40: Live test with final polyfill + full regression run
-                T-H-001..008: all visual pass
-                T-C-001..017: target 12/17 pass (T-C-015 now implementable)
-                T-J-001..010: target 7/10 pass
-                T-S-001,004,005,007,008: all "acceptable" visually
-                → If criteria met: TAG v1.0-museum
+Session 3.40: D3 strategy pivot — URL rewrite d3.v7 → d3.v5.
+                     Log analysis of fresh binary (v0.42.8.0) showed:
+                     - `let/const → var` text replacement NOT fixing 3 JSExceptions
+                     - NEW `InvalidOperationException` from `;let{` → `;var {` (destructuring
+                       with `var` still ES6 — NiL.JS can't parse)
+                     - Text-replacement approach abandoned — too many ES6+ features to
+                       transpile by string replace (for...of ×43, default params ×15,
+                       destructuring, template literals, 11 classes)
+                     New approach: URL rewrite `d3.v7` → `d3.v5` (ES5) in
+                     `FetchScriptStringAsync`. Added `TryRewriteD3jsUrl` helper.
+                     Removed broken `;let{` → `;var {` replacement.
+                     d3.v5.min.js (v5.16.0, 248KB) confirmed live on d3js.org.
+                     Build 0 errors. ✅ See `Doc/Summary_4_16.md`.
+
+Session 3.41: NiL.JS parser depth StackOverflow root cause found & fixed.
+                     Created NilJsTest test harness (+fetchd3, --depth, --verbose).
+                     Added parser depth guard (state.ParserDepth + MaxParserDepth=100)
+                     with vicinity info in ExpressionTree.Parse and Parser.Parse.
+                     Fixed JSException(Error) constructor null-ref during parsing.
+                     **Key fix:** comma operator parsing made iterative (was recursive)
+                     — d3.v5's long comma chains (100+ items) caused depth 300+ →
+                     fatal StackOverflow. Now both d3.v5.min.js (248KB) and
+                     d3.v4.min.js (222KB) parse & execute at max depth ~25.
+                     Build 0 errors. ✅ See `Doc/Summary_4_17.md`.
+
+Session 3.42: Live test — UWP build with d3.v5 URL rewrite, deploy to emulator,
+                  verify d3 loads and produces visual output.
 
 Session 3.33+: Phase 7 (Service Worker) — optional, post-v1.0
 ```
@@ -1090,20 +1129,39 @@ degradation over hard crashes every time.
 valuable than an unreleased browser that almost renders 50 sites. Retro projects gain
 momentum from tangible releases.
 
+**Build mechanics normalised.** VS 2026 Insiders MSBuild (`C:\Program Files\Microsoft
+Visual Studio\18\Insiders\MSBuild\Current\Bin\MSBuild.exe`) resolves the UWP WindowsXaml
+SDK dependency. The dotnet SDK msbuild (`C:\Program Files\dotnet\sdk\10.0.300\MSBuild.exe`)
+does NOT have UWP targets — always use the VS Insiders path. Restore first if
+`project.assets.json` is missing (`/t:restore`).
+
 ---
 
 ## Build
 
+**msbuild from VS 2026 Insiders resolves the UWP WindowsXaml SDK dependency.**
+
+The command:
 ```
-msbuild Src\MediaExplorer.sln /p:Configuration=Debug /p:Platform=x86
+& "C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\MSBuild.exe"
+  Src\MediaExplorer.sln /p:Configuration=Debug /p:Platform=x86
 ```
 
-`msbuild` is in PATH (VS 2022 Insider). `dotnet build` works for `Src\NiL.JS\NiL.JS` (netstandard1.4)
-but chokes on the main UWP project (needs WindowsXaml SDK targets from full MSBuild).
+`dotnet build` still works for `Src\NiL.JS\NiL.JS` (netstandard1.4) but chokes on the main UWP
+project (needs WindowsXaml SDK targets from full MSBuild). Always restore first if `project.assets.json`
+is missing:
+
+```
+& "C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\MSBuild.exe"
+  Src\MediaExplorer.sln /t:restore /p:Configuration=Debug /p:Platform=x86
+```
+
+The dotnet SDK msbuild (`C:\Program Files\dotnet\sdk\10.0.300\MSBuild.exe`) does NOT have the
+UWP targets — ensure VS 2026 Insider msbuild is used.
 
 ---
 
-*Plan v4.8 — 2026-06-05*
-*Based on: Plan_01 (v1.0), Plan_02 (v2.2), Plan_03 (v3.5), sessions 2.01–3.39*
-*Next session: 3.40 — Live D3 test with final polyfill (commma-expression, super.add, new Map/Set full coverage) + full regression run*
-*Summary files: Summary_4_05.md (C.6 initial), Summary_4_06.md (SafeEval guards), Summary_4_07.md (C.6 follow-up + Nokia), Summary_4_08.md (codebase verification + live test + __sysImport), Summary_4_09.md (minimal SystemJS replacement), Summary_4_10.md (chunk splitting + live test), Summary_4_11.md (regex/comment matcher fix), Summary_4_12.md (Phase S + Phase V), Summary_4_14.md (D3 root cause: HostMapType)*
+*Plan v4.12 — 2026-06-06*
+*Based on: Plan_01 (v1.0), Plan_02 (v2.2), Plan_03 (v3.5), sessions 2.01–3.42*
+*Next session: 3.43 — UWP build with DOM stubs + verify `d3=d3_defined` restored*
+*Summary files: Summary_4_05.md (C.6 initial), Summary_4_06.md (SafeEval guards), Summary_4_07.md (C.6 follow-up + Nokia), Summary_4_08.md (codebase verification + live test + __sysImport), Summary_4_09.md (minimal SystemJS replacement), Summary_4_10.md (chunk splitting + live test), Summary_4_11.md (regex/comment matcher fix), Summary_4_12.md (Phase S + Phase V), Summary_4_14.md (D3 root cause: HostMapType), Summary_4_15.md (D3 polyfill finalization: comma-expression super(), super.add, new Map/Set full coverage), Summary_4_16.md (D3 strategy pivot: URL rewrite d3.v7 → d3.v5), Summary_4_17.md (NiL.JS parser depth StackOverflow fix: iterative comma parsing), Summary_4_18.md (Log analysis: d3js.org skip broke `d3=d3_missing`, reverted skip + namespaceURI/ownerDocument stubs)*

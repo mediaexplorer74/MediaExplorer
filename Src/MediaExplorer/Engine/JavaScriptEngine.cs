@@ -330,6 +330,16 @@ namespace BrowserCore.Engine
         {
             try { _visualRoot = (root != null ? new System.WeakReference(root) : null); } catch { /* swallow */ }
         }
+
+        // Helper to parse numeric CSS values (e.g., "12px", "0.5em")
+        private static bool TryParseNumeric(string s, out double value)
+        {
+            value = 0;
+            if (string.IsNullOrWhiteSpace(s)) return false;
+            var m = System.Text.RegularExpressions.Regex.Match(s, @"[-+]?[0-9]*\.?[0-9]+", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!m.Success) return false;
+            return double.TryParse(m.Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out value);
+        }
         // ---- Phase 1/2/3 state ----
         private readonly Dictionary<string, List<string>> _evtDoc = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, List<string>> _evtWin = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -2756,7 +2766,10 @@ if (mHrefSet.Success)
             public void writeln(string html) { }
             public object importNode(object node, bool deep) { return null; }
             public object adoptNode(object node) { return null; }
-            public object createDocumentFragment() { return null; }
+            public object createDocumentFragment()
+            {
+                return new JsDomElement(_engine, new LiteElement("#document-fragment"));
+            }
             public object createTextNode(string data)
             {
                 var t = new LiteElement("#text") { Text = data ?? "" };
@@ -3158,6 +3171,21 @@ if (mHrefSet.Success)
             // Image / HTMLImageElement stub
             _nil.DefineVariable("Image").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { width = JSValue.Marshal(0), height = JSValue.Marshal(0), src = JSValue.Marshal(""), onload = JSValue.Null, onerror = JSValue.Null }))));
             _nil.DefineVariable("HTMLImageElement").Assign(JSValue.Marshal(typeof(HostImage)));
+
+            // DOMTokenList stub (classList constructor reference)
+            _nil.DefineVariable("DOMTokenList").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { length = JSValue.Marshal(0), value = JSValue.Marshal(""), contains = new Func<Arguments, JSValue>(e => JSValue.Marshal(false)), add = new Func<Arguments, JSValue>(e => JSValue.Undefined), remove = new Func<Arguments, JSValue>(e => JSValue.Undefined), toggle = new Func<Arguments, JSValue>(e => JSValue.Marshal(false)) }))));
+
+            // Element / HTMLElement / SVGElement proto stubs (instanceof checks)
+            _nil.DefineVariable("Element").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { }))));
+            _nil.DefineVariable("HTMLElement").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { }))));
+            _nil.DefineVariable("SVGElement").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { }))));
+            _nil.DefineVariable("Node").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { }))));
+            _nil.DefineVariable("Text").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { }))));
+            _nil.DefineVariable("DocumentFragment").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { nodeType = 11, nodeName = "#document-fragment" }))));
+            _nil.DefineVariable("Comment").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { nodeType = 8, nodeName = "#comment" }))));
+            _nil.DefineVariable("HTMLCollection").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { length = 0 }))));
+            _nil.DefineVariable("HTMLDocument").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { }))));
+            _nil.DefineVariable("Option").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { value = JSValue.Marshal(""), text = JSValue.Marshal("") }))));
 
             // Expose fetch API (async via Promise-like thenable)
             _nil.DefineVariable("fetch").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
@@ -3653,6 +3681,8 @@ globalThis.System = __sys;
                         try { sysEngine.FlushMicrotasks(); } catch { }
                         // Diagnostics: check globals and DOM after execution
                         try { var d3check = sysEngine.SafeEval("typeof d3 !== 'undefined' ? 'd3_defined' : 'd3_missing'"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec d3=" + (d3check?.ToString() ?? "null")); } catch { }
+                        try { var d3s = sysEngine.SafeEval("typeof d3 !== 'undefined' && typeof d3.select !== 'undefined' ? 'function' : 'no'"); System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] typeof d3.select = " + (d3s?.ToString() ?? "null")); } catch { }
+                        try { var d3f = sysEngine.SafeEval("typeof d3 !== 'undefined' && typeof d3.forceSimulation !== 'undefined' ? 'function' : 'no'"); System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] typeof d3.forceSimulation = " + (d3f?.ToString() ?? "null")); } catch { }
                         try { var mc = sysEngine.SafeEval("typeof Map"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec typeof Map=" + (mc?.ToString() ?? "null")); } catch { }
                         try { var sc = sysEngine.SafeEval("typeof Set"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec typeof Set=" + (sc?.ToString() ?? "null")); } catch { }
                         try { var bodyCheck = sysEngine.SafeEval("(function(){if(!document||!document.body)return'no_body';var c=0;try{c=document.body.children.length}catch(e){}return'body_children='+c+' tag='+(document.body.tagName||'');})()"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec " + (bodyCheck?.ToString() ?? "null")); } catch { }
@@ -4053,6 +4083,13 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                         {
                             return _evalContext.Eval(code);
                         }
+                        catch (Exception ex) when (!(ex is InvalidOperationException))
+                        {
+                            // Catch JSException and other runtime errors immediately
+                            // so they never propagate past SafeEval (avoids debugger
+                            // "unhandled in non-user code" stop on NiL.JS frames).
+                            return JSValue.Undefined;
+                        }
                         finally
                         {
                             _evalContext.Debugging = oldDebug;
@@ -4086,24 +4123,29 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("[NiLJS] SafeEval: " + ex.GetType().Name + ": " + ex.Message + " (hash=" + _diagCodeHash + " preview=\"" + _diagCodePreview + "\")");
-                // Log full exception details and a managed stack trace to help post-mortem
-                try
+                var exType = ex.GetType().Name;
+                // Suppress verbose logging for Regex ArgumentOutOfRangeException noise
+                bool isRegexNoise = exType == "ArgumentOutOfRangeException" && ex.StackTrace != null && ex.StackTrace.Contains("System.Text.RegularExpressions");
+                if (!isRegexNoise)
                 {
-                    System.Diagnostics.Debug.WriteLine("[NiLJS] SafeEval Exception.ToString(): " + ex.ToString());
-                    System.Diagnostics.Debug.WriteLine("[NiLJS] SafeEval Environment.StackTrace:\n" + System.Environment.StackTrace);
+                    System.Diagnostics.Debug.WriteLine("[NiLJS] SafeEval: " + exType + ": " + ex.Message + " (hash=" + _diagCodeHash + " preview=\"" + _diagCodePreview + "\")");
+                    // Log full exception details and a managed stack trace to help post-mortem
                     try
                     {
-                        //var st = new System.Diagnostics.StackTrace(ex, true);
-                        System.Diagnostics.Debug.WriteLine(
-                            "[NiLJS] SafeEval Exception StackTrace (detailed):\n" + ex.StackTrace.ToString());
+                        System.Diagnostics.Debug.WriteLine("[NiLJS] SafeEval Exception.ToString(): " + ex.ToString());
+                        System.Diagnostics.Debug.WriteLine("[NiLJS] SafeEval Environment.StackTrace:\n" + System.Environment.StackTrace);
+                        try
+                        {
+                            System.Diagnostics.Debug.WriteLine(
+                                "[NiLJS] SafeEval Exception StackTrace (detailed):\n" + ex.StackTrace.ToString());
+                        }
+                        catch { /* swallow */ }
                     }
-                    catch { /* swallow */ }
+                    catch { /* swallow logging errors */ }
                 }
-                catch { /* swallow logging errors */ }
                 _niljsSafeEvalFailed = true;
                 _diagSafeEvalFails++;
-                if (ex.GetType().Name == "JSException") _diagJSException++;
+                if (exType == "JSException") _diagJSException++;
 
                 try
                 {
@@ -4186,6 +4228,28 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
             System.Diagnostics.Debug.WriteLine("[JS] SafeEval skipped (USE_NILJS not defined)");
 #endif
             return JSValue.Undefined;
+        }
+
+        // Fast eval for LARGE trusted scripts (d3.js). Skips DebuggerCallback instrumentation,
+        // which triggers NiL.JS Regex issues in UWP build for scripts > 100KB.
+        private void SafeEvalFast(string code)
+        {
+#if USE_NILJS
+            try
+            {
+                lock (_nilEvalLock)
+                {
+                    if (_evalContext != null)
+                    {
+                        _evalContext.Eval(code);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                try { System.Diagnostics.Debug.WriteLine("[NiLJS] SafeEvalFast: " + ex.GetType().Name + ": " + ex.Message); } catch { }
+            }
+#endif
         }
 
         private void RunGlobalScript(string js)
@@ -5353,60 +5417,12 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                     // bypasses JS-level read-only protection on built-in globals (bare Map = Map$ silently fails).
                     if (resolved != null && resolved.AbsoluteUri != null && resolved.AbsoluteUri.Contains("d3js.org"))
                     {
-                        try { System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] preparing polyfill prefix for " + resolved.AbsoluteUri); } catch { }
-                        // Build polyfill as JS string → prepend to content, run in same SafeEval.
-                        // NiL.JS cannot create functions via separate _nil.Eval() calls (InvalidOperationException).
-                        // But function definitions inside a large SafeEval("try{...}catch(e){}") work fine
-                        // (same mechanism that lets 279KB d3.js eval execute without C# crash).
-                        string polyfillPrefix = @"
-var __MapPolyfill = function(entries) { this._d = {}; this.size = 0; if (entries) for (var __mpe_i = 0; __mpe_i < entries.length; ++__mpe_i) this.set(entries[__mpe_i][0], entries[__mpe_i][1]); };
-__MapPolyfill.__polyfilled = true;
-__MapPolyfill.prototype.set = function(k, v) { var s = typeof k + '|' + k; if (!this._d.hasOwnProperty(s)) this.size++; this._d[s] = v; return this; };
-__MapPolyfill.prototype.get = function(k) { var s = typeof k + '|' + k; return this._d.hasOwnProperty(s) ? this._d[s] : void 0; };
-__MapPolyfill.prototype.has = function(k) { return this._d.hasOwnProperty(typeof k + '|' + k); };
-__MapPolyfill.prototype.delete = function(k) { var s = typeof k + '|' + k; if (this._d.hasOwnProperty(s)) { delete this._d[s]; this.size--; return true; } return false; };
-__MapPolyfill.prototype.clear = function() { this._d = {}; this.size = 0; };
-__MapPolyfill.prototype.forEach = function(fn, thisArg) { for (var k in this._d) if (this._d.hasOwnProperty(k)) fn.call(thisArg || this, this._d[k], k, this); };
-__MapPolyfill.prototype.entries = function() { var a = []; for (var k in this._d) if (this._d.hasOwnProperty(k)) { var p = k.indexOf('|'); a.push([k.substring(p + 1), this._d[k]]); } return a; };
-var __SetPolyfill = function(values) { this._d = {}; this.size = 0; if (values) for (var __spe_i = 0; __spe_i < values.length; ++__spe_i) this.add(values[__spe_i]); };
-__SetPolyfill.__polyfilled = true;
-__SetPolyfill.prototype.add = function(v) { var s = typeof v + '|' + v; if (!this._d.hasOwnProperty(s)) this.size++; this._d[s] = v; return this; };
-__SetPolyfill.prototype.has = function(v) { return this._d.hasOwnProperty(typeof v + '|' + v); };
-__SetPolyfill.prototype.delete = function(v) { var s = typeof v + '|' + v; if (this._d.hasOwnProperty(s)) { delete this._d[s]; this.size--; return true; } return false; };
-__SetPolyfill.prototype.clear = function() { this._d = {}; this.size = 0; };
-__SetPolyfill.prototype.forEach = function(fn, thisArg) { for (var k in this._d) if (this._d.hasOwnProperty(k)) fn.call(thisArg || this, this._d[k], k, this); };
-if (typeof Symbol === 'undefined') { var __id = 0; var Symbol = function(k){ return '__Symbol_' + (k||'') + '_' + (++__id) }; Symbol.iterator = '__Symbol_iterator'; Symbol.toStringTag = '__Symbol_toStringTag'; Symbol.species = '__Symbol_species'; Symbol.for = function(k){ return '__Symbol_for_' + k }; }
-";
-                        // Text-replace: strip extends Map/Set + redirect super.*() to polyfill methods.
-                        // NiL.JS cannot handle `class extends` with ANY parent (HostObject or JS function).
-                        // Strategy: remove extends clause, replace super() with comma-expression storage init,
-                        // replace super.get/set/has/delete/add with polyfill calls,
-                        // replace new Map/Set instantiation with polyfill constructors.
-                        // Note: super() may appear in comma-expression context:  if(super(),...)  — must use comma, not semicolon.
-                        bool hasExtendsMap = content.IndexOf("extends Map", StringComparison.Ordinal) >= 0;
-                        bool hasExtendsSet = content.IndexOf("extends Set", StringComparison.Ordinal) >= 0;
-                        content = polyfillPrefix + content
-                            .Replace("extends Map{", "{")
-                            .Replace("extends Map ", "{ ")
-                            .Replace("extends Set{", "{")
-                            .Replace("extends Set ", "{ ")
-                            .Replace("super.get(", "__MapPolyfill.prototype.get.call(this,")
-                            .Replace("super.set(", "__MapPolyfill.prototype.set.call(this,")
-                            .Replace("super.has(", "__MapPolyfill.prototype.has.call(this,")
-                            .Replace("super.delete(", "__MapPolyfill.prototype.delete.call(this,")
-                            .Replace("super.add(", "__SetPolyfill.prototype.add.call(this,")
-                            .Replace("super()", "(this._d={},this.size=0)")
-                            .Replace("new Map", "new __MapPolyfill")
-                            .Replace("new Set", "new __SetPolyfill")
-                            // Replace computed property names with Symbol.* → string keys
-                            // NiL.JS cannot parse [Symbol.iterator]/[Symbol.toStringTag] in class bodies
-                            // even inside try{}catch(e){}, because it's a parse-level error, not runtime.
-                            .Replace("[Symbol.iterator]", "['__Symbol_iterator']")
-                            .Replace("[Symbol.toStringTag]", "['__Symbol_toStringTag']")
-                            .Replace("[Symbol.species]", "['__Symbol_species']");
-                        try { System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] polyfill strip-extends done hasMap=" + hasExtendsMap + " hasSet=" + hasExtendsSet); } catch { }
+                        // URL is rewritten d3.v7 → d3.v5 (FetchScriptStringAsync line 5633).
+                        // d3.v5 is ES5 — no ES6 polyfills needed. Skip the polyfill prefix entirely
+                        // to avoid any interference with NiL.JS evaluation.
+                        try { System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] d3js.org script (no polyfill prefix — using v5)"); } catch { }
                     }
-                    try { System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] eval " + resolved); _nilSyncDocument(); SafeEval("try{ " + content + " }catch(e){ try { console.log('d3js-err:'+e.message) }catch(_){} }"); }
+                    try { System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] eval " + resolved + " (direct eval, no debug)"); _nilSyncDocument(); SafeEvalFast("try{ " + content + " }catch(e){ try { console.log('[d3-err:'+((e&&e.message)||typeof e)+']') }catch(_){} }"); }
                     catch (Exception ex) { try { System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] SafeEval error for " + resolved + ": " + ex.GetType().Name + " - " + ex.Message); } catch { } }
                 }
                 else
@@ -5576,6 +5592,9 @@ if (typeof Symbol === 'undefined') { var __id = 0; var Symbol = function(k){ ret
                 (h ?? "").IndexOf("x.com", StringComparison.OrdinalIgnoreCase) >= 0;
 
             var host = uri.Host ?? string.Empty;
+
+            // Rewrite d3.v7 → d3.v5 (NiL.JS has limited ES6+ support; v5 uses ES5)
+            uri = TryRewriteD3jsUrl(uri) ?? uri;
 
             // 0) Try host-provided external fetcher and in-memory cache first.
             var key = uri.AbsoluteUri;
@@ -5770,6 +5789,19 @@ if (typeof Symbol === 'undefined') { var __id = 0; var Symbol = function(k){ ret
             if (s.IndexOf("/responsive-web/client-web/", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 var alt = s.Replace("/responsive-web/client-web/", "/responsive-web/client-web-legacy/");
+                try { return new Uri(alt); } catch { /* swallow */ }
+            }
+            return null;
+        }
+
+        // Rewrite d3.v7 → d3.v5 for NiL.JS compatibility (v5 targets ES5, v7 uses ES6+ features NiL.JS can't parse)
+        private static Uri TryRewriteD3jsUrl(Uri u)
+        {
+            if (u == null) return null;
+            var s = u.AbsoluteUri;
+            if (s.IndexOf("d3js.org/d3.v7", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                var alt = s.Replace("d3.v7", "d3.v5");
                 try { return new Uri(alt); } catch { /* swallow */ }
             }
             return null;
@@ -8145,6 +8177,12 @@ public bool Execute(string code)
             private List<JsVal> ParseArguments()
             { var args = new List<JsVal>(); SkipWs(); if (Match(")")) return args; do { var a = ParseExpression(); args.Add(a); } while (Match(",")); Expect(")"); return args; }
 
+            // Helper to convert .NET collections to a JavaScript array (NativeList)
+            private static JSValue ToJsArray(IEnumerable<object> items)
+            {
+                return Context.CurrentGlobalContext.ProxyValue(items);
+            }
+
             private JsVal GetMember(JsVal obj, string name)
             {
                 if (obj == null) return JsVal.Null();
@@ -8212,8 +8250,8 @@ public bool Execute(string code)
                             {
                                 string sel = ToStr(args.Count > 0 ? args[0] : JsVal.Null());
                                 var doc = new JsDocument(_e, _e._domRoot);
-                                var results = new List<JsVal>();
                                 var nodeArray = doc.querySelectorAll(sel) as object[];
+                                var results = new List<object>();
                                 if (nodeArray != null)
                                 {
                                     for (int i = 0; i < nodeArray.Length; i++)
@@ -8222,15 +8260,67 @@ public bool Execute(string code)
                                         if (el != null)
                                         {
                                             var idv = el.getAttribute("id");
-                                            results.Add(new JsVal { Obj = new HostElement(_e, idv) });
+                                            results.Add(new HostElement(_e, idv));
                                         }
                                     }
                                 }
-                                return new JsVal { Obj = results };
+                                return new JsVal { Obj = ToJsArray(results) };
                             }
-                            catch { return new JsVal { Obj = new List<JsVal>() }; }
+                            catch { return new JsVal { Obj = ToJsArray(new List<object>()) }; }
                         }) };
-                    if (name == "createElement")
+                     // Added support for getElementsByTagName
+                     if (name == "getElementsByTagName")
+                        return new JsVal { Obj = new HostFunc(args =>
+                        {
+                            try
+                            {
+                                string tag = ToStr(args.Count > 0 ? args[0] : JsVal.Null());
+                                var doc = new JsDocument(_e, _e._domRoot);
+                                var arr = doc.getElementsByTagName(tag) as object[];
+                                var list = new List<object>();
+                                if (arr != null)
+                                {
+                                    for (int i = 0; i < arr.Length; i++)
+                                    {
+                                        var el = arr[i] as JsDomElement;
+                                        if (el != null)
+                                        {
+                                            var idv = el.getAttribute("id");
+                                            list.Add(new HostElement(_e, idv));
+                                        }
+                                    }
+                                }
+                                return new JsVal { Obj = ToJsArray(list) };
+                            }
+                            catch { return new JsVal { Obj = ToJsArray(new List<object>()) }; }
+                        }) };
+                     // Added support for getElementsByClassName
+                     if (name == "getElementsByClassName")
+                        return new JsVal { Obj = new HostFunc(args =>
+                        {
+                            try
+                            {
+                                string className = ToStr(args.Count > 0 ? args[0] : JsVal.Null());
+                                 var doc = new JsDocument(_e, _e._domRoot);
+                                 var arr = doc.getElementsByClassName(className) as object[];
+                                var list = new List<object>();
+                                if (arr != null)
+                                {
+                                    for (int i = 0; i < arr.Length; i++)
+                                    {
+                                        var el = arr[i] as JsDomElement;
+                                        if (el != null)
+                                        {
+                                            var idv = el.getAttribute("id");
+                                            list.Add(new HostElement(_e, idv));
+                                        }
+                                    }
+                                }
+                                return new JsVal { Obj = ToJsArray(list) };
+                            }
+                            catch { return new JsVal { Obj = ToJsArray(new List<object>()) }; }
+                        }) };
+                     if (name == "createElement")
                         return new JsVal { Obj = new HostFunc(args =>
                         {
                             try
@@ -8379,7 +8469,7 @@ public bool Execute(string code)
                         }) };
                     }
                     if (name == "querySelector") return new JsVal { Obj = new HostFunc(args => { try { string s = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); var r = jde.querySelector(s) as JsDomElement; return r == null ? JsVal.Null() : new JsVal { Obj = r }; } catch { /* swallow */ } return JsVal.Null(); }) };
-                    if (name == "querySelectorAll") return new JsVal { Obj = new HostFunc(args => { try { string s = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); var arrs = jde.querySelectorAll(s) as object[]; var list = new List<JsVal>(); if (arrs != null) { for (int i = 0; i < arrs.Length; i++) { var el = arrs[i] as JsDomElement; if (el != null) list.Add(new JsVal { Obj = el }); } } return new JsVal { Obj = list }; } catch { /* swallow */ } return new JsVal { Obj = new List<JsVal>() }; }) };
+                    if (name == "querySelectorAll") return new JsVal { Obj = new HostFunc(args => { try { string s = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); var arrs = jde.querySelectorAll(s) as object[]; var list = new List<object>(); if (arrs != null) { for (int i = 0; i < arrs.Length; i++) { var el = arrs[i] as JsDomElement; if (el != null) list.Add(el); } } return new JsVal { Obj = ToJsArray(list) }; } catch { /* swallow */ } return new JsVal { Obj = ToJsArray(new List<object>()) }; }) };
                     if (name == "insertAdjacentHTML") return new JsVal { Obj = new HostFunc(args => { try { var pos = ToStr(args.Count>0?args[0]:JsVal.Null()); var html = ToStr(args.Count>1?args[1]:JsVal.Null()); jde.insertAdjacentHTML(pos, html); } catch { /* swallow */ } return JsVal.Null(); }) };
                     return JsVal.Null();
                 }
@@ -8471,6 +8561,10 @@ public bool Execute(string code)
                     if (name == "innerText") { try { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(he.Id) as JsDomElement; if (el != null) return JsVal.FromStr(el.innerText ?? ""); } catch { /* swallow */ } return JsVal.Null(); }
                     if (name == "removeAttribute") return new JsVal { Obj = new HostFunc(args => { string an = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); try { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(he.Id) as JsDomElement; if (el != null) el.setAttribute(an, null); } catch { /* swallow */ } return JsVal.Null(); }) };
                     if (name == "hasAttribute") return new JsVal { Obj = new HostFunc(args => { string an = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); try { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(he.Id) as JsDomElement; if (el != null) { var v = el.getAttribute(an); return JsVal.FromBool(!string.IsNullOrEmpty(v)); } } catch { /* swallow */ } return JsVal.FromBool(false); }) };
+                    if (name == "children") { try { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(he.Id) as JsDomElement; if (el != null) { var kids = el.children as object[]; var list = new List<object>(); if (kids != null) { foreach (var k in kids) { var kid = k as JsDomElement; if (kid != null) { var kidId = kid.getAttribute("id"); list.Add(new HostElement(_e, kidId ?? "")); } } } return new JsVal { Obj = ToJsArray(list) }; } } catch { /* swallow */ } return new JsVal { Obj = ToJsArray(new List<object>()) }; }
+                    if (name == "childNodes") { try { var doc = new JsDocument(_e, _e._domRoot); var el = doc.getElementById(he.Id) as JsDomElement; if (el != null) { var nodes = el.childNodes as object[]; var list = new List<object>(); if (nodes != null) { foreach (var n in nodes) { var node = n as JsDomElement; if (node != null) { var nodeId = node.getAttribute("id"); list.Add(new HostElement(_e, nodeId ?? "")); } } } return new JsVal { Obj = ToJsArray(list) }; } } catch { /* swallow */ } return new JsVal { Obj = ToJsArray(new List<object>()) }; }
+                    if (name == "getElementsByTagName") return new JsVal { Obj = new HostFunc(args => { try { string tag = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); var jde = new JsDomElement(_e, _e._domRoot?.FindById(he.Id) ?? _e._domRoot); var arr = jde.getElementsByTagName(tag) as object[]; var list = new List<object>(); if (arr != null) { for (int i = 0; i < arr.Length; i++) { var el = arr[i] as JsDomElement; if (el != null) { var idv = el.getAttribute("id"); list.Add(new HostElement(_e, idv ?? "")); } } } return new JsVal { Obj = ToJsArray(list) }; } catch { /* swallow */ } return new JsVal { Obj = ToJsArray(new List<object>()) }; }) };
+                    if (name == "getElementsByClassName") return new JsVal { Obj = new HostFunc(args => { try { string cls = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); var jde = new JsDomElement(_e, _e._domRoot?.FindById(he.Id) ?? _e._domRoot); var arr = jde.getElementsByClassName(cls) as object[]; var list = new List<object>(); if (arr != null) { for (int i = 0; i < arr.Length; i++) { var el = arr[i] as JsDomElement; if (el != null) { var idv = el.getAttribute("id"); list.Add(new HostElement(_e, idv ?? "")); } } } return new JsVal { Obj = ToJsArray(list) }; } catch { /* swallow */ } return new JsVal { Obj = ToJsArray(new List<object>()) }; }) };
                     return JsVal.Null();
                 }
                 if (obj.Obj is JsFuncDef)
@@ -9139,6 +9233,22 @@ public bool Execute(string code)
             }
 
             // supports only: "#id", ".class", "tag"
+            public object[] getElementsByClassName(string className)
+            {
+                if (string.IsNullOrEmpty(className) || _root == null) return new object[0];
+                var list = new List<object>();
+                foreach (var n in _root.Descendants())
+                {
+                    if (n.IsText) continue;
+                    string cls; if (n.Attr != null && n.Attr.TryGetValue("class", out cls) && !string.IsNullOrEmpty(cls))
+                    {
+                        var parts = cls.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                        for (int i = 0; i < parts.Length; i++)
+                            if (string.Equals(parts[i], className, StringComparison.Ordinal)) { list.Add(new JsDomElement(_e, n)); break; }
+                    }
+                }
+                return list.ToArray();
+            }
             public object querySelector(string sel)
             {
                 var all = querySelectorAll(sel);
@@ -9449,6 +9559,16 @@ public bool Execute(string code)
             public string nodeName => (_node.Tag ?? "").ToUpperInvariant();
 
             public string nodeType => _node.IsText ? "3" : "1";
+            public string namespaceURI
+            {
+                get
+                {
+                    var tag = (_node.Tag ?? "").ToLowerInvariant();
+                    if (tag == "svg" || tag == "g" || tag == "path" || tag == "circle" || tag == "ellipse" || tag == "line" || tag == "polyline" || tag == "polygon" || tag == "rect" || tag == "text" || tag == "tspan" || tag == "defs" || tag == "use" || tag == "symbol" || tag == "clipPath" || tag == "mask" || tag == "linearGradient" || tag == "radialGradient" || tag == "stop" || tag == "image" || tag == "foreignObject" || tag == "#document-fragment")
+                        return "http://www.w3.org/2000/svg";
+                    return "http://www.w3.org/1999/xhtml";
+                }
+            }
             public string textContent
             {
                 get { return CollectText(_node); }
@@ -9484,6 +9604,15 @@ public bool Execute(string code)
                     return p != null ? new JsDomElement(_e, p) : null;
                 }
             }
+            public object parentElement
+            {
+                get
+                {
+                    var p = _node.Parent;
+                    if (p == null || p.IsText) return null;
+                    return new JsDomElement(_e, p);
+                }
+            }
             public object nextSibling
             {
                 get
@@ -9497,7 +9626,33 @@ public bool Execute(string code)
                     return null;
                 }
             }
+            public object nextElementSibling
+            {
+                get
+                {
+                    var p = _node.Parent;
+                    if (p == null) return null;
+                    var idx = p.Children.IndexOf(_node);
+                    if (idx < 0 || idx >= p.Children.Count - 1) return null;
+                    for (int i = idx + 1; i < p.Children.Count; i++)
+                        if (!p.Children[i].IsText) return new JsDomElement(_e, p.Children[i]);
+                    return null;
+                }
+            }
             public object previousSibling
+            {
+                get
+                {
+                    var p = _node.Parent;
+                    if (p == null) return null;
+                    var idx = p.Children.IndexOf(_node);
+                    if (idx <= 0) return null;
+                    for (int i = idx - 1; i >= 0; i--)
+                        if (!p.Children[i].IsText) return new JsDomElement(_e, p.Children[i]);
+                    return null;
+                }
+            }
+            public object previousElementSibling
             {
                 get
                 {
@@ -9788,6 +9943,23 @@ public bool Execute(string code)
                 _e.RequestRepaint();
             }
 
+            public bool hidden
+            {
+                get
+                {
+                    if (_node == null) return false;
+                    return string.Equals(_node.GetAttribute("hidden"), "hidden", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(_node.GetAttribute("hidden"), "", StringComparison.Ordinal);
+                }
+                set
+                {
+                    if (_node == null) return;
+                    if (value) _node.SetAttribute("hidden", "hidden");
+                    else _node.RemoveAttribute("hidden");
+                    _e.RequestRepaint();
+                }
+            }
+
             public string value
             {
                 get
@@ -9909,6 +10081,131 @@ public bool Execute(string code)
                 if (string.IsNullOrWhiteSpace(selector)) return false;
                 return JsDocument.MatchesSimpleSelector(_node, selector);
             }
+            public object closest(string selector)
+            {
+                if (string.IsNullOrWhiteSpace(selector)) return null;
+                var n = _node;
+                while (n != null)
+                {
+                    if (JsDocument.MatchesSimpleSelector(n, selector))
+                        return new JsDomElement(_e, n);
+                    n = n.Parent;
+                }
+                return null;
+            }
+            public void scrollIntoView(object arg) { }
+
+            // Offset properties – use explicit width/height and CSS left/top when available.
+            public double offsetTop
+            {
+                get
+                {
+                    // Prefer "top" style or attribute, otherwise 0.
+                    if (_node == null) return 0;
+                    string top;
+                    if (_node.Attr != null && _node.Attr.TryGetValue("top", out top) && TryParseNumeric(top, out var val))
+                        return val;
+                    var style = _node.GetAttribute("style");
+                    if (!string.IsNullOrEmpty(style))
+                    {
+                        var m = System.Text.RegularExpressions.Regex.Match(style, @"\btop\s*:\s*([\d.]+)(px|em|rem)?", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (m.Success && double.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                            return parsed;
+                    }
+                    return 0;
+                }
+            }
+
+            public double offsetLeft
+            {
+                get
+                {
+                    // Prefer "left" style or attribute, otherwise 0.
+                    if (_node == null) return 0;
+                    string left;
+                    if (_node.Attr != null && _node.Attr.TryGetValue("left", out left) && TryParseNumeric(left, out var val))
+                        return val;
+                    var style = _node.GetAttribute("style");
+                    if (!string.IsNullOrEmpty(style))
+                    {
+                        var m = System.Text.RegularExpressions.Regex.Match(style, @"\bleft\s*:\s*([\d.]+)(px|em|rem)?", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (m.Success && double.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                            return parsed;
+                    }
+                    return 0;
+                }
+            }
+            public double offsetWidth
+            {
+                get
+                {
+                    if (_node == null) return 0;
+                    string w;
+                    if (_node.Attr != null && _node.Attr.TryGetValue("width", out w) && TryParseNumeric(w, out var parsed))
+                        return parsed;
+                    var style = _node.GetAttribute("style");
+                    if (!string.IsNullOrEmpty(style))
+                    {
+                        var m = System.Text.RegularExpressions.Regex.Match(style, @"\bwidth\s*:\s*([\d.]+)(px|em|rem)?");
+                        if (m.Success && TryParseNumeric(m.Groups[1].Value, out parsed))
+                            return parsed;
+                    }
+                    return 0;
+                }
+            }
+            public double offsetHeight
+            {
+                get
+                {
+                    if (_node == null) return 0;
+                    string h;
+                    if (_node.Attr != null && _node.Attr.TryGetValue("height", out h) && double.TryParse(h, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                        return parsed;
+                    var style = _node.GetAttribute("style");
+                    if (!string.IsNullOrEmpty(style))
+                    {
+                        var m = System.Text.RegularExpressions.Regex.Match(style, @"\bheight\s*:\s*(\d+(?:\.\d+)?)(px|em|rem)?");
+                        if (m.Success && double.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out parsed))
+                            return parsed;
+                    }
+                    return 0;
+                }
+            }
+            public object offsetParent
+            {
+                get
+                {
+                    if (_node == null) return null;
+                    if (HasPositionFixed(_node)) return null;
+                    for (var p = _node.Parent; p != null; p = p.Parent)
+                    {
+                        if (HasPositionFixed(p)) return null;
+                        if (!string.Equals(p.Tag, "body", StringComparison.OrdinalIgnoreCase) && HasPositionedStyle(p))
+                            return new JsDomElement(_e, p);
+                        if (string.Equals(p.Tag, "body", StringComparison.OrdinalIgnoreCase))
+                            return new JsDomElement(_e, p);
+                    }
+                    return null;
+                }
+            }
+            private static bool HasPositionFixed(LiteElement n)
+            {
+                var style = n.GetAttribute("style");
+                if (string.IsNullOrEmpty(style)) return false;
+                return System.Text.RegularExpressions.Regex.IsMatch(style, @"\bposition\s*:\s*fixed");
+            }
+            private static bool HasPositionedStyle(LiteElement n)
+            {
+                var style = n.GetAttribute("style");
+                if (string.IsNullOrEmpty(style)) return false;
+                return System.Text.RegularExpressions.Regex.IsMatch(style, @"\bposition\s*:\s*(?:relative|absolute|fixed|sticky)");
+            }
+            public double clientWidth => 0;
+            public double clientHeight => 0;
+            public double scrollWidth => 0;
+            public double scrollHeight => 0;
+            public double scrollTop { get => 0; set { } }
+            public double scrollLeft { get => 0; set { } }
 
             public object[] getElementsByTagName(string tag)
             {

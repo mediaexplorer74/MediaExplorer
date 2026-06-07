@@ -71,8 +71,10 @@ public sealed class RegExp : CustomType
         {
             var options = RegexOptions.ECMAScript | RegexOptions.CultureInvariant;
 
-            if (!pattern.Contains("\\"))
-                options |= RegexOptions.Compiled;
+            // RegexOptions.Compiled throws ArgumentOutOfRangeException on UWP CoreCLR (netstandard1.4);
+            // NiL.JS eval of large scripts (d3.v5, 248KB) triggers JS regex literals internally.
+            // Keep it disabled — JS RegExp will run in interpreted mode, slower but stable.
+            // options |= RegexOptions.Compiled;
 
             for (int i = 0; i < flags.Length; i++)
             {
@@ -154,11 +156,12 @@ public sealed class RegExp : CustomType
                 _cache[_cacheIndex].re = _regex;
             }
         }
-        catch (ArgumentException)
-        {
-            _regex = new Regex("(?!)", RegexOptions.ECMAScript | RegexOptions.CultureInvariant);
-            return;
-        }
+            catch (Exception)
+            {
+                try { _regex = new Regex("(?!)", RegexOptions.ECMAScript | RegexOptions.CultureInvariant); }
+                catch { _regex = null; }
+                return;
+            }
     }
 
     private static string translateToUnicodePattern(string pattern)

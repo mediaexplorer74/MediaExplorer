@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Net;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -103,7 +104,8 @@ namespace BrowserCore.Engine
                     return await MakeListAsync(n, true, baseUri, onNavigate, js, ct);
 
                 case HtmlTag.Svg:
-                    return RenderInlineSvg(n);
+                    // Phase G.1: Use SVG serialization via SvgImageSource for D3.js output
+                    return await RenderSvgViaSerializationAsync(n);
                 case HtmlTag.Img:
                     return await MakeImageAsync(n, baseUri, ct);
                 case HtmlTag.Picture:
@@ -517,6 +519,109 @@ namespace BrowserCore.Engine
                     StrokeWidth = StrokeWidth,
                     Opacity = Opacity
                 };
+            }
+        }
+
+        // Phase G.1: SVG DOM Serialization for D3.js output
+        // Serializes LiteElement SVG tree to SVG string for rendering via SvgImageSource
+        
+        private static string XmlEscape(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return value;
+            var sb = new StringBuilder(value.Length * 2);
+            foreach (char c in value)
+            {
+                switch (c)
+                {
+                    case '&': sb.Append("&amp;"); break;
+                    case '<': sb.Append("&lt;"); break;
+                    case '>': sb.Append("&gt;"); break;
+                    case '"': sb.Append("&quot;"); break;
+                    case '\'': sb.Append("&apos;"); break;
+                    default: sb.Append(c); break;
+                }
+            }
+            return sb.ToString();
+        }
+
+        private string SerializeSvgToString(LiteElement svgRoot)
+        {
+            var sb = new StringBuilder();
+            SerializeNode(svgRoot, sb);
+            return sb.ToString();
+        }
+
+        private void SerializeNode(LiteElement el, StringBuilder sb)
+        {
+            if (el == null) return;
+            sb.Append("<").Append(el.Tag);
+            // Attributes
+            if (el.Attr != null)
+            {
+                foreach (var kvp in el.Attr)
+                {
+                    sb.Append(" ").Append(XmlEscape(kvp.Key)).Append("=\"").Append(XmlEscape(kvp.Value ?? "")).Append("\"");
+                }
+            }
+            // Inline styles (collected from JS setAttribute("style",...) calls)
+            string style = null;
+            if (el.Attr != null) el.Attr.TryGetValue("style", out style);
+            if (!string.IsNullOrEmpty(style))
+            {
+                sb.Append(" style=\"").Append(XmlEscape(style)).Append("\"");
+            }
+            // Self-closing for void elements
+            if ((el.Children == null || el.Children.Count == 0) && string.IsNullOrEmpty(el.Text))
+            {
+                sb.Append("/>");
+                return;
+            }
+            sb.Append(">");
+            // Children
+            if (el.Children != null)
+            {
+                foreach (var child in el.Children)
+                {
+                    SerializeNode(child, sb);
+                }
+            }
+            // Text content
+            if (!string.IsNullOrEmpty(el.Text))
+            {
+                sb.Append(XmlEscape(el.Text));
+            }
+            sb.Append("</").Append(el.Tag).Append(">");
+        }
+
+        private async Task<FrameworkElement> RenderSvgViaSerializationAsync(LiteElement n)
+        {
+            try
+            {
+                var svgString = SerializeSvgToString(n);
+                if (string.IsNullOrWhiteSpace(svgString)) return null;
+                
+                var image = new Image();
+                var svgSource = new SvgImageSource();
+                var bytes = Encoding.UTF8.GetBytes(svgString);
+                using (var stream = new InMemoryRandomAccessStream())
+                {
+                    using (var writer = new DataWriter(stream.GetOutputStreamAt(0)))
+                    {
+                        writer.WriteBytes(bytes);
+                        await writer.StoreAsync();
+                        await writer.FlushAsync();
+                    }
+                    stream.Seek(0);
+                    await svgSource.SetSourceAsync(stream);
+                }
+                image.Source = svgSource;
+                image.Stretch = Stretch.Uniform;
+                return image;
+            }
+            catch (Exception ex)
+            {
+                try { DevToolsLogger.Log("[SVG-SERIAL] Render error: " + ex.Message); } catch { }
+                return null;
             }
         }
 
@@ -2880,6 +2985,15 @@ namespace BrowserCore.Engine
         {
             ct.ThrowIfCancellationRequested();
             if (n == null) return null;
+            // Phase G.1: Skip children of SVG elements - they are serialized by parent
+            // Check all ancestors for <svg> tag
+            var current = n.Parent;
+            while (current != null)
+            {
+                if (string.Equals(current.Tag, "svg", StringComparison.OrdinalIgnoreCase))
+                    return null;
+                current = current.Parent;
+            }
             if (n.IsText)
             {
                 var txt = CollapseWs(n.Text);
@@ -4461,6 +4575,9 @@ namespace BrowserCore.Engine
 
         private FrameworkElement Finish(FrameworkElement content, LiteElement n)
         {
+            // Ensure RendererStyles can reuse the same image loader (cookies, cache) for background images
+            RendererStyles.ImageLoader = this.ImageLoader;
+
             var css = TryGetCss(n);
 
             // Fallback: if we have a background color but the element didn't support it (e.g. TextBlock), wrap it

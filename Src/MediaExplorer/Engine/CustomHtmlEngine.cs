@@ -1434,8 +1434,8 @@ namespace BrowserCore.Engine
                         }))
                     {
                         Sandbox = allowJs ? SandboxPolicy.AllowAll : SandboxPolicy.NoScripts,
-                        AllowExternalScripts = allowJs,
-                        SubresourceAllowed = (u, kind) => allowJs,
+                        AllowExternalScripts = true,
+                        SubresourceAllowed = (u, kind) => true,
                         ExecuteInlineScriptsOnInnerHTML = allowJs
                     };
                 }

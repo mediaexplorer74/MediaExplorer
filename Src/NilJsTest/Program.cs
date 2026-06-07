@@ -335,16 +335,22 @@ class Program
     {
         Console.WriteLine("NilJsTest CLI — helpers for testing NiL.JS scripts and bad-hash persistence");
         Console.WriteLine("Usage:");
-        Console.WriteLine("  NilJsTest --file <path>                Run a JS file (module) and report errors");
-        Console.WriteLine("  NilJsTest --eval <code> [--repeat N] [--persist]   Eval JS code (wraps as function) N times");
+        Console.WriteLine("  NilJsTest --file <path> [--depth N] [--verbose]     Run a JS file (module)");
+        Console.WriteLine("  NilJsTest --eval <code> [--repeat N] [--persist] [--depth N] [--verbose]");
+        Console.WriteLine("  NilJsTest --eval-file <path> [--depth N] [--verbose]");
+        Console.WriteLine("  NilJsTest fetchd3 [--dir <path>]                      Download d3.v5.min.js locally");
         Console.WriteLine("  NilJsTest show                          Show persisted bad-hash store");
         Console.WriteLine("  NilJsTest export                        Print store JSON to stdout");
         Console.WriteLine("  NilJsTest import                        Read JSON from stdin and restore store");
         Console.WriteLine("  NilJsTest clear                         Clear persisted store file");
         Console.WriteLine("  NilJsTest hash <code>                   Compute engine hash (decimal and hex) for a snippet");
         Console.WriteLine("  NilJsTest --suite <dir> [--store <path>] [--threshold N] [--persist]   Run a directory of JS test cases");
+        Console.WriteLine("Parser options:");
+        Console.WriteLine("  --depth <N>       Set max parser recursion depth (default 400, 0=off)");
+        Console.WriteLine("  --verbose, -v     Log parser depth every 50 levels");
         Console.WriteLine("Examples:");
         Console.WriteLine("  NilJsTest --eval \"throw new Error('x')\" --repeat 2 --persist");
+        Console.WriteLine("  NilJsTest --eval-file d3.v5.min.js --depth 600 --verbose");
     }
 
     static void Main(string[] args)
@@ -381,6 +387,10 @@ class Program
         bool assertMode = false;
         int pageThreshold = 5;
 
+        int parserDepth = 0; // 0 = use default (400)
+        bool verboseParser = false;
+        string fetchD3Dir = null;
+
         for (int i = 0; i < args.Length; i++)
         {
             var a = args[i];
@@ -403,8 +413,20 @@ class Program
             else if (a == "--copy-store") { copyFoundStore = true; }
             else if (a == "--assert") { assertMode = true; }
             else if (a == "--page-threshold") { if (i + 1 < args.Length) int.TryParse(args[++i], out pageThreshold); }
+            else if (a == "--depth") { if (i + 1 < args.Length) int.TryParse(args[++i], out parserDepth); }
+            else if (a == "--verbose" || a == "-v") { verboseParser = true; }
+            else if (a == "fetchd3") { if (i + 1 < args.Length) fetchD3Dir = args[++i]; else fetchD3Dir = "."; }
+            else if (a == "--test-phase1") { RunPhase1Tests(); return; }
+            else if (a == "--test-d3") { RunD3EvalTest(); return; }
+            else if (a == "--test-d3-uwp") { RunD3EvalTestUwpWrapper(); return; }
+            else if (a == "--test-all") { RunPhase1Tests(); Console.WriteLine(); RunD3EvalTest(); return; }
             else { Console.WriteLine("Unknown arg: " + a); PrintUsage(); return; }
         }
+
+        // Apply parser settings before any execution
+        if (parserDepth > 0) { ParseInfo.MaxParserDepth = parserDepth; Console.WriteLine($"Parser max depth set to {parserDepth}"); }
+        else Console.WriteLine($"Parser max depth: {ParseInfo.MaxParserDepth} (default)");
+        if (verboseParser) { ParseInfo.VerboseParser = true; Console.WriteLine("Verbose parser logging enabled"); }
 
         if (show)
         {
@@ -450,6 +472,22 @@ class Program
         {
             var h = ComputeHash(code);
             Console.WriteLine($"Hash decimal={h} hex=0x{h:X8}");
+            return;
+        }
+
+        // fetchd3 command: download d3.v5.min.js from d3js.org
+        if (fetchD3Dir != null)
+        {
+            var url = "https://d3js.org/d3.v5.min.js";
+            var dest = Path.GetFullPath(Path.Combine(fetchD3Dir, "d3.v5.min.js"));
+            try
+            {
+                Console.WriteLine($"Downloading {url} -> {dest} ...");
+                using var wc = new System.Net.WebClient();
+                wc.DownloadFile(url, dest);
+                Console.WriteLine($"OK ({new FileInfo(dest).Length} bytes)");
+            }
+            catch (Exception ex) { Console.WriteLine($"Failed: {ex.Message}"); }
             return;
         }
 
@@ -562,6 +600,355 @@ class Program
 
         PrintUsage();
         return;
+    }
+
+    static void RunPhase1Tests()
+    {
+        int passed = 0, failed = 0;
+        void Assert(string name, bool cond)
+        {
+            if (cond) { Console.WriteLine($"  PASS: {name}"); passed++; }
+            else { Console.WriteLine($"  FAIL: {name}"); failed++; }
+        }
+
+        Console.WriteLine("=== Phase I: Iteration Tests ===");
+        Console.WriteLine();
+
+        var ctx = new Context();
+
+        // Test 1: for-of over plain Array
+        try
+        {
+            var r = ctx.Eval("(function(){var a=[10,20,30],s='';for(var x of a)s+=x;return s;})()");
+            Assert("for-of over array", r?.ToString() == "102030");
+        }
+        catch (Exception ex) { Assert("for-of over array (crashed)", false); Console.WriteLine($"    Exception: {ex.GetType().Name}: {ex.Message}"); }
+
+        // Test 2: for-of over string
+        try
+        {
+            var r = ctx.Eval("(function(){var s='';for(var ch of 'abc')s+=ch;return s;})()");
+            Assert("for-of over string", r?.ToString() == "abc");
+        }
+        catch (Exception ex) { Assert("for-of over string (crashed)", false); Console.WriteLine($"    Exception: {ex.GetType().Name}: {ex.Message}"); }
+
+        // Test 3: Array.from on array-like (via Array.prototype.slice polyfill pattern)
+        try
+        {
+            var r = ctx.Eval("(function(){var o={length:3,0:'a',1:'b',2:'c'};return Array.prototype.slice.call(o).join('');})()");
+            Assert("Array.prototype.slice.call on array-like", r?.ToString() == "abc");
+        }
+        catch (Exception ex) { Assert("Array.prototype.slice.call on array-like (crashed)", false); Console.WriteLine($"    Exception: {ex.GetType().Name}: {ex.Message}"); }
+
+        // Test 4: for-of over Map
+        try
+        {
+            var r = ctx.Eval("(function(){var m=new Map();m.set('x',1);m.set('y',2);var s='';for(var e of m)s+=e[0];return s;})()");
+
+            Assert("for-of over Map", r?.ToString() == "xy");
+        }
+        catch (Exception ex) { Assert("for-of over Map (crashed)", false); Console.WriteLine($"    Exception: {ex.GetType().Name}: {ex.Message}"); }
+
+        // Test 5: for-of over Set
+        try
+        {
+            var r = ctx.Eval("(function(){var s=new Set();s.add('a');s.add('b');var out='';for(var v of s)out+=v;return out;})()");
+            Assert("for-of over Set", r?.ToString() == "ab");
+        }
+        catch (Exception ex) { Assert("for-of over Set (crashed)", false); Console.WriteLine($"    Exception: {ex.GetType().Name}: {ex.Message}"); }
+
+        // Test 6: Symbol.iterator on array
+        try
+        {
+            var r = ctx.Eval("(function(){var a=[1,2,3];return typeof a[Symbol.iterator];})()");
+            Assert("Symbol.iterator on array", r?.ToString() == "function");
+        }
+        catch (Exception ex) { Assert("Symbol.iterator on array (crashed)", false); Console.WriteLine($"    Exception: {ex.GetType().Name}: {ex.Message}"); }
+
+        // Test 7: Spread operator on array
+        try
+        {
+            var r = ctx.Eval("(function(){var a=[1,2,3];return Math.max(...a);})()");
+            Assert("spread operator on array", r?.ToString() == "3");
+        }
+        catch (Exception ex) { Assert("spread operator on array (crashed)", false); Console.WriteLine($"    Exception: {ex.GetType().Name}: {ex.Message}"); }
+
+        Console.WriteLine();
+        Console.WriteLine($"=== Results: {passed} passed, {failed} failed ===");
+        if (failed > 0) Environment.ExitCode = 1;
+    }
+
+    static void RunD3EvalTest()
+    {
+        Console.WriteLine("=== D3.js Eval Test ===");
+
+        // Try to find d3.v5.min.js or d3.v4.min.js in the tests directory
+        var baseDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory);
+        var di = new DirectoryInfo(baseDir);
+        while (di != null && !File.Exists(Path.Combine(di.FullName, "NilJsTest.csproj"))) di = di.Parent;
+        var testDir = di != null ? Path.Combine(di.FullName, "tests") : null;
+
+        string d3File = null;
+        if (testDir != null && Directory.Exists(testDir))
+        {
+            d3File = Directory.GetFiles(testDir, "d3.v*.min.js").OrderByDescending(f => new FileInfo(f).Length).FirstOrDefault();
+        }
+        if (d3File == null)
+        {
+            // Fallback: look next to exe
+            var exeDir = AppDomain.CurrentDomain.BaseDirectory;
+            d3File = Directory.GetFiles(exeDir, "d3.v*.min.js").OrderByDescending(f => new FileInfo(f).Length).FirstOrDefault();
+        }
+
+        if (d3File == null || !File.Exists(d3File))
+        {
+            Console.WriteLine("FAIL: d3.v5.min.js not found. Run 'NilJsTest fetchd3 .' first.");
+            Console.WriteLine("      Or place d3.v5.min.js in the tests/ directory.");
+            return;
+        }
+
+        var code = File.ReadAllText(d3File);
+        Console.WriteLine($"File: {Path.GetFileName(d3File)} ({code.Length} bytes)");
+
+        var ctx = new Context();
+
+        // Polyfills needed by d3: Map, Set, Symbol
+        try { ctx.Eval("if(typeof Map==='undefined'){var Map=function(){this._={};this.set=function(k,v){this._[k]=v};this.get=function(k){return this._[k]};this.size=0}}"); } catch { }
+        try { ctx.Eval("if(typeof Set==='undefined'){var Set=function(){this._=[];this.add=function(v){if(this._.indexOf(v)<0)this._.push(v)};this.has=function(v){return this._.indexOf(v)>=0};this.size=0}}"); } catch { }
+        try { ctx.Eval("if(typeof Symbol==='undefined'){var Symbol=function(){};Symbol.iterator=Symbol('iterator');Symbol.toStringTag=Symbol('toStringTag');Symbol('iterator');}"); } catch { }
+        try { ctx.Eval("if(!Array.from){Array.from=function(a){return Array.prototype.slice.call(a)}}"); } catch { }
+
+        // Eval d3
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var result = ctx.Eval(code + "; typeof d3 !== 'undefined' ? 'd3_defined' : 'd3_missing'");
+            sw.Stop();
+            Console.WriteLine($"Eval: {(result?.ToString() == "d3_defined" ? "OK" : "FAIL")} ({sw.ElapsedMilliseconds}ms)");
+            Console.WriteLine($"  d3 defined: {result}");
+
+            if (result?.ToString() == "d3_defined")
+            {
+                var sel = ctx.Eval("typeof d3.select");
+                var force = ctx.Eval("typeof d3.forceSimulation");
+                Console.WriteLine($"  typeof d3.select = {sel}");
+                Console.WriteLine($"  typeof d3.forceSimulation = {force}");
+
+                // Count number of properties on d3
+                var propCount = ctx.Eval("(function(){var c=0;for(var k in d3)c++;return c;})()");
+                Console.WriteLine($"  d3 properties count: {propCount}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Eval FAILED: {ex.GetType().Name}: {ex.Message}");
+            Console.WriteLine($"  (this is expected for NiL.JS — d3 needs full ES6+)");
+        }
+    }
+
+    static void RunD3EvalTestUwpWrapper()
+    {
+        Console.WriteLine("=== D3.js UWP SafeEval Wrapper Test ===");
+
+        var baseDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory);
+        var di = new DirectoryInfo(baseDir);
+        while (di != null && !File.Exists(Path.Combine(di.FullName, "NilJsTest.csproj"))) di = di.Parent;
+        var testDir = di != null ? Path.Combine(di.FullName, "tests") : null;
+
+        if (testDir == null) { Console.WriteLine("FAIL: test dir not found"); return; }
+        var d3Files = Directory.GetFiles(testDir, "d3.v5.min.js");
+        if (d3Files.Length == 0) { Console.WriteLine("FAIL: d3.v5.min.js not found"); return; }
+
+        var d3Code = File.ReadAllText(d3Files[0]);
+        Console.WriteLine($"d3: {d3Code.Length} bytes");
+
+        // Exact polyfill prefix from UWP JavaScriptEngine.cs lines 5403-5421
+        string polyfillPrefix = @"
+var __MapPolyfill = function(entries) { this._d = {}; this.size = 0; if (entries) for (var __mpe_i = 0; __mpe_i < entries.length; ++__mpe_i) this.set(entries[__mpe_i][0], entries[__mpe_i][1]); };
+__MapPolyfill.__polyfilled = true;
+__MapPolyfill.prototype.set = function(k, v) { var s = typeof k + '|' + k; if (!this._d.hasOwnProperty(s)) this.size++; this._d[s] = v; return this; };
+__MapPolyfill.prototype.get = function(k) { var s = typeof k + '|' + k; return this._d.hasOwnProperty(s) ? this._d[s] : void 0; };
+__MapPolyfill.prototype.has = function(k) { return this._d.hasOwnProperty(typeof k + '|' + k); };
+__MapPolyfill.prototype.delete = function(k) { var s = typeof k + '|' + k; if (this._d.hasOwnProperty(s)) { delete this._d[s]; this.size--; return true; } return false; };
+__MapPolyfill.prototype.clear = function() { this._d = {}; this.size = 0; };
+__MapPolyfill.prototype.forEach = function(fn, thisArg) { for (var k in this._d) if (this._d.hasOwnProperty(k)) fn.call(thisArg || this, this._d[k], k, this); };
+__MapPolyfill.prototype.entries = function() { var a = []; for (var k in this._d) if (this._d.hasOwnProperty(k)) { var p = k.indexOf('|'); a.push([k.substring(p + 1), this._d[k]]); } return a; };
+var __SetPolyfill = function(values) { this._d = {}; this.size = 0; if (values) for (var __spe_i = 0; __spe_i < values.length; ++__spe_i) this.add(values[__spe_i]); };
+__SetPolyfill.__polyfilled = true;
+__SetPolyfill.prototype.add = function(v) { var s = typeof v + '|' + v; if (!this._d.hasOwnProperty(s)) this.size++; this._d[s] = v; return this; };
+__SetPolyfill.prototype.has = function(v) { return this._d.hasOwnProperty(typeof v + '|' + v); };
+__SetPolyfill.prototype.delete = function(v) { var s = typeof v + '|' + v; if (this._d.hasOwnProperty(s)) { delete this._d[s]; this.size--; return true; } return false; };
+__SetPolyfill.prototype.clear = function() { this._d = {}; this.size = 0; };
+__SetPolyfill.prototype.forEach = function(fn, thisArg) { for (var k in this._d) if (this._d.hasOwnProperty(k)) fn.call(thisArg || this, this._d[k], k, this); };
+if (typeof Symbol === 'undefined') { var __id = 0; var Symbol = function(k){ return '__Symbol_' + (k||'') + '_' + (++__id) }; Symbol.iterator = '__Symbol_iterator'; Symbol.toStringTag = '__Symbol_toStringTag'; Symbol.species = '__Symbol_species'; Symbol.for = function(k){ return '__Symbol_for_' + k }; }
+";
+
+        // Apply same text replacements as UWP (lines 5430-5458) — no-ops for d3.v5
+        var content = d3Code
+            .Replace("extends Map{", "{")
+            .Replace("extends Map ", "{ ")
+            .Replace("extends Set{", "{")
+            .Replace("extends Set ", "{ ")
+            .Replace("super.get(", "__MapPolyfill.prototype.get.call(this,")
+            .Replace("super.set(", "__MapPolyfill.prototype.set.call(this,")
+            .Replace("super.has(", "__MapPolyfill.prototype.has.call(this,")
+            .Replace("super.delete(", "__MapPolyfill.prototype.delete.call(this,")
+            .Replace("super.add(", "__SetPolyfill.prototype.add.call(this,")
+            .Replace("super()", "(this._d={},this.size=0)")
+            .Replace("new Map", "new __MapPolyfill")
+            .Replace("new Set", "new __SetPolyfill")
+            .Replace("[Symbol.iterator]", "['__Symbol_iterator']")
+            .Replace("[Symbol.toStringTag]", "['__Symbol_toStringTag']")
+            .Replace("[Symbol.species]", "['__Symbol_species']")
+            .Replace("{let ", "{var ")
+            .Replace("(let ", "(var ")
+            .Replace(";let ", ";var ")
+            .Replace(",let ", ",var ")
+            .Replace(";let{", ";var {")
+            .Replace("{const ", "{var ")
+            .Replace("(const ", "(var ")
+            .Replace(";const ", ";var ")
+            .Replace(",const ", ",var ");
+
+        // Build final: polyfill prefix + content, wrapped in try-catch (exact UWP line 5461)
+        var finalCode = polyfillPrefix + content;
+        var wrappedCode = "try{ " + finalCode + " }catch(e){ }";
+
+        Console.WriteLine($"Final code: {wrappedCode.Length} bytes");
+
+        // Test 0.5: Reproduce UWP state — run d3 in a context that already has window/self/document etc.
+        Console.WriteLine("\n--- Test 0.5: d3 in UWP-like context (window/self/document defined) ---");
+        var ctxUwp = new Context();
+        ctxUwp.Eval("var window = {}, self = {}, globalThis = {}, document = { body: { children: [], childNodes: [] } };");
+        ctxUwp.Eval("var console = { log: function() {}, warn: function() {}, error: function() {} };");
+        ctxUwp.Eval("if (typeof Map === 'undefined') { var Map = function(){}; }");
+        ctxUwp.Eval("if (typeof Set === 'undefined') { var Set = function(){}; }");
+        ctxUwp.Eval("if (!Object.assign) { Object.assign = function(t){for(var i=1;i<arguments.length;i++){var s=arguments[i];for(var k in s)t[k]=s[k]}return t}; }");
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var result = ctxUwp.Eval(wrappedCode);
+            sw.Stop();
+            Console.WriteLine($"Eval: OK ({sw.ElapsedMilliseconds}ms)");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Eval FAILED: {ex.GetType().Name}: {ex.Message}");
+        }
+        try
+        {
+            var d3def = ctxUwp.Eval("typeof d3 !== 'undefined' ? 'd3_defined' : 'd3_missing'");
+            Console.WriteLine($"d3 defined: {d3def}");
+            var sel = ctxUwp.Eval("typeof d3 !== 'undefined' && typeof d3.select !== 'undefined' ? 'function' : 'no'");
+            Console.WriteLine($"typeof d3.select = {sel}");
+        }
+        catch (Exception ex) { Console.WriteLine($"d3 check error: {ex.Message}"); }
+
+        // Test 1: Eval with try-catch wrapper (UWP style)
+        Console.WriteLine("\n--- Test 1: try-catch wrapper (UWP style) ---");
+        var ctx = new Context();
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var result = ctx.Eval(wrappedCode);
+            sw.Stop();
+            Console.WriteLine($"Eval: OK ({sw.ElapsedMilliseconds}ms)");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Eval FAILED: {ex.GetType().Name}: {ex.Message}");
+        }
+
+        // Check d3 state after eval
+        try
+        {
+            var d3def = ctx.Eval("typeof d3 !== 'undefined' ? 'd3_defined' : 'd3_missing'");
+            Console.WriteLine($"d3 defined: {d3def}");
+        }
+        catch (Exception ex) { Console.WriteLine($"d3 check error: {ex.Message}"); }
+
+        try
+        {
+            var sel = ctx.Eval("typeof d3 !== 'undefined' && typeof d3.select !== 'undefined' ? 'function' : 'no'");
+            Console.WriteLine($"typeof d3.select = {sel}");
+        }
+        catch (Exception ex) { Console.WriteLine($"d3.select check error: {ex.Message}"); }
+
+        try
+        {
+            var force = ctx.Eval("typeof d3 !== 'undefined' && typeof d3.forceSimulation !== 'undefined' ? 'function' : 'no'");
+            Console.WriteLine($"typeof d3.forceSimulation = {force}");
+        }
+        catch (Exception ex) { Console.WriteLine($"d3.forceSimulation check error: {ex.Message}"); }
+
+        try
+        {
+            var mc = ctx.Eval("typeof Map");
+            Console.WriteLine($"typeof Map = {mc}");
+        }
+        catch (Exception ex) { Console.WriteLine($"Map check error: {ex.Message}"); }
+
+        try
+        {
+            var sc = ctx.Eval("typeof Set");
+            Console.WriteLine($"typeof Set = {sc}");
+        }
+        catch (Exception ex) { Console.WriteLine($"Set check error: {ex.Message}"); }
+
+        // Test 2: Eval WITHOUT try-catch (same content, no wrapper)
+        Console.WriteLine("\n--- Test 2: direct eval (no wrapper) ---");
+        var ctx2 = new Context();
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var result = ctx2.Eval(finalCode);
+            sw.Stop();
+            Console.WriteLine($"Eval: OK ({sw.ElapsedMilliseconds}ms)");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Eval FAILED: {ex.GetType().Name}: {ex.Message}");
+        }
+
+        try
+        {
+            var d3def = ctx2.Eval("typeof d3 !== 'undefined' ? 'd3_defined' : 'd3_missing'");
+            Console.WriteLine($"d3 defined: {d3def}");
+        }
+        catch (Exception ex) { Console.WriteLine($"d3 check error: {ex.Message}"); }
+
+        try
+        {
+            var sel = ctx2.Eval("typeof d3 !== 'undefined' && typeof d3.select !== 'undefined' ? 'function' : 'no'");
+            Console.WriteLine($"typeof d3.select = {sel}");
+        }
+        catch (Exception ex) { Console.WriteLine($"d3.select check error: {ex.Message}"); }
+
+        // Test 3: Separate polyfills then d3 (NilJsTest original approach)
+        Console.WriteLine("\n--- Test 3: separate polyfills + d3 (NilJsTest original) ---");
+        var ctx3 = new Context();
+        try { ctx3.Eval("if(typeof Map==='undefined'){var Map=function(){this._={};this.set=function(k,v){this._[k]=v};this.get=function(k){return this._[k]};this.size=0}}"); } catch { }
+        try { ctx3.Eval("if(typeof Set==='undefined'){var Set=function(){this._=[];this.add=function(v){if(this._.indexOf(v)<0)this._.push(v)};this.has=function(v){return this._.indexOf(v)>=0};this.size=0}}"); } catch { }
+        try { ctx3.Eval("if(typeof Symbol==='undefined'){var Symbol=function(){};Symbol.iterator=Symbol('iterator');Symbol.toStringTag=Symbol('toStringTag');}"); } catch { }
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var result = ctx3.Eval(d3Code + "; typeof d3 !== 'undefined' ? 'd3_defined' : 'd3_missing'");
+            sw.Stop();
+            Console.WriteLine($"Eval: {(result?.ToString() == "d3_defined" ? "OK" : "FAIL")} ({sw.ElapsedMilliseconds}ms)");
+            Console.WriteLine($"d3 defined: {result}");
+            if (result?.ToString() == "d3_defined")
+            {
+                Console.WriteLine($"  typeof d3.select = {ctx3.Eval("typeof d3.select")}");
+                Console.WriteLine($"  typeof d3.forceSimulation = {ctx3.Eval("typeof d3.forceSimulation")}");
+                var propCount = ctx3.Eval("(function(){var c=0;for(var k in d3)c++;return c;})()");
+                Console.WriteLine($"  d3 properties count: {propCount}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Eval FAILED: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     static void SaveUnhandled(Exception ex, string[] args)

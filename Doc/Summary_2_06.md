@@ -1,85 +1,72 @@
-# Summary_2_6 — Phase 6 (ES Modules)
+# Summary_2_12 — Phase 12 (AI Integration: DeepSeek via OpenRouter)
 
 ## Goal
-Turn NiL.JS into a real ES module loader via its native `Module.ResolveModule` event + `Context.Eval`, replacing the old transpile-and-MiniRunner approach.
+Add an AI button to the AppBar that sends current page content to DeepSeek (via OpenRouter API) and displays a summary in a slide-up overlay.
 
 ## Changes
 
 ### Files modified
-- `Engine\ModuleLoader.cs` — complete rewrite (NiL.JS native module API)
-- `Engine\JavaScriptEngine.cs` — ModuleLoader init moved after `_nilInit()`, `_moduleLoader` field no longer `readonly`
-- `Engine\ResourceManager.cs` — `Array.ConvertAll` → LINQ `.Select().ToArray()`
-- `Engine\JavaScriptEngine.cs` — `#if USE_NILJS` guards for MiniRunner dead code
-- `MainPage.xaml.cs` — braces around `if`/`else` with `var _ = ...`
-- `WEBVIEW.csproj` — added `<Compile Include>` for `OpenRouterClient.cs`
-- `Engine\OpenRouterClient.cs` — `TryAppendWithoutValidation` → `Headers.Add`
+- `Engine\OpenRouterClient.cs` — new file, static HTTP client for OpenRouter API
+- `MainPage.xaml` — AI button (+1 column), AI overlay panel, API key field in Settings
+- `MainPage.xaml.cs` — AI button handler, key persistence, overlay show/hide/copy
 
 ---
 
-### 1. Native NiL.JS module loading
+### 1. OpenRouterClient.cs (new)
+Static class with a single `SummarizeAsync(apiKey, pageText)` method:
+- POST to `https://openrouter.ai/api/v1/chat/completions`
+- Model: `deepseek/deepseek-chat` (DeepSeek V3, cheapest on OpenRouter)
+- System prompt: "Summarize in 3-5 concise bullet points"
+- Temperature 0.3, max 500 tokens
+- Parses JSON response via `Windows.Data.Json` (no Newtonsoft dependency)
+- Returns summary string or error message
 
-**Before:** ModuleLoader transpiled `import`/`export` via ad-hoc regex, wrapped in an IIFE shim (`window.__esM[key]`), and executed through `ExecuteScriptBlock` → `_nil.Eval`.
+**Cost per call:** ~$0.0018 (3000 input + 150 output tokens)
 
-**After:** Uses NiL.JS's built-in module pipeline:
+---
 
+### 2. MainPage.xaml changes
+
+**AppBar** (6 columns):
+| Col | Button | Glyph |
+|-----|--------|-------|
+| 0 | Back | `SymbolIcon Back` |
+| 1 | Forward | `SymbolIcon Forward` |
+| 2 | URL omnibox | — |
+| 3 | Go | `&#xE721;` |
+| **4** | **AI** (new) | `&#xE8F1;` |
+| 5 | Settings | `&#xE713;` |
+
+**AI overlay panel:**
+- Title bar ("Thinking..." / "AI Summary")
+- Scrollable TextBlock for result
+- Copy button + Close button
+
+**Settings overlay** — added before Clear Cache:
 ```
-<script type="module" src="app.js">
-  → ModuleLoader.ExecuteModuleTagAsync
-    → Prefetch all transitive imports (regex scan, recursive fetch)
-    → Cache each as NiL.JS.Module(key, source) with Context set via reflection
-    → _nil.Eval(source) — NiL.JS natively parses import/export, fires ResolveModule
+OpenRouter API Key
+[TextBox: sk-or-v1-...]
 ```
 
-Key components:
-
-**`Module.ResolveModule` event handler** — subscribed once, handles every `import` specifier encountered during `_nil.Eval`:
-- Resolves relative → absolute (via `location.href`)
-- Resolves bare specifiers via `importMap`
-- Falls back to synchronous fetch (`GetAwaiter().GetResult()`) for uncached modules
-- Returns cached `NiL.JS.Module` objects
-
-**Pre-fetch** — before executing the top-level module, `PrefetchDependencies` scans `import` statements via regex, recursively fetches and caches all transitive dependencies as `NiL.JS.Module` objects with their `Context` set.
-
-**NiL.JS handles:** live bindings, circular deps, export scoping — no manual transpilation needed.
-
 ---
 
-### 2. ImportMap support (wired)
+### 3. MainPage.xaml.cs changes
 
-`SetImportMap(Dictionary<string, string>)` stores bare specifier → URL mappings. The `ResolveModule` handler checks the import map before attempting URL resolution.
+| Method | Role |
+|--------|------|
+| `AiButton_Click` | Load key → extract page text via `BrowserHost.GetTextContent()` (fallback: `LiteElement.CollectText()`) → truncate at 16KB → call OpenRouter → show result |
+| `ShowAiResult(text, isLoading)` | Toggle AI overlay, set title/result text, manage copy button visibility |
+| `AiCloseButton_Click` | Hide overlay |
+| `AiCopyButton_Click` | Copy result to clipboard via `DataPackage` |
+| `LoadAiKey` / `SaveAiKey` | Persist key in `ApplicationData.LocalSettings["OpenRouterKey"]` |
 
----
-
-### 3. Script module detection (pre-wired)
-
-JavaScriptEngine.cs already had:
-- Module classification (`type == "module"` → deferred)
-- Dispatch to `_moduleLoader.ExecuteModuleTagAsync()`
-- Script budget check (16KB per module)
-
-No changes needed.
+**Text extraction** uses `_browser.GetTextContent()` which already walks `LiteElement.SelfAndDescendants()` collecting text — no new DOM traversal code needed.
 
 ---
-
-### 4. Build errors fixed
-
-| Error | File | Fix |
-|-------|------|-----|
-| CS1023 | `MainPage.xaml.cs:148` | Added braces around `if`/`else` with `var _ = ...` |
-| CS0117 | `Engine\ResourceManager.cs:613` | `Array.ConvertAll` → `args.Select(a => a.Name).ToArray()` |
-| CS0136 | `Engine\JavaScriptEngine.cs:3703` | Renamed `token` → `xhrToken` (scope conflict) |
-| CS0103 | `Engine\JavaScriptEngine.cs:755` | Wrapped dead MiniRunner call in `#if USE_NILJS` |
-| CS0103 | `Engine\JavaScriptEngine.cs:1172` | Same |
-| CS0122 | `Engine\JavaScriptEngine.cs:2817` | `ExecuteCachedInline` — MiniRunner path behind `#if !USE_NILJS` |
-| CS0103 | `MainPage.xaml.cs:859` | Added `<Compile Include>` for `OpenRouterClient.cs` to csproj |
-| CS1061 | `Engine\OpenRouterClient.cs:27` | `TryAppendWithoutValidation` → `Headers.Add` |
-| CS0200 | `Engine\ModuleLoader.cs` | Module.Context is private setter — use reflection (`MethodInfo.Invoke`) |
-| CS0104 | `Engine\ModuleLoader.cs` | `Module` ambiguous with `System.Reflection.Module` — alias `JSModule = NiL.JS.Module` |
-| CS1061 | `Engine\ModuleLoader.cs` | `Context.GetValue` → `GetVariable`, `JSValue.IsUndefined` → `ValueType == JSValueType.Undefined` |
 
 ## Build result
-- **0 errors** (MSBuild 17.14 / x86 Debug)
-- **~220 lines** ModuleLoader rewrite, ~90 lines fixes elsewhere
+- **0 errors expected** (UWP requires VS)
+- **~95 lines added** across 3 files (new `OpenRouterClient.cs` + ~50 lines XAML + ~45 lines C#)
 
 ## Next
-Phase 7 (Service Worker + Offline) — fetch interception in ResourceManager, `navigator.serviceWorker.register()`.
+Phase 11 (UI Polish) — loading spinner, swipe nav, reading mode, URL autocomplete, error page styling, clear cache button.

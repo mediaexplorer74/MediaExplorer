@@ -59,10 +59,15 @@ namespace WEBVIEW
                 if (MainPage.Current != null) MainPage.Current.ApplyAppBarMode();
             };
 
-            RenderModeCombo.SelectionChanged += (s, e) =>
+            // RenderModeCombo controls the rendering profile:
+//   Full  – CSS + JS + full interactivity (default/"Normal" mode)
+//   Rich  – CSS only, no JavaScript; used for reading‑mode pages
+//   Poor  – Plain‑text fallback, no CSS or JavaScript (e‑book style)
+RenderModeCombo.SelectionChanged += (s, e) =>
             {
                 if (RenderModeCombo == null) return;
                 int idx = RenderModeCombo.SelectedIndex;
+                // Map the selected index to the internal mode string
                 string mode = idx == 0 ? "Full" : idx == 1 ? "Rich" : "Poor";
                 SaveRenderMode(mode);
                 if (MainPage.Current != null) MainPage.Current.RenderMode = mode;

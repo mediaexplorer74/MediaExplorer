@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="MediaExplorer">
+      <HintPath>..\Src\MediaExplorer\bin\x86\Release\ilc\MediaExplorer.dll</HintPath>
+    </Reference>
+    <Reference Include="NiL.JS">
+      <HintPath>..\Src\MediaExplorer\bin\x86\Release\NiL.JS.dll</HintPath>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>..\Src\MediaExplorer\bin\x86\Release\Newtonsoft.Json.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
+
