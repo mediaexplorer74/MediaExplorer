@@ -16,9 +16,8 @@ MediaExplorer is a hobby browser for Windows 10 Mobile (W10M, build 15063+) buil
 
 
 ## Features
-
 - **Custom rendering engine** — HTML parser, CSS cascade, flexbox, XAML renderer
-- **JavaScript** — NiL.JS runtime with ES Modules support (Vite bundles parse)
+- **JavaScript** — NiL.JS runtime with ES Modules support (Vite bundles parse; D3v4/v5 support)
 - **DevTools** — Console, DOM inspector, Network tab, Debug log
 - **3 UI modes** — Hided (strip), Semi (expandable), Full (standard app bar)
 - **3 render modes** — Full (JS+CSS), Rich (CSS, no JS), Poor (plain text)
@@ -71,6 +70,6 @@ Include: URL, what you expected, what you got. Screenshots help.
 
 As is. No support. RnD only. DIY.
 
-[m][e] June 6, 2026
+[m][e] June 7, 2026
 
 ![](/Images/footer.png)

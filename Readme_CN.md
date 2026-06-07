@@ -19,7 +19,7 @@ MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的�
 ## 功能
 
 - **自定义渲染引擎** — HTML 解析器、CSS 层叠、flexbox、XAML 渲染器
-- **JavaScript** — NiL.JS 运行时，支持 ES Modules（可解析 Vite 打包）
+- **JavaScript** — NiL.JS 运行时，支持 ES Modules（Vite bundles parse; D3v4/v5 support）
 - **开发者工具** — Console、DOM 检查器、Network 标签、Debug 日志
 - **3 种 UI 模式** — 隐藏（条状）、半展开、完整（标准应用栏）
 - **3 种渲染模式** — 完整（JS+CSS）、丰富（CSS 无 JS）、极简（纯文本）
@@ -72,6 +72,6 @@ MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的�
 
 按原样提供。不提供支持。仅用于研究。自己动手。
 
-[m][e] 2026 年 6 月 06 日
+[m][e] 2026 年 6 月 07 日
 
 ![](/Images/footer.png)

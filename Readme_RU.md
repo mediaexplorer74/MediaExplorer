@@ -18,7 +18,7 @@ MediaExplorer — это хобби-браузер для Windows 10 Mobile (W10
 ## Возможности
 
 - **Собственный движок рендеринга** — HTML-парсер, CSS-каскад, flexbox, XAML-рендерер
-- **JavaScript** — NiL.JS с поддержкой ES Modules (парсит Vite-бандлы)
+- **JavaScript** — NiL.JS с поддержкой ES Modules (Vite bundles parse; D3v4/v5 support)
 - **DevTools** — Console, DOM-инспектор, Network, Debug-лог
 - **3 режима UI** — Скрытый (полоска), Полуоткрытый, Полный (стандартная панель)
 - **3 режима рендеринга** — Полный (JS+CSS), Обогащённый (CSS без JS), Бедный (чистый текст)
@@ -71,6 +71,6 @@ MediaExplorer — это хобби-браузер для Windows 10 Mobile (W10
 
 Как есть. Без поддержки. Только RnD. Сделай сам.
 
-[m][e] 06 июня 2026
+[m][e] 07 июня 2026
 
 ![](/Images/footer.png)
