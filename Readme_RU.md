@@ -1,4 +1,4 @@
-# MediaExplorer 0.50.0 - dev branch
+# MediaExplorer 0.55.0 - dev branch
 
 
 ![](/Images/logo.png)
@@ -33,6 +33,12 @@ MediaExplorer — это хобби-браузер для Windows 10 Mobile (W10
 - **NiL.JS 2.6 (netstandard2.0 → 1.4)** | **✅ DONE** (успешно собрался для W10M 15063)
 
 Это самодельный браузерный движок — не для продакшена, не для замены Edge или Chrome. Он существует, чтобы доказать: для рендеринга веб-страницы не обязательно нужен Chromium.
+
+## Вехи разработки
+
+- **2026.06.07 — v0.55.0** D3.js force-directed граф (Nokia Design Archive) рендерится как живые XAML-элементы — без Skia, без SvgImageSource, без WebView. SVG-элементы (circle, line, rect, path, text, g) маппятся в нативные UIElement-потомки UWP (Ellipse, Line, Rectangle, Path, TextBlock, Canvas) в пайплайне VirtualizingRenderer с каскадированием стилей (fill, stroke, stroke-width, opacity) и viewBox-масштабированием.
+- **2026.06.05 — v0.50.0** Первая успешная d3.js-оценка на UWP через NiL.JS: симуляция force инициализируется, tick-функция срабатывает, SVG-ноды DOM создаются. Ограничение: вывод D3.js DOM не рендерился на экран (решено в v0.55).
+- **2026.05.xx — v0.42.8** NiL.JS портирован с netstandard2.0 на .NET Native 1.4 (совместимость с W10M 15063). Добавлена поддержка ES Modules. Реализован MutationObserver.
 
 ## Известные проблемы
 

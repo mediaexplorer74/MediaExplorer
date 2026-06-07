@@ -110,6 +110,7 @@ namespace BrowserCore.Engine
         private readonly CookieContainer _jsCookieJar = new CookieContainer();
         private readonly System.Threading.SemaphoreSlim _repaintGate = new System.Threading.SemaphoreSlim(1, 1);
         private int _repaintScheduled;
+        private int _svgRefreshPending;
         private readonly CoreDispatcher _uiDispatcher;
         private volatile int _isRendering;
 
@@ -956,7 +957,11 @@ namespace BrowserCore.Engine
                 if (mut.Type == "childList")
                 {
                     if (mut.Added != null)
-                        foreach (var a in mut.Added) affectedNodes.Add(a);
+                        foreach (var a in mut.Added)
+                        {
+                            affectedNodes.Add(a);
+                            addedNodes.Add(a);
+                        }
                     if (mut.Removed != null)
                         foreach (var r in mut.Removed) affectedNodes.Add(r);
                     if (mut.Target != null) affectedNodes.Add(mut.Target);
@@ -1065,23 +1070,40 @@ namespace BrowserCore.Engine
                     // Phase 3: Patch renderer (incremental, not full UpdateView)
                     _currentRenderer.UpdateCanvasSize();
 
-                    // Patch added subtrees
-                    foreach (var added in addedNodes)
+                    // Check if any mutation affects an SVG subtree
+                    bool hasSvgMutation = false;
+                    foreach (var n in addedNodes) { if (IsSvgOrHasSvgAncestor(n)) { hasSvgMutation = true; break; } }
+                    if (!hasSvgMutation)
                     {
-                        if (_elementToRenderObject.TryGetValue(added, out var ro))
-                            _currentRenderer.PatchAdded(ro);
+                        foreach (var n in affectedNodes) { if (IsSvgOrHasSvgAncestor(n)) { hasSvgMutation = true; break; } }
                     }
 
-                    // Patch style-changed nodes
-                    foreach (var node in affectedNodes)
+                    if (hasSvgMutation)
                     {
-                        if (_elementToRenderObject.TryGetValue(node, out var ro))
-                            _currentRenderer.PatchStyle(ro);
-                    }
-
-                    // Fallback: if no specific patches were applied, do full UpdateView
-                    if (addedNodes.Count == 0 && affectedNodes.Count == 0)
+                        System.Diagnostics.Debug.WriteLine("[DIAG] IncrementalUpdate SVG mutation detected, full UpdateView");
+                        // SVG mutations need full SVG re-render (individual patches don't produce correct XAML shapes)
                         _currentRenderer.UpdateView();
+                    }
+                    else
+                    {
+                        // Patch added subtrees
+                        foreach (var added in addedNodes)
+                        {
+                            if (_elementToRenderObject.TryGetValue(added, out var ro))
+                                _currentRenderer.PatchAdded(ro);
+                        }
+
+                        // Patch style-changed nodes
+                        foreach (var node in affectedNodes)
+                        {
+                            if (_elementToRenderObject.TryGetValue(node, out var ro))
+                                _currentRenderer.PatchStyle(ro);
+                        }
+
+                        // Fallback: if no specific patches were applied, do full UpdateView
+                        if (addedNodes.Count == 0 && affectedNodes.Count == 0)
+                            _currentRenderer.UpdateView();
+                    }
                 }
                 catch (System.Exception ex)
                 {
@@ -1567,6 +1589,7 @@ namespace BrowserCore.Engine
                 }
 
                 try { System.Diagnostics.Debug.WriteLine("[RENDER] Final element null=" + (element == null) + " empty=" + (element != null && IsEffectivelyEmpty(element))); } catch { /* swallow */ }
+                TriggerDelayedSvgRefresh();
                 return element;
             }
             finally
@@ -1767,6 +1790,73 @@ namespace BrowserCore.Engine
                 for (int i = 0; i < count; i++) ApplyDefaultForeground(Windows.UI.Xaml.Media.VisualTreeHelper.GetChild(node, i), desired);
             }
             catch { /* swallow */ }
+        }
+
+        private static bool IsSvgOrHasSvgAncestor(LiteElement node)
+        {
+            if (string.Equals(node.Tag, "svg", StringComparison.OrdinalIgnoreCase))
+                return true;
+            var cur = node.Parent;
+            while (cur != null)
+            {
+                if (string.Equals(cur.Tag, "svg", StringComparison.OrdinalIgnoreCase))
+                    return true;
+                cur = cur.Parent;
+            }
+            return false;
+        }
+
+        private void TriggerDelayedSvgRefresh()
+        {
+            if (System.Threading.Interlocked.Exchange(ref _svgRefreshPending, 1) != 0)
+                return;
+            if (_activeDom == null) { _svgRefreshPending = 0; return; }
+            bool hasSvg = false;
+            try
+            {
+                foreach (var n in _activeDom.Descendants())
+                {
+                    if (string.Equals(n.Tag, "svg", StringComparison.OrdinalIgnoreCase))
+                    { hasSvg = true; break; }
+                }
+            }
+            catch { _svgRefreshPending = 0; return; }
+            if (!hasSvg) { _svgRefreshPending = 0; return; }
+
+            var disp = _uiDispatcher ?? UiThreadHelper.TryGetDispatcher();
+            if (disp == null) { _svgRefreshPending = 0; return; }
+
+            Task.Run(async () =>
+            {
+                try { await Task.Delay(400).ConfigureAwait(false); }
+                catch { System.Threading.Interlocked.Exchange(ref _svgRefreshPending, 0); return; }
+
+                try
+                {
+                    // Check if SVG now has children (D3 populated it)
+                    bool hasSvgChildren = false;
+                    if (_activeDom != null)
+                    {
+                        foreach (var n in _activeDom.Descendants())
+                        {
+                            if (string.Equals(n.Tag, "svg", StringComparison.OrdinalIgnoreCase) &&
+                                n.Children != null && n.Children.Count > 0)
+                            { hasSvgChildren = true; break; }
+                        }
+                    }
+                    if (!hasSvgChildren) { System.Threading.Interlocked.Exchange(ref _svgRefreshPending, 0); return; }
+
+                    System.Diagnostics.Debug.WriteLine("[DIAG:SVG] Delayed refresh: SVG children detected");
+                    var element = await RefreshAsyncInternal(includeDiagnosticsBanner: false).ConfigureAwait(false);
+                    if (element != null)
+                        await DispatchRepaintAsync(element).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("[DIAG:SVG] Delayed refresh EXC " + ex.Message);
+                }
+                finally { System.Threading.Interlocked.Exchange(ref _svgRefreshPending, 0); }
+            });
         }
     }
 }

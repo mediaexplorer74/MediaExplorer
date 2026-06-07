@@ -1,9 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Windows.Foundation;
+using Windows.UI;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Media;
+using Windows.UI.Xaml.Shapes;
+using Windows.UI.Xaml.Markup;
 using Windows.Storage.Streams;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.UI.Xaml.Input;
@@ -355,10 +359,14 @@ namespace BrowserCore.Engine.Core
 
             if (visual is FrameworkElement fe)
             {
-                fe.Width = EnsureValid(node.Bounds.Width);
-                // Don't set explicit Height on TextBlock — use natural text height
-                if (!(visual is TextBlock))
-                    fe.Height = EnsureValid(node.Bounds.Height);
+                var tag = (node as RenderBox)?.Node?.Tag?.ToUpperInvariant();
+                if (tag != "SVG")
+                {
+                    fe.Width = EnsureValid(node.Bounds.Width);
+                    // Don't set explicit Height on TextBlock — use natural text height
+                    if (!(visual is TextBlock))
+                        fe.Height = EnsureValid(node.Bounds.Height);
+                }
             }
             Canvas.SetLeft(visual, EnsureValid(ax));
             Canvas.SetTop(visual, EnsureValid(ay));
@@ -615,6 +623,13 @@ namespace BrowserCore.Engine.Core
         {
             var tag = box.Node?.Tag?.ToUpperInvariant();
 
+            if (tag == "SVG")
+            {
+                string pt = null;
+                try { var p = box.Parent; if (p != null) { var pn = p.Node; if (pn != null) pt = pn.Tag; } } catch { }
+                try { System.Diagnostics.Debug.WriteLine("[SVG:G.2] CreateBoxVisual parent=" + (pt ?? "?") + " viewBox=" + (GetAttr(box.Node, "viewBox") ?? "?") + " id=" + (GetAttr(box.Node, "id") ?? "?") + " class=" + (GetAttr(box.Node, "class") ?? "?")); } catch { }
+                return RenderSvgElement(box.Node);
+            }
             if (tag == "IMG") return CreateImageVisual(box);
             if (tag == "SELECT") return CreateSelectVisual(box);
             if (tag == "INPUT") return CreateInputVisual(box);
@@ -880,6 +895,416 @@ namespace BrowserCore.Engine.Core
             {
                 img.Visibility = Visibility.Collapsed;
             }
+        }
+
+        // ── Phase G.2: SVG element rendering (D3.js force graph support) ──
+
+        private sealed class SvgRenderState
+        {
+            public Brush Fill;
+            public Brush Stroke;
+            public double StrokeWidth = 1;
+            public double Opacity = 1.0;
+            public double TranslateX;
+            public double TranslateY;
+
+            public SvgRenderState Clone()
+            {
+                return new SvgRenderState
+                {
+                    Fill = Fill,
+                    Stroke = Stroke,
+                    StrokeWidth = StrokeWidth,
+                    Opacity = Opacity,
+                    TranslateX = TranslateX,
+                    TranslateY = TranslateY
+                };
+            }
+        }
+
+        private UIElement RenderSvgElement(LiteElement svg)
+        {
+            if (svg == null) return null;
+            string svgW = GetAttr(svg, "width"), svgH = GetAttr(svg, "height"), svgVb = GetAttr(svg, "viewBox");
+            try { System.Diagnostics.Debug.WriteLine("[SVG:G.2] RenderSvgElement tag=" + (svg.Tag ?? "null") + " children=" + (svg.Children != null ? svg.Children.Count.ToString() : "0") + " width=" + (svgW ?? "null") + " height=" + (svgH ?? "null") + " viewBox=" + (svgVb ?? "null")); } catch { }
+
+            double width = ParseSvgLength(GetAttr(svg, "width"));
+            double height = ParseSvgLength(GetAttr(svg, "height"));
+
+            double vbX = 0, vbY = 0, vbW = 0, vbH = 0;
+            bool hasViewBox = false;
+            string viewBox = GetAttr(svg, "viewBox") ?? GetAttr(svg, "viewbox");
+            if (viewBox != null)
+            {
+                var parts = viewBox.Split(new[] { ' ', ',', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 4 &&
+                    double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out vbX) &&
+                    double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out vbY) &&
+                    double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out vbW) &&
+                    double.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out vbH))
+                {
+                    hasViewBox = vbW > 0 && vbH > 0;
+                }
+            }
+
+            var canvas = new Canvas
+            {
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top
+            };
+
+            if (hasViewBox)
+            {
+                canvas.Width = vbW;
+                canvas.Height = vbH;
+            }
+            else
+            {
+                if (!double.IsNaN(width) && width > 0) canvas.Width = width;
+                if (!double.IsNaN(height) && height > 0) canvas.Height = height;
+            }
+
+            if (svg.Children != null)
+            {
+                var state = new SvgRenderState();
+                foreach (var child in svg.Children)
+                {
+                    try { System.Diagnostics.Debug.WriteLine("[SVG:G.2] svg child=" + (child?.Tag ?? "null") + " children=" + (child?.Children?.Count ?? 0)); } catch { }
+                    AppendSvgChild(canvas, child, state);
+                }
+            }
+            try { System.Diagnostics.Debug.WriteLine("[SVG:G.2] Canvas children=" + canvas.Children.Count); } catch { }
+
+            if (hasViewBox || !double.IsNaN(width) || !double.IsNaN(height))
+            {
+                var vb = new Viewbox
+                {
+                    Stretch = Stretch.Uniform,
+                    Child = canvas
+                };
+                if (!double.IsNaN(width) && width > 0) vb.Width = width;
+                if (!double.IsNaN(height) && height > 0) vb.Height = height;
+                return vb;
+            }
+
+            return canvas;
+        }
+
+        private void AppendSvgChild(Canvas parent, LiteElement node, SvgRenderState inherited)
+        {
+            if (node == null || node.IsText) return;
+
+            var state = inherited?.Clone() ?? new SvgRenderState();
+            ApplySvgStateOverrides(node, state);
+
+            string tag = node.Tag?.ToLowerInvariant();
+            switch (tag)
+            {
+                case "g":
+                {
+                    double tx = state.TranslateX, ty = state.TranslateY;
+                    string transform = GetAttr(node, "transform");
+                    if (transform != null)
+                    {
+                        int idx = transform.IndexOf("translate(", StringComparison.OrdinalIgnoreCase);
+                        if (idx >= 0)
+                        {
+                            int start = idx + 10;
+                            int end = transform.IndexOf(')', start);
+                            if (end > start)
+                            {
+                                var args = transform.Substring(start, end - start).Split(',');
+                                if (args.Length >= 2)
+                                {
+                                    double.TryParse(args[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out tx);
+                                    double.TryParse(args[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out ty);
+                                }
+                            }
+                        }
+                    }
+                    state.TranslateX = tx;
+                    state.TranslateY = ty;
+
+                    int gChildCount = node.Children?.Count ?? 0;
+                    try { System.Diagnostics.Debug.WriteLine("[SVG:G.2] g children=" + gChildCount + " tag=" + (node.Tag ?? "")); } catch { }
+                    if (gChildCount > 0)
+                    {
+                        foreach (var child in node.Children)
+                            AppendSvgChild(parent, child, state);
+                    }
+                    break;
+                }
+
+                case "circle":
+                {
+                    double cx = ParseSvgLength(GetAttr(node, "cx")) + state.TranslateX;
+                    double cy = ParseSvgLength(GetAttr(node, "cy")) + state.TranslateY;
+                    double r = ParseSvgLength(GetAttr(node, "r"));
+                    if (double.IsNaN(r) || r <= 0) break;
+
+                    var brushFill = state.Fill ?? new SolidColorBrush(Colors.Black);
+                    var ellipse = new Ellipse
+                    {
+                        Width = 2 * r,
+                        Height = 2 * r,
+                        Fill = brushFill,
+                        Stroke = state.Stroke,
+                        StrokeThickness = state.StrokeWidth > 0 ? state.StrokeWidth : 0,
+                        Opacity = Clamp(state.Opacity, 0, 1),
+                    };
+                    Canvas.SetLeft(ellipse, cx - r);
+                    Canvas.SetTop(ellipse, cy - r);
+                    parent.Children.Add(ellipse);
+                    break;
+                }
+
+                case "line":
+                {
+                    double x1 = ParseSvgLength(GetAttr(node, "x1")) + state.TranslateX;
+                    double y1 = ParseSvgLength(GetAttr(node, "y1")) + state.TranslateY;
+                    double x2 = ParseSvgLength(GetAttr(node, "x2")) + state.TranslateX;
+                    double y2 = ParseSvgLength(GetAttr(node, "y2")) + state.TranslateY;
+
+                    var line = new Line
+                    {
+                        X1 = x1, Y1 = y1, X2 = x2, Y2 = y2,
+                        Stroke = state.Stroke ?? new SolidColorBrush(Colors.Black),
+                        StrokeThickness = state.StrokeWidth > 0 ? state.StrokeWidth : 1,
+                        StrokeStartLineCap = PenLineCap.Round,
+                        StrokeEndLineCap = PenLineCap.Round,
+                        Opacity = Clamp(state.Opacity, 0, 1),
+                    };
+                    parent.Children.Add(line);
+                    break;
+                }
+
+                case "rect":
+                {
+                    double x = ParseSvgLength(GetAttr(node, "x")) + state.TranslateX;
+                    double y = ParseSvgLength(GetAttr(node, "y")) + state.TranslateY;
+                    double w = ParseSvgLength(GetAttr(node, "width"));
+                    double h = ParseSvgLength(GetAttr(node, "height"));
+                    if (double.IsNaN(w) || double.IsNaN(h) || w <= 0 || h <= 0) break;
+
+                    var rect = new Rectangle
+                    {
+                        Width = w, Height = h,
+                        Fill = state.Fill,
+                        Stroke = state.Stroke,
+                        StrokeThickness = state.StrokeWidth > 0 ? state.StrokeWidth : 0,
+                        Opacity = Clamp(state.Opacity, 0, 1),
+                    };
+                    double rx = ParseSvgLength(GetAttr(node, "rx"));
+                    double ry = ParseSvgLength(GetAttr(node, "ry"));
+                    if (!double.IsNaN(rx) || !double.IsNaN(ry))
+                    {
+                        double cr = Math.Max(double.IsNaN(rx) ? 0 : rx, double.IsNaN(ry) ? 0 : ry);
+                        rect.RadiusX = cr; rect.RadiusY = cr;
+                    }
+                    Canvas.SetLeft(rect, x);
+                    Canvas.SetTop(rect, y);
+                    parent.Children.Add(rect);
+                    break;
+                }
+
+                case "path":
+                {
+                    string data = GetAttr(node, "d");
+                    if (string.IsNullOrEmpty(data)) { try { System.Diagnostics.Debug.WriteLine("[SVG:PATH] empty d attribute"); } catch { } break; }
+                    string fillRule = GetAttr(node, "fill-rule");
+                    string fillStr = GetAttr(node, "fill");
+                    string strokeStr = GetAttr(node, "stroke");
+                    string swStr = GetAttr(node, "stroke-width");
+                    try { System.Diagnostics.Debug.WriteLine("[SVG:PATH] d len=" + data.Length + " fill=" + (fillStr ?? "null") + " stroke=" + (strokeStr ?? "null") + " sw=" + (swStr ?? "null")); } catch { }
+
+                    var path = CreateSvgPathElement(data, fillRule, state);
+                    if (path != null)
+                    {
+                        try { System.Diagnostics.Debug.WriteLine("[SVG:PATH] OK fill=" + (path.Fill != null ? "set" : "null") + " stroke=" + (path.Stroke != null ? "set" : "null") + " sw=" + path.StrokeThickness); } catch { }
+                        parent.Children.Add(path);
+                    }
+                    else try { System.Diagnostics.Debug.WriteLine("[SVG:PATH] CreateSvgPathElement returned null"); } catch { }
+                    break;
+                }
+
+                case "text":
+                {
+                    double x = ParseSvgLength(GetAttr(node, "x")) + state.TranslateX;
+                    double y = ParseSvgLength(GetAttr(node, "y")) + state.TranslateY;
+                    double fontSize = ParseSvgLength(GetAttr(node, "font-size"));
+                    if (double.IsNaN(fontSize) || fontSize <= 0) fontSize = 12;
+
+                    var tb = new TextBlock
+                    {
+                        Text = node.Text ?? "",
+                        FontSize = fontSize,
+                        Foreground = state.Fill ?? new SolidColorBrush(Colors.Black),
+                        Opacity = Clamp(state.Opacity, 0, 1),
+                    };
+
+                    string anchor = GetAttr(node, "text-anchor") ?? "start";
+                    if (anchor == "middle") tb.TextAlignment = TextAlignment.Center;
+                    else if (anchor == "end") tb.TextAlignment = TextAlignment.Right;
+
+                    Canvas.SetLeft(tb, x);
+                    Canvas.SetTop(tb, y - fontSize * 0.8);
+                    parent.Children.Add(tb);
+                    break;
+                }
+
+                case "ellipse":
+                {
+                    double cx = ParseSvgLength(GetAttr(node, "cx")) + state.TranslateX;
+                    double cy = ParseSvgLength(GetAttr(node, "cy")) + state.TranslateY;
+                    double rx = ParseSvgLength(GetAttr(node, "rx"));
+                    double ry = ParseSvgLength(GetAttr(node, "ry"));
+                    if (double.IsNaN(rx) || double.IsNaN(ry) || rx <= 0 || ry <= 0) break;
+
+                    var ellipse = new Ellipse
+                    {
+                        Width = 2 * rx, Height = 2 * ry,
+                        Fill = state.Fill ?? new SolidColorBrush(Colors.Black),
+                        Stroke = state.Stroke,
+                        StrokeThickness = state.StrokeWidth > 0 ? state.StrokeWidth : 0,
+                        Opacity = Clamp(state.Opacity, 0, 1),
+                    };
+                    Canvas.SetLeft(ellipse, cx - rx);
+                    Canvas.SetTop(ellipse, cy - ry);
+                    parent.Children.Add(ellipse);
+                    break;
+                }
+
+                default:
+                {
+                    if (node.Children != null)
+                    {
+                        foreach (var child in node.Children)
+                            AppendSvgChild(parent, child, state);
+                    }
+                    break;
+                }
+            }
+        }
+
+        private static void ApplySvgStateOverrides(LiteElement node, SvgRenderState state)
+        {
+            if (node == null || state == null) return;
+
+            string fill;
+            if (TryGetAttr(node, "fill", out fill))
+            {
+                if (string.Equals(fill?.Trim(), "none", StringComparison.OrdinalIgnoreCase))
+                    state.Fill = null;
+                else
+                {
+                    var brush = CreateSvgBrush(fill);
+                    if (brush != null) state.Fill = brush;
+                }
+            }
+
+            string stroke;
+            if (TryGetAttr(node, "stroke", out stroke))
+            {
+                if (string.Equals(stroke?.Trim(), "none", StringComparison.OrdinalIgnoreCase))
+                    state.Stroke = null;
+                else
+                {
+                    var brush = CreateSvgBrush(stroke);
+                    if (brush != null) state.Stroke = brush;
+                }
+            }
+
+            string strokeWidth;
+            if (TryGetAttr(node, "stroke-width", out strokeWidth))
+            {
+                double w = ParseSvgLength(strokeWidth);
+                if (!double.IsNaN(w) && w >= 0) state.StrokeWidth = w;
+            }
+
+            string opacity;
+            if (TryGetAttr(node, "opacity", out opacity))
+            {
+                double o;
+                if (double.TryParse(opacity, NumberStyles.Float, CultureInfo.InvariantCulture, out o))
+                    state.Opacity = Clamp(o, 0, 1);
+            }
+        }
+
+        private static string GetAttr(LiteElement el, string key)
+        {
+            if (el?.Attr == null) return null;
+            string v;
+            if (el.Attr.TryGetValue(key, out v)) return v;
+            foreach (var kv in el.Attr)
+            {
+                if (string.Equals(kv.Key, key, StringComparison.OrdinalIgnoreCase))
+                    return kv.Value;
+            }
+            return null;
+        }
+
+        private static bool TryGetAttr(LiteElement node, string name, out string value)
+        {
+            value = null;
+            if (node?.Attr == null) return false;
+            foreach (var kv in node.Attr)
+            {
+                if (string.Equals(kv.Key, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = kv.Value;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static double ParseSvgLength(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return double.NaN;
+            var s = raw.Trim();
+            if (s.EndsWith("px", StringComparison.OrdinalIgnoreCase)) s = s.Substring(0, s.Length - 2);
+            double val;
+            return double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out val) ? val : double.NaN;
+        }
+
+        private static double Clamp(double v, double min, double max)
+        {
+            if (v < min) return min; if (v > max) return max; return v;
+        }
+
+        private static Brush CreateSvgBrush(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return null;
+            var s = value.Trim();
+            if (string.Equals(s, "none", StringComparison.OrdinalIgnoreCase)) return null;
+            var parsed = CssParser.ParseColor(s);
+            if (parsed.HasValue) return new SolidColorBrush(parsed.Value);
+            return null;
+        }
+
+        private static Path CreateSvgPathElement(string data, string fillRule, SvgRenderState state)
+        {
+            if (string.IsNullOrWhiteSpace(data)) return null;
+            try
+            {
+                var escaped = data.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("'", "&apos;").Replace("<", "&lt;").Replace(">", "&gt;");
+                var xaml = "<Path xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Data=\"" + escaped + "\" />";
+                var path = XamlReader.Load(xaml) as Path;
+                if (path == null) return null;
+
+                path.Fill = state.Fill;
+                path.Stroke = state.Stroke;
+                path.StrokeThickness = state.StrokeWidth > 0 ? state.StrokeWidth : 0;
+                path.Opacity = Clamp(state.Opacity, 0, 1);
+
+                if (!string.IsNullOrWhiteSpace(fillRule) && string.Equals(fillRule.Trim(), "evenodd", StringComparison.OrdinalIgnoreCase))
+                {
+                    var pg = path.Data as PathGeometry;
+                    if (pg != null) pg.FillRule = FillRule.EvenOdd;
+                }
+                return path;
+            }
+            catch { return null; }
         }
     }
 }

@@ -1,4 +1,4 @@
-# MediaExplorer 0.50.0 - dev branch
+# MediaExplorer 0.55.0 - dev branch
 
 
 ![](/Images/logo.png)
@@ -34,6 +34,12 @@ MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的�
 - **NiL.JS 2.6集成(netstandard2.0 → 1.4)** | **✅ 完成**(w10m15063完全构建)
 
 这是一个自制的浏览器引擎——不是生产级产品，也不打算替代 Edge 或 Chrome。它的存在是为了证明：渲染网页不一定需要 Chromium。
+
+## 开发里程碑
+
+- **2026.06.07 — v0.55.0** D3.js 力导向图（诺基亚设计档案馆）渲染为实时 XAML 元素 — 无需 Skia、SvgImageSource 或 WebView。SVG 元素（circle、line、rect、path、text、g）映射为原生 UWP UIElement（Ellipse、Line、Rectangle、Path、TextBlock、Canvas），在 VirtualizingRenderer 管线中实现样式级联（fill、stroke、stroke-width、opacity）和 viewBox 缩放。
+- **2026.06.05 — v0.50.0** 首次在 UWP 上通过 NiL.JS 成功执行 d3.js：力模拟初始化，tick 函数触发，DOM SVG 节点创建。限制：此时 D3.js DOM 输出尚未渲染到屏幕（v0.55 已解决）。
+- **2026.05.xx — v0.42.8** NiL.JS 运行时从 netstandard2.0 移植到 .NET Native 1.4（兼容 W10M 15063）。添加 ES Modules 解析支持。实现 MutationObserver。
 
 ## 已知问题
 

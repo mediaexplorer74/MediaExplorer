@@ -8,9 +8,9 @@
   IgnorableNamespaces="uap mp uap3">
 
   <Identity
-    Name="MediaExplorerV0p50"
+    Name="MediaExplorerV0p55"
     Publisher="CN=Admin"
-    Version="0.50.0.0" />
+    Version="0.55.0.0" />
 
   <mp:PhoneIdentity PhoneProductId="a406c6ad-a04e-48f7-86b5-0e9c37594836" PhonePublisherId="00000000-8375-8396-0050-000000007529"/>
 

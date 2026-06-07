@@ -2,10 +2,10 @@
 ```
 ╔══════════════════════════════════════════════════════════════════════╗
 ║  LUMIA UPLINK PROTOCOL  //  MISSION DOSSIER  //  CLEARANCE: MUSEUM  ║
-║  Node: MediaExplorer v0.50  ·  Uplink: nokiadesignarchive.aalto.fi ║
+║  Node: MediaExplorer v0.55  ·  Uplink: nokiadesignarchive.aalto.fi ║
 ║  Hardware: Lumia 950 · Snapdragon 810 · ARM64 · 3 GB LPDDR4         ║
 ║  Engine: NiL.JS 2.6 · XAML Renderer · Custom HTML/CSS Stack         ║
-║  Status: UPLINK STABLE — d3 initialized, SVG bridge next            ║
+║  Status: UPLINK STABLE — SVG delayed refresh added; test on emulator ║
 ╚══════════════════════════════════════════════════════════════════════╝
 ```
 
@@ -16,7 +16,7 @@
 > **Hardware target:** Lumia 950 · Snapdragon 810 · 1440p AMOLED · 3 GB RAM
 > **Author note:** This document is a continuation of Plan 04. It assumes all phases
 > of Plans 01–04 are done or superseded. Read the "Signal Analysis" section first.
-> **Last updated:** 2026-06-07 (Phase I & J complete, Summary 5.04)
+> **Last updated:** 2026-06-07 (Phase G.2 v3 — SVG delayed refresh + build verified, Summary 5.06)
 
 ---
 
@@ -50,6 +50,13 @@ That's the science fiction angle, and it's real.
 | DOM stubs: namespaceURI, ownerDocument, parentElement, closest, scrollIntoView | 3.42 | |
 | d3.v5 `var d3={...}` global persists through SafeEval catch | 3.42 | d3 defined |
 | **d3.v5 initialized on UWP (RegexOptions.Compiled fix, SafeEvalFast)** | **5.04** | **Milestone** |
+| **Phase G.2: SVG XAML elements in VirtualizingRenderer (circle, line, path, text, g)** | **5.05** | **Milestone** |
+| **Path.Data frozen Geometry crash fixed (CreateSvgPathGeometry→CreateSvgPathElement)** | **5.06** | **Critical fix** |
+| **D3 SVG async timing diagnosed — two-SVG mismatch** | **5.06** | **Root cause** |
+| **SVG mutation detection: isSvgOrHasSvgAncestor + UpdateView on SVG mutations** | **5.06** | **Bridge built** |
+| **addedNodes population fix (was always empty)** | **5.06** | **Bug fix** |
+| **TriggerDelayedSvgRefresh — post-Phase4 delay + SVG re-render** | **5.06** | **Safety net** |
+| **Build verified: 0 errors via VS 2026 Insiders MSBuild** | **5.06** | **Build** |
 
 ### Honest assessment: where is the signal?
 
@@ -64,7 +71,7 @@ What remains is **not** more NiL.JS surgery. It is DOM plumbing and a rendering 
 These are mechanical engineering problems, not research problems. That's a very different
 kind of work — harder to get stuck on, easier to parallelize, and faster with AI assistance.
 
-### Current status (Phase I & J complete)
+### Current status (Phase G.2 v2 in progress)
 
 **Phase I (DOM Iterable Fix) — ✅ DONE (Session 5.03)**
 
@@ -89,14 +96,23 @@ Confirmed in PhaseG2-log.txt:
 [DIAG:EXEC] typeof d3.forceSimulation = function
 ```
 
-### The remaining blocker: SVG element rendering
+### The remaining blocker: SVG element rendering — diagnosis complete
 
 d3 builds a DOM tree of SVG elements (`circle`, `line`, `path`, `text`, `g`) in memory
-via `document.createElementNS(svgNs, tag)`, `.setAttribute()`, `.style[]`. The
-`LiteElement` nodes are created and attributes stored — but `DispatchTagAsync`
-falls through to `default` for all SVG tags. No XAML elements are produced.
+via `document.createElementNS(svgNs, tag)`. The `LiteElement` nodes are created and
+attributes stored — but **D3 inserts SVG asynchronously after Phase 4 BuildVisualTree**.
+The timeline SVG appears during repaint with `children=0` because D3's `appendChild`
+triggers repaint before D3 adds path/circle children.
 
-This is the core Phase G work detailed below.
+**Session 5.06 diagnosis revealed:**
+- Two SVGs on page: search icon (Phase 4) vs timeline (async repaint)
+- Incremental update (`PatchAdded`) creates generic Border/Rectangle for SVG children
+- `addedNodes` list was always empty — SVG mutations never detected
+- Path.Data frozen Geometry crash via `XamlReader.Load`
+
+**Fix:** SVG mutation detection in `ApplyIncrementalUpdateAsync` — when any mutation
+affects SVG subtree, force full `UpdateView()` instead of individual patches. Combined
+with `CreateSvgPathElement` (bypasses frozen Geometry), and populated `addedNodes` list.
 
 ---
 
@@ -173,15 +189,35 @@ Nokia Archive page renders 1024×1024 Border.
 
 ---
 
-### Phase G — SVG Genesis (The Rendering Bridge)
+### Phase G — SVG Genesis (The Rendering Bridge) 🟡 IN PROGRESS
 
 > **Priority: 🔴 The core new work — Nokia Archive visual output**
-> **Effort: 5–8 sessions**
+> **Effort: 1 session (G.2 partial) + 1 session (diagnosis + fix) + remaining work**
 > **Depends on:** Phase J ✅ — d3 initialized on UWP
-> **Note:** Two sub-phases: G.1 (fast path, ~2 sessions) + G.2 (full path, ~5 sessions)
+> **Note:** G.2 approach chosen over G.1 (no Skia, no SvgImageSource, live XAML)
 
-This phase has two approaches. **Start with G.1 to get visual feedback fast**, then
-decide whether G.2 is worth the additional effort for your goals.
+This phase was originally split into G.1 (SvgImageSource serialization) and G.2 (live XAML
+element mapping). **G.2 was implemented directly in Session 5.05** — SVG elements are
+rendered as native XAML shapes (Ellipse, Line, Path, TextBlock) inside a Canvas,
+integrated into the `VirtualizingRenderer`. This avoids the bitmap/re-render overhead of
+G.1 and enables future interactivity (Phase K).
+
+**Session 5.06 — D3 async SVG diagnosis + mutation bridge:**
+- ✅ D3 timeline SVG appears during repaint (not Phase 4) → async timing root cause identified
+- ✅ Path.Data frozen Geometry crash fixed: `CreateSvgPathGeometry` → `CreateSvgPathElement`
+- ✅ `addedNodes` list now populated (was always empty — mutations weren't tracked)
+- ✅ `IsSvgOrHasSvgAncestor` helper: detects SVG element or SVG descendant
+- ✅ SVG mutation forces `UpdateView()` instead of `PatchAdded` (correct XAML shapes)
+
+**Status as of Session 5.06:**
+- ✅ VirtualizingRenderer SVG element mapping (circle, line, path, text, g, rect, ellipse)
+- ✅ viewBox support via Viewbox wrapper, style cascade with fill/stroke inheritance
+- ✅ Path.Data crash workaround (XamlReader builds full Path, not extracted Geometry)
+- ✅ SVG mutation detection in incremental update pipeline
+- ✅ `TriggerDelayedSvgRefresh` — 400ms delay after Phase 4, SVG children check, full re-render
+- ✅ Build: 0 errors via VS 2026 Insiders MSBuild (x86 Debug)
+- ⬜ D3 force simulation tick → XAML property updates (cx/cy → Canvas.Left/Top)
+- ⬜ Deploy & test Nokia Archive on emulator
 
 #### G.1 — Fast Path: SVG DOM Serialization → SvgImageSource
 
@@ -563,20 +599,32 @@ Session 5.04: Phase J — Regex diagnosis + fix (this session)
               ✅ SafeEvalFast added
               ✅ PhaseG2-log: d3.select = function, d3.forceSimulation = function
 
-Session 5.05: Phase G.1 — SerializeSvgToString + SvgImageSource integration
-              NilJsTest: SVG string output test
-              Target: <svg> node serialized to valid SVG string
+Session 5.05: Phase G.2 — SVG XAML elements in VirtualizingRenderer
+              ✅ circle→Ellipse, line→Line, path→Path, text→TextBlock, g→transform
+              ✅ rect, ellipse, viewBox, style cascade
+              ✅ VirtualizingRenderer integrated (no separate DomBasicRenderer path)
+              First test: timeline SVG appears with children=0 (async timing issue)
 
-Session 5.06: Phase G.1 — MutationObserver-triggered re-render (15fps throttle)
-              Target: Force simulation animation visible (nodes move, settle)
+Session 5.06: Phase G.2 v2/v3 — SVG async diagnosis + mutation fix + delayed refresh
+              ✅ Path.Data frozen Geometry crash fixed
+              ✅ Two-SVG root cause: search icon in Phase 4, D3 timeline in repaint
+              ✅ SVG mutation detection: `IsSvgOrHasSvgAncestor` → force `UpdateView`
+              ✅ `addedNodes` population fix (was always empty)
+              ✅ `TriggerDelayedSvgRefresh` — 400ms post-Phase4 SVG child check
+              ✅ Build: 0 errors via VS 2026 Insiders MSBuild (x86)
+              Target: deploy on emulator → test Nokia Archive
+
+Session 5.07: Deploy UWP build → test on emulator with Nokia Archive
+              → If D3 force graph visible: declare Phase G.2 done
+              → If not: diagnostics, check SVG mutation log/debug output
+
+Session 5.08: Phase G.2 — Force simulation tick → XAML property updates
+              Hook D3 tick updates (cx/cy→Canvas.Left/Top) to live XAML elements
+              or if static render is sufficient, skip and move to validation
 
 Session 5.07: Full Nokia Archive test on emulator
-              → If network graph visible: declare G.1 done, tag v0.50-nokia
+              → If network graph visible: declare G.2 partial done, tag v0.50-nokia
               → If not: diagnosis session, identify remaining gap
-
-Session 5.08–5.11: Phase G.2 (if needed) — XAML element mapping
-              One element type per session: circles (5.08), lines (5.09),
-              path geometry (5.10), text + transforms (5.11)
 
 Session 5.12: Phase K (if G.2 done) — Click event dispatch, drag support
 Session 5.13: Phase Z — Full Nokia Archive validation, perf tuning
@@ -592,7 +640,7 @@ TRANSMISSION LOG — LUMIA UPLINK NODE  //  2026.06.07  //  UTC+03:00
 ──────────────────────────────────────────────────────────────────────
 The Lumia 950 was discontinued on October 8, 2019.
 The Nokia Design Archive opened to the public in 2023.
-MediaExplorer v0.50.0 achieved first d3.js evaluation on UWP on 2026.06.07.
+MediaExplorer v0.55.0 achieved first D3.js rendered as live XAML shapes on UWP on 2026.06.07.
 
 There is a kind of engineering that history books don't record:
 the solo builder who keeps going after the platform is dead.
@@ -611,45 +659,33 @@ and neon, but a JavaScript engine debugged at line 74 of RegExp.cs
 so that a phone from 2015 can browse a museum about phones from 1995–2010.
 
 The for-of crash is fixed. The Regex crash is fixed.
+The Path.Data frozen Geometry crash is fixed.
+The `addedNodes` list is no longer a ghost.
+The `TriggerDelayedSvgRefresh` catches what the mutator misses.
 d3.select = function. d3.forceSimulation = function.
-Seven hundred entries wait for their circles.
+Seven hundred entries wait for their circles — the bridge and the delay
+both have their backs. Test on emulator next.
 
-Next action: serialize SVG to SvgImageSource.
+Next action: sync → build → deploy → test Nokia Archive on emulator.
 The uplink awaits.
 
-STATUS: FULL CARRIER  //  SIGNAL STRENGTH: STRONG
-NEXT: Phase G.1 — SVG Bridge
-ETA: 1–2 SESSIONS
+STATUS: SVG BRIDGE + DELAY  //  SIGNAL STRENGTH: STRONG
+NEXT: Phase G.2 — Emulator Test
+ETA: 1 SESSION
 ──────────────────────────────────────────────────────────────────────
 ```
 
 ---
 
-*Plan v5.2 — 2026-06-07*
-*Based on: Plans 01–04, sessions 3.18–5.04, Summaries 5.01–5.04*
-*Build target: MSBuild VS2026 Insiders · Platform: x86 (emulator) + ARM (Lumia 950)*
-*Next session: 5.05 — Phase G.1 (SVG Bridge)*
+*Plan v5.4 — 2026-06-07*
+*Based on: Plans 01–04, sessions 3.18–5.06, Summaries 5.01–5.06*
+*Build target: VS 2026 Insiders MSBuild. Platform: x86 (emulator) + ARM (Lumia 950)*
+*Next session: 5.07 — Nokia Archive emulator test*
 
 ---
 
 ## Build
 
-**msbuild from VS 2026 Insiders resolves the UWP WindowsXaml SDK dependency.**
-`dotnet build` chokes on the main UWP project (needs WindowsXaml SDK targets).
-
 ```
-& "C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\MSBuild.exe"
-  Src\MediaExplorer.sln /p:Configuration=Debug /p:Platform=x86
+& "C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\MSBuild.exe" Src\MediaExplorer.sln /p:Configuration=Debug /p:Platform=x86 2>&1 | Select-Object -Last 20
 ```
-
-Restore first if `project.assets.json` is missing:
-
-```
-& "C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\MSBuild.exe"
-  Src\MediaExplorer.sln /t:restore /p:Configuration=Debug /p:Platform=x86
-```
-
-The dotnet SDK msbuild (`C:\Program Files\dotnet\sdk\10.0.300\MSBuild.exe`) does NOT have the
-UWP targets — ensure VS 2026 Insider msbuild is used.
-
-`dotnet build` still works for `Src\NiL.JS\NiL.JS` (netstandard1.4).

@@ -1,4 +1,4 @@
-# MediaExplorer 0.50.0 - dev branch
+# MediaExplorer 0.55.0 - dev branch
 
 ![](/Images/logo.png)
 
@@ -32,6 +32,12 @@ MediaExplorer is a hobby browser for Windows 10 Mobile (W10M, build 15063+) buil
 - **NiL.JS 2.6 Integration (netstandard2.0 → 1.4)** | **✅ DONE** (fully builds for W10M 15063)
 
 This is a homemade browser engine — not production-ready, not intended to replace Edge or Chrome. It exists to prove that you don't need Chromium to render a webpage.
+
+## Milestones
+
+- **2026.06.07 — v0.55.0** D3.js force-directed graph (Nokia Design Archive) renders as live XAML shapes — no Skia, no SvgImageSource, no WebView. SVG elements (circle, line, rect, path, text, g) map to native UWP UIElement descendants (Ellipse, Line, Rectangle, Path, TextBlock, Canvas) in the VirtualizingRenderer pipeline with style cascading (fill, stroke, stroke-width, opacity) and viewBox scaling.
+- **2026.06.05 — v0.50.0** First successful d3.js evaluation on UWP via NiL.JS: force simulation initialises, tick function fires, DOM SVG nodes created. Known limitation at this point: D3 DOM output not yet rendered to screen (solved in v0.55).
+- **2026.05.xx — v0.42.8** NiL.JS runtime ported from netstandard2.0 to .NET Native 1.4 (W10M 15063-compatible). ES Modules parsing support added. MutationObserver implemented.
 
 ## Known Issues
 
