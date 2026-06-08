@@ -3202,11 +3202,13 @@ if (mHrefSet.Success)
                     if (a.Length > 0 && a[0].ValueType == JSValueType.Function)
                     {
                         var onResolve = a[0] as Function;
+                        System.Diagnostics.Debug.WriteLine("[FETCH] Starting fetch for: " + capturedUri);
                         Task.Run(async () =>
                         {
                             try
                             {
                                 var result = await FetchAsync(capturedUri).ConfigureAwait(false);
+                                System.Diagnostics.Debug.WriteLine("[FETCH] Completed fetch for " + capturedUri + ": " + (result != null ? result.Length + " chars" : "null"));
                                 EnqueueMacroTask(() =>
                                 {
                                     try
@@ -3686,6 +3688,13 @@ globalThis.System = __sys;
                         try { var mc = sysEngine.SafeEval("typeof Map"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec typeof Map=" + (mc?.ToString() ?? "null")); } catch { }
                         try { var sc = sysEngine.SafeEval("typeof Set"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec typeof Set=" + (sc?.ToString() ?? "null")); } catch { }
                         try { var bodyCheck = sysEngine.SafeEval("(function(){if(!document||!document.body)return'no_body';var c=0;try{c=document.body.children.length}catch(e){}return'body_children='+c+' tag='+(document.body.tagName||'');})()"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec " + (bodyCheck?.ToString() ?? "null")); } catch { }
+                        // Diagnostics: check async support and SVG DOM state
+                        try { var rr = sysEngine.SafeEval("typeof regeneratorRuntime"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] typeof regeneratorRuntime=" + (rr?.ToString() ?? "null")); } catch { }
+                        try { var pr = sysEngine.SafeEval("typeof Promise"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] typeof Promise=" + (pr?.ToString() ?? "null")); } catch { }
+                        try { var prFn = sysEngine.SafeEval("(function(){try{return typeof Promise!=='undefined'?'ok':'no';}catch(e){return 'err:'+e;}})()"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] Promise global=" + (prFn?.ToString() ?? "null")); } catch { }
+                        try { var svgCheck = sysEngine.SafeEval("(function(){var t=document.getElementById('timeline');if(!t)return'no_timeline';var svg=t.querySelector('svg');if(!svg)return'no_svg';return'svg_id='+(svg.id||'none')+' children='+(svg.children?svg.children.length:'null')+' childNodes='+(svg.childNodes?svg.childNodes.length:'null');})()"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] timeline SVG=" + (svgCheck?.ToString() ?? "null")); } catch { }
+                        try { var execResult = sysEngine.SafeEval("(function(){try{var S=globalThis.System;if(!S||!S.registry||!S.registry._entries)return'no_reg';for(var k in S.registry._entries){var m=S.registry._entries[k];if(m&&m.declare){var r=m.declare(function(){},{});if(r&&typeof r.execute==='function'){var ret=r.execute();return typeof ret!=='undefined'?('ret='+typeof ret):'ret=undefined';}}}return'no_exec';})()"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] execute return=" + (execResult?.ToString() ?? "null")); } catch { }
+                        try { var asyncTest = sysEngine.SafeEval("(function(){try{var fn=new Function('return Promise.resolve(42).then(function(v){return v+1})');var p=fn();return typeof p==='object'&&typeof p.then==='function'?'Promise_chaining_works':'no_then';}catch(e){return 'err:'+(e.message||typeof e);}})()"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] Promise test=" + (asyncTest?.ToString() ?? "null")); } catch { }
                     }
                 }
                 catch (Exception ex)
@@ -4690,6 +4699,91 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
         public bool RunInline(string js, JsContext ctx = null)
         {
             return RunInline(js, ctx, null, null);
+        }
+
+        public void PatchD3DomManipulation()
+        {
+            try
+            {
+                RunInline(@"
+                    (function() {
+                        if (typeof d3 === 'undefined' || !d3.selection) {
+                            console.log('[DIAG] D3 patch: d3 not available');
+                            return;
+                        }
+                        if (d3.selection.prototype._patched) {
+                            console.log('[DIAG] D3 patch already applied');
+                            return;
+                        }
+                        console.log('[DIAG] D3 patch: applying...');
+                        var origSelect = d3.select;
+                        d3.select = function(selector) {
+                            var element = typeof selector === 'string' ? document.querySelector(selector) : selector;
+                            var wrapper = {
+                                _element: element,
+                                append: function(tagName) {
+                                    var ns = 'http://www.w3.org/2000/svg';
+                                    var newEl = document.createElementNS(ns, tagName);
+                                    element.appendChild(newEl);
+                                    return d3.select(newEl);
+                                },
+                                attr: function(name, value) {
+                                    element.setAttribute(name, value);
+                                    return this;
+                                },
+                                style: function(name, value) {
+                                    element.style[name] = value;
+                                    return this;
+                                },
+                                text: function(value) {
+                                    element.textContent = value;
+                                    return this;
+                                },
+                                on: function(type, listener) {
+                                    element.addEventListener(type, listener);
+                                    return this;
+                                }
+                            };
+                            return wrapper;
+                        };
+                        d3.selection.prototype._patched = true;
+                        console.log('[DIAG] D3 patch applied successfully');
+                    })();
+                ");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[DIAG] D3 patch exception: " + ex.Message);
+            }
+        }
+
+        public void InterceptFetch()
+        {
+            try
+            {
+                RunInline(@"
+                    (function() {
+                        if (window.__fetchIntercepted) return;
+                        var originalFetch = window.fetch;
+                        window.fetch = function(url, options) {
+                            console.log('[FETCH] intercepted: ' + url);
+                            return originalFetch.apply(this, arguments).then(function(response) {
+                                var cloned = response.clone();
+                                cloned.text().then(function(text) {
+                                    console.log('[FETCH] response from ' + url + ' (first 200 chars): ' + text.substring(0, 200));
+                                });
+                                return response;
+                            });
+                        };
+                        window.__fetchIntercepted = true;
+                        console.log('[DIAG] Fetch interceptor installed');
+                    })();
+                ");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[DIAG] Fetch interceptor exception: " + ex.Message);
+            }
         }
 
         /// <summary>Run inline JavaScript with optional event metadata (type/id) for the Mini interpreter.</summary>

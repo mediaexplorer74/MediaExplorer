@@ -1,12 +1,12 @@
 
 ```
-╔══════════════════════════════════════════════════════════════════════╗
-║  LUMIA UPLINK PROTOCOL  //  MISSION DOSSIER  //  CLEARANCE: MUSEUM  ║
-║  Node: MediaExplorer v0.55  ·  Uplink: nokiadesignarchive.aalto.fi ║
-║  Hardware: Lumia 950 · Snapdragon 810 · ARM64 · 3 GB LPDDR4         ║
-║  Engine: NiL.JS 2.6 · XAML Renderer · Custom HTML/CSS Stack         ║
-║  Status: UPLINK STABLE — SVG delayed refresh added; test on emulator ║
-╚══════════════════════════════════════════════════════════════════════╝
+╔═══════════════════════════════════════════════════════════════════=═══╗
+║  LUMIA UPLINK PROTOCOL  //  MISSION DOSSIER  //  CLEARANCE: MUSEUM    ║
+║  Node: MediaExplorer v0.55.10  ·  Uplink: nokiadesignarchive.aalto.fi ║
+║  Hardware: Lumia 950 · Snapdragon 810 · ARM64 · 3 GB LPDDR4           ║
+║  Engine: NiL.JS 2.6 · XAML Renderer · Custom HTML/CSS Stack           ║
+║  Status: UPLINK STABLE — SVG delayed refresh added; test on emulator  ║
+╚═════════════════════════════════════════════════════════════════════=═╝
 ```
 
 # MediaExplorer / WEBVIEW — Plan 05: The Nokia Uplink
@@ -16,7 +16,7 @@
 > **Hardware target:** Lumia 950 · Snapdragon 810 · 1440p AMOLED · 3 GB RAM
 > **Author note:** This document is a continuation of Plan 04. It assumes all phases
 > of Plans 01–04 are done or superseded. Read the "Signal Analysis" section first.
-> **Last updated:** 2026-06-07 (Phase G.2 v3 — SVG delayed refresh + build verified, Summary 5.06)
+> **Last updated:** 2026-06-08 (Phase G.2 v3 — SVG delayed refresh + build verified, Summary 5.08)
 
 ---
 
@@ -71,7 +71,7 @@ What remains is **not** more NiL.JS surgery. It is DOM plumbing and a rendering 
 These are mechanical engineering problems, not research problems. That's a very different
 kind of work — harder to get stuck on, easier to parallelize, and faster with AI assistance.
 
-### Current status (Phase G.2 v2 in progress)
+### Current status (Phase G.2 v3 – static injection works, D3 append fails)
 
 **Phase I (DOM Iterable Fix) — ✅ DONE (Session 5.03)**
 
@@ -677,15 +677,15 @@ ETA: 1 SESSION
 
 ---
 
-*Plan v5.4 — 2026-06-07*
+*Plan v5.4 — 2026-06-08*
 *Based on: Plans 01–04, sessions 3.18–5.06, Summaries 5.01–5.06*
 *Build target: VS 2026 Insiders MSBuild. Platform: x86 (emulator) + ARM (Lumia 950)*
-*Next session: 5.07 — Nokia Archive emulator test*
+*Next session: 5.09 — Nokia Archive emulator test*
 
 ---
 
 ## Build
 
 ```
-& "C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\MSBuild.exe" Src\MediaExplorer.sln /p:Configuration=Debug /p:Platform=x86 2>&1 | Select-Object -Last 20
+"C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\MSBuild.exe" Src\MediaExplorer.sln /p:Configuration=Debug /p:Platform=x86 
 ```

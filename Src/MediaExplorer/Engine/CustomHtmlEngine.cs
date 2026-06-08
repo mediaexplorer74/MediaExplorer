@@ -1532,14 +1532,19 @@ namespace BrowserCore.Engine
                             await jsTask;
                             var m2 = "[DIAG] RenderAsync Phase3 JS DONE"; System.Diagnostics.Debug.WriteLine(m2); DevToolsLogger.Log(m2);
                         }
-                        else
-                        {
-                            try { System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase3 JS TIMEOUT (" + JsPhaseTimeoutMs + "ms)"); } catch { }
-                            try { DevToolsLogger.Log("[DIAG] RenderAsync Phase3 JS TIMEOUT (" + JsPhaseTimeoutMs + "ms)"); } catch { }
+                                else
+                                {
+                                    try { System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase3 JS TIMEOUT (" + JsPhaseTimeoutMs + "ms)"); } catch { }
+                                    try { DevToolsLogger.Log("[DIAG] RenderAsync Phase3 JS TIMEOUT (" + JsPhaseTimeoutMs + "ms)"); } catch { }
+                                }
+
+                                // Patch D3 DOM manipulation after scripts have run
+                                try { js?.PatchD3DomManipulation(); } catch (Exception patchEx) { System.Diagnostics.Debug.WriteLine("[DIAG] D3 patch error: " + patchEx.Message); }
+                                // Install fetch interceptor to capture data URL
+                                try { js?.InterceptFetch(); } catch (Exception fetchEx) { System.Diagnostics.Debug.WriteLine("[DIAG] Fetch interceptor error: " + fetchEx.Message); }
+                            }
+                            catch (Exception ex) { var m3 = "[DIAG] RenderAsync Phase3 JS EXC " + ex.Message; System.Diagnostics.Debug.WriteLine(m3); DevToolsLogger.Log(m3); }
                         }
-                    }
-                    catch (Exception ex) { var m3 = "[DIAG] RenderAsync Phase3 JS EXC " + ex.Message; System.Diagnostics.Debug.WriteLine(m3); DevToolsLogger.Log(m3); }
-                }
                 else if (richMode)
                 {
                     // RICH mode: run MiniRunner only for setTimeout/clearTimeout + analytics kill
@@ -1808,6 +1813,7 @@ namespace BrowserCore.Engine
 
         private void TriggerDelayedSvgRefresh()
         {
+            System.Diagnostics.Debug.WriteLine("[DIAG] _activeJs is " + (_activeJs != null ? "not null" : "null"));
             if (System.Threading.Interlocked.Exchange(ref _svgRefreshPending, 1) != 0)
                 return;
             if (_activeDom == null) { _svgRefreshPending = 0; return; }
@@ -1826,37 +1832,241 @@ namespace BrowserCore.Engine
             var disp = _uiDispatcher ?? UiThreadHelper.TryGetDispatcher();
             if (disp == null) { _svgRefreshPending = 0; return; }
 
-            Task.Run(async () =>
+            // Diagnostic: test D3 DOM manipulation by drawing a red circle
+            try
             {
-                try { await Task.Delay(400).ConfigureAwait(false); }
-                catch { System.Threading.Interlocked.Exchange(ref _svgRefreshPending, 0); return; }
-
-                try
+                if (_activeJs != null)
                 {
-                    // Check if SVG now has children (D3 populated it)
-                    bool hasSvgChildren = false;
-                    if (_activeDom != null)
-                    {
-                        foreach (var n in _activeDom.Descendants())
-                        {
-                            if (string.Equals(n.Tag, "svg", StringComparison.OrdinalIgnoreCase) &&
-                                n.Children != null && n.Children.Count > 0)
-                            { hasSvgChildren = true; break; }
+                    // First, search for any global timeline/graph init functions
+                    _activeJs.RunInline(@"
+                        var found = [];
+                        for (var key in window) {
+                            if (key.toLowerCase().includes('timeline') || key.toLowerCase().includes('graph') || key.toLowerCase().includes('init')) {
+                                found.push(key);
+                            }
                         }
-                    }
-                    if (!hasSvgChildren) { System.Threading.Interlocked.Exchange(ref _svgRefreshPending, 0); return; }
+                        console.log('[DIAG] Potential init functions: ' + found.join(', '));
+                    ");
 
-                    System.Diagnostics.Debug.WriteLine("[DIAG:SVG] Delayed refresh: SVG children detected");
-                    var element = await RefreshAsyncInternal(includeDiagnosticsBanner: false).ConfigureAwait(false);
-                    if (element != null)
-                        await DispatchRepaintAsync(element).ConfigureAwait(false);
+                    // Then, try to manually draw a circle using D3 immediately (no delay)
+                    _activeJs.RunInline(@"
+                        (function() {
+                            var container = document.getElementById('timeline');
+                            if (container) {
+                                if (typeof d3 !== 'undefined' && d3.select) {
+                                    var svg = d3.select(container).append('svg').attr('width', 400).attr('height', 200);
+                                    svg.append('circle').attr('cx', 100).attr('cy', 100).attr('r', 50).attr('fill', 'red');
+                                    console.log('[DIAG] Manual circle added via D3');
+                                } else {
+                                    console.log('[DIAG] D3 not available for manual circle');
+                                }
+                            } else {
+                                console.log('[DIAG] Timeline container not found for manual circle');
+                            }
+                        })();
+                    ");
                 }
-                catch (Exception ex)
+                else
                 {
-                    System.Diagnostics.Debug.WriteLine("[DIAG:SVG] Delayed refresh EXC " + ex.Message);
+                    System.Diagnostics.Debug.WriteLine("[DIAG] D3 test: _activeJs is null");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[DIAG] D3 test exception: " + ex.Message);
+            }
+
+            int[] delays = { 3000, 4000, 5000 };
+                    Task.Run(async () =>
+                    {
+                        try
+                        {
+                            for (int attempt = 0; attempt < delays.Length; attempt++)
+                            {
+                                try { await Task.Delay(delays[attempt]).ConfigureAwait(false); }
+                                catch { break; }
+
+                                if (_activeDom == null) break;
+
+                                // Check if any non-search-icon SVG has children (D3 populated it)
+                                bool found = false;
+                                string foundId = "?", foundCls = "?", foundChildren = "0";
+                                int totalSvgCount = 0;
+                                int svgWithChildren = 0;
+                                foreach (var n in _activeDom.Descendants())
+                                {
+                                    if (!string.Equals(n.Tag, "svg", StringComparison.OrdinalIgnoreCase))
+                                        continue;
+                                    totalSvgCount++;
+                                    string cls = null, id = null;
+                                    try { if (n.Attr != null) { n.Attr.TryGetValue("class", out cls); n.Attr.TryGetValue("id", out id); } } catch { }
+                                    int cc = n.Children?.Count ?? 0;
+                                    foundId = id ?? "?";
+                                    foundCls = cls ?? "?";
+                                    foundChildren = cc.ToString();
+                                    // Skip search icon (1 child, class=search-icon)
+                                    if (cc <= 1 && "search-icon".Equals(cls, StringComparison.OrdinalIgnoreCase))
+                                        continue;
+if (cc > 0) { svgWithChildren++; found = true; break; }
+                                }
+
+                                System.Diagnostics.Debug.WriteLine("[DIAG:SVG] Delay check attempt=" + attempt + " delay=" + delays[attempt] + "ms totalSVG=" + totalSvgCount + " svgWithChildren=" + svgWithChildren + " found=" + found + " id=" + foundId + " class=" + foundCls + " children=" + foundChildren);
+
+                                // If timeline SVG exists but has no children, try to manually create an SVG using DOM methods
+                                if (!found && totalSvgCount > 0)
+                                {
+                                    try
+                                    {
+                                        // Diagnostic: search for global timeline/graph init functions
+                                        _activeJs?.RunInline(@"
+                                            (function() {
+                                                try {
+                                                    console.log('[DIAG] Searching for global init functions...');
+                                                    var candidates = [];
+                                                    for (var key in window) {
+                                                        if (typeof window[key] === 'function') {
+                                                            var lower = key.toLowerCase();
+                                                            if (lower.includes('timeline') || lower.includes('graph') || lower.includes('init') || lower.includes('create') || lower.includes('render')) {
+                                                                candidates.push(key);
+                                                            }
+                                                        }
+                                                    }
+                                                    console.log('[DIAG] Found candidate functions: ' + (candidates.length ? candidates.join(', ') : 'none'));
+                                                    // Try to call any candidate that looks promising
+                                                    for (var i = 0; i < candidates.length; i++) {
+                                                        var fnName = candidates[i];
+                                                        try {
+                                                            if (fnName.toLowerCase().includes('timeline') || fnName.toLowerCase().includes('graph')) {
+                                                                window[fnName]();
+                                                                console.log('[DIAG] Called function: ' + fnName);
+                                                            }
+                                                        } catch(e) { /* ignore */ }
+                                                    }
+                                                } catch(e) { console.log('[DIAG] Global search error: ' + e.message); }
+                                            })();
+                                        ");
+
+                                        // Also force DOMContentLoaded via alternative method (call all functions registered via addEventListener? not easy)
+                                        // Instead, directly dispatch a synthetic event using our own custom event object (since NiL.JS lacks Event)
+                                        _activeJs.RunInline(@"
+                                            (function() {
+                                                try {
+                                                    if (typeof window.__fireDOMContentLoaded === 'undefined') {
+                                                        var evt = { type: 'DOMContentLoaded', target: document };
+                                                        var listeners = document._events && document._events['DOMContentLoaded'];
+                                                        if (listeners) {
+                                                            for (var i = 0; i < listeners.length; i++) {
+                                                                try { listeners[i](evt); } catch(e) {}
+                                                            }
+                                                        }
+                                                        window.__fireDOMContentLoaded = true;
+                                                        console.log('[DIAG] Manually fired DOMContentLoaded listeners');
+                                                    }
+                                                } catch(e) { console.log('[DIAG] Fire DOMContentLoaded error: ' + e.message); }
+                                            })();
+                                        ");
+
+                                        // Also test D3's append method to see why it fails
+                                        _activeJs.RunInline(@"
+                                            (function() {
+                                                try {
+                                                    var container = document.getElementById('timeline');
+                                                    if (!container) { console.log('[DIAG] D3 test: no container'); return; }
+                                                    var selection = d3.select(container);
+                                                    console.log('[DIAG] D3 selection: ' + (selection ? 'ok' : 'null'));
+                                                    if (selection && typeof selection.append === 'function') {
+                                                        var svg = selection.append('svg').attr('width', 400).attr('height', 200);
+                                                        console.log('[DIAG] D3 svg appended');
+                                                        var circle = svg.append('circle').attr('cx', 100).attr('cy', 100).attr('r', 50).attr('fill', 'red');
+                                                        console.log('[DIAG] D3 circle appended');
+                                                    } else {
+                                                        console.log('[DIAG] D3 selection.append is not a function');
+                                                    }
+                                                } catch(e) {
+                                                    console.log('[DIAG] D3 test error: ' + (e.message || e));
+                                                }
+                                            })();
+                                        ");
+
+                                        // Force re-execute the main module after container exists
+                                        _activeJs.RunInline(@"
+                                            (function() {
+                                                try {
+                                                    var S = globalThis.System;
+                                                    if (!S || !S.registry || !S.registry._entries) {
+                                                        console.log('[DIAG] No System registry to re-execute');
+                                                        return;
+                                                    }
+                                                    var executed = false;
+                                                    for (var url in S.registry._entries) {
+                                                        var m = S.registry._entries[url];
+                                                        if (m && typeof m.declare === 'function') {
+                                                            var _export = function(n,v){};
+                                                            var _ctx = { meta: { url: url } };
+                                                            var declared = m.declare(_export, _ctx);
+                                                            if (declared && typeof declared.execute === 'function') {
+                                                                declared.execute();
+                                                                console.log('[DIAG] Re-executed module: ' + url);
+                                                                executed = true;
+                                                            }
+                                                        }
+                                                    }
+                                                    if (!executed) console.log('[DIAG] No module to re-execute');
+                                                } catch(e) {
+                                                    console.log('[DIAG] Re-execution error: ' + (e.message || e));
+                                                }
+                                            })();
+                                        ");
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        System.Diagnostics.Debug.WriteLine("[DIAG] Static SVG exception: " + ex.Message);
+                                    }
+                                }
+
+                                if (found)
+                                {
+                                    System.Diagnostics.Debug.WriteLine("[DIAG:SVG] Delayed refresh: SVG children detected");
+                                    var element = await RefreshAsyncInternal(includeDiagnosticsBanner: false).ConfigureAwait(false);
+                                    if (element != null)
+                                        await DispatchRepaintAsync(element).ConfigureAwait(false);
+                                    return;
+                                }
+                            }
+                            // All delays exhausted without finding SVG children
+                            System.Diagnostics.Debug.WriteLine("[DIAG:SVG] All delays exhausted, no SVG children found - final state check");
+                            await LogTimelineStateIfEmpty().ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("[DIAG:SVG] Delayed refresh EXC " + ex.GetType().Name + " - " + ex.Message);
                 }
                 finally { System.Threading.Interlocked.Exchange(ref _svgRefreshPending, 0); }
             });
+        }
+
+        // Diagnostic: dump timeline element state if SVG still empty after all attempts
+        private async Task LogTimelineStateIfEmpty()
+        {
+            if (_activeDom == null) return;
+            try
+            {
+                var timelineDiv = _activeDom.Descendants().FirstOrDefault(n => n.Tag == "div" && n.Attr != null && n.Attr.ContainsKey("id") && n.Attr["id"] == "timeline");
+                if (timelineDiv == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[DIAG:SVG] Timeline div element not found in DOM");
+                    return;
+                }
+                var svg = timelineDiv.Children?.FirstOrDefault(n => n.Tag == "svg");
+                if (svg == null) 
+                { 
+                    System.Diagnostics.Debug.WriteLine("[DIAG:SVG] No SVG child under timeline div");
+                    return;
+                }
+                var svgChildren = svg.Children?.Count ?? 0;
+                System.Diagnostics.Debug.WriteLine("[DIAG:SVG] Timeline SVG children=" + svgChildren + " after all delays - D3 may not have rendered");
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[DIAG:SVG] LogTimelineStateIfEmpty EXC: " + ex.Message); }
         }
     }
 }
