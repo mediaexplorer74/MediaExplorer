@@ -1,40 +1,80 @@
-# Summary 5.08 – Static SVG injection works; D3 append crashes NiL.JS
+# Summary 5.08/5.09 – Two Parallel SVG Paths: G.2 Live XAML (+ D3 patch) vs G.1 SvgImageSource
 
-**Date:** 2026-06-07  
-**Session focus:** Verify XAML pipeline via static SVG; diagnose D3 DOM manipulation
+**Date:** 2026-06-08  
+**Session focus:** Analyze full build log, identify two parallel rendering paths, fix G.1 thread crash, diagnose missing XHR
 
-## What was done
-- Replaced manual D3 circle test with static SVG injection using `document.createElementNS` and `appendChild` inside the delay loop.
-- Added diagnostic to test `d3.select(container).append('svg')` after static SVG injection.
-- Extended delay checks to 3000/4000/5000 ms.
+## The Two Parallel Paths
 
-## Results from test log
-- Static SVG injection succeeded: `[DIAG] Static SVG created via DOM methods` → XAML pipeline rendered a red circle (visible in UI).
-- Incremental update detected mutations and performed full `UpdateView`.
-- D3 append test: `[DIAG] D3 selection: ok` (so `d3.select` works), but immediately after, a `NiL.JS.Core.JSException` occurs, crashing the app.
-- Original D3 timeline never runs; forced init attempt didn't appear.
+### Path G.2 — Live XAML Shapes via VirtualizingRenderer (✅ Primary, working for static SVGs)
 
-## Root cause analysis
-- XAML pipeline (VirtualizingRenderer) works perfectly – static SVG with `<circle>` renders.
-- D3 is loaded and `d3.select` returns a valid selection, but `selection.append('svg')` crashes NiL.JS (likely due to missing internal methods like `createElementNS` or improper handling of D3's chaining).
-- The original D3 timeline script never executes its graph creation because it expects a full DOM API that NiL.JS lacks, and our forced `DOMContentLoaded` event failed earlier.
+**What it does:** Maps SVG elements to native UWP XAML shapes — `<circle>` → `Ellipse`, `<line>` → `Line`, `<path>` → `Path`, `<text>` → `TextBlock`, `<g>` → `Canvas` — integrated into `VirtualizingRenderer.CreateBoxVisual` / `RenderSvgElement`.
 
-## Next steps
-1. **Avoid D3 DOM manipulation** – since D3 `append` crashes NiL.JS, we cannot rely on D3 to build the SVG tree.
-2. **Alternative: manually reconstruct the timeline DOM** – after the page loads, we can extract the intended SVG structure from the original D3-generated DOM (if it exists in the LiteElement tree) and manually render it using our XAML mapping.
-3. **Fallback to G.1 (SvgImageSource)** – if manual reconstruction is too complex, implement a fallback that serializes the SVG string from the original D3 script (e.g., intercept the SVG string before NiL.JS fails) and renders it as an image.
-4. **Investigate NiL.JS D3 crash** – capture more detailed exception information to see exactly which method call fails (e.g., try to call `d3.select(container).append` and log the error message before the crash).
+**What works:**
+- ✅ Static `<svg class="search-icon">` (251 chars, X icon) renders via G.2, visible on screen
+- ✅ D3 patch (`PatchD3DomManipulation`) intercepts `d3.select`, wraps `createElementNS` → manual D3 calls produce visible circles via `UpdateView()`
+- ✅ SVG mutation detection: `IsSvgOrHasSvgAncestor` → forces full `UpdateView()` instead of broken `PatchAdded`
+- ✅ Three‑attempt delayed refresh (3000/4000/5000 ms) with D3 manual circle test
+
+**What's blocked:**
+- ❌ `<svg id="timeline"/>` is self-closing (55 chars, empty) — D3 created the shell but never populated it
+- ❌ No XMLHttpRequest constructor in NiL.JS → `[XHR] No XMLHttpRequest available` → D3 v5's data loading (`d3.json`, `d3.csv`, etc.) fails silently
+- ❌ No graph data in global scope — `[DIAG:DATA] No graph data found in global scope`
+- ❌ Fetch interceptor captured only consent-manager requests (`usercentrics.eu`), no timeline data URL
+
+### Path G.1 — SvgImageSource Fallback (❌ Was crashing, ✅ Now fixed)
+
+**What it does:** Serializes the D3-generated SVG DOM tree to an SVG string, renders it as `SvgImageSource` → `Image` element, added to the Canvas. Provides a bitmap-level fallback when G.2's live element mapping can't work.
+
+**Components (all implemented):**
+- `JavaScriptEngine.GetDocumentSvgRoots()` / `CollectSvgRoots()` / `SerializeSvgNode()` / `DumpSvgDom()` — extract SVG from LiteElement tree
+- `CustomHtmlEngine.TriggerDelayedSvgExtractionAsync()` — dump → wait 2s → dump → `InjectSvgAsync()`
+- `VirtualizingRenderer.InjectSvgAsync()` / `RefreshSvgAsync()` / `BuildSvgImageAsync()` / `ParseSvgAttr()` — create Image from SVG string
+
+**What was found:**
+- `[SVG] GetDocumentSvgRoots → found 2 <svg> element(s)` — extraction works
+- SVG 1: search-icon (static, 251 chars) → would render
+- SVG 2: timeline (`<svg id="timeline"/>`, empty, 55 chars) → would render blank
+- **Crashed with `RPC_E_WRONG_THREAD`** — `SvgImageSource` created on background thread
+
+**Fix applied this session:**
+- `BuildSvgImageAsync` now marshals to UI thread via `_scrollViewer.Dispatcher` using `TaskCompletionSource` pattern
+- Build confirms: **0 errors** via `MSBuild.exe` VS 2026 Insiders (x86 Debug, 1m25s)
+
+## Comprehensive Log Analysis
+
+| Signal | Meaning |
+|--------|---------|
+| `[DIAG:EXEC] d3js.org script (no polyfill prefix — using v5)` | D3 loads as v5 (248313 bytes = v5.16.0) despite requesting `d3.v7.min.js` |
+| `[DIAG] D3 patch applied successfully` | `PatchD3DomManipulation` intercepts `d3.select` |
+| `[DIAG] D3 svg appended` + `[DIAG] D3 circle appended` | Manual test circle renders at each delay check |
+| `typeof d3.select = function` + `typeof d3.forceSimulation = function` | D3 engine fully operational |
+| `[XHR] No XMLHttpRequest available` | NiL.JS has no XHR — **root cause of empty timeline** |
+| `[DIAG:DATA] No graph data found in global scope` | All data scans return nothing |
+| `[DIAG:SYS] split chunk into 1 System.register calls` → `[DIAG:SYS] call #1 OK (589101 bytes)` | SystemJS main module loads and executes |
+| `RPC_E_WRONG_THREAD` in `InjectSvgAsync` | G.1 thread crash (now fixed) |
+| `[DIAG:SVG] Timeline div element not found in DOM` | `_activeDom` staleness at final check |
+
+## Critical Path Forward
+
+```
+Add XMLHttpRequest stub → D3 gets data → timeline SVG populated → G.2 detects mutations → graph renders
+                                                              ↓ (if no data via XHR)
+                                      Search SystemJS 589KB chunk for embedded JSON → manual graph construction
+                                                              ↓ (if no JSON found)
+                                      G.1 SvgImageSource fallback (thread crash now fixed)
+```
 
 ## Files modified
-- `Src/MediaExplorer/Engine/CustomHtmlEngine.cs` – added static SVG injection and D3 append test.
+- `Src/MediaExplorer/Engine/Core/VirtualizingRenderer.cs` — `BuildSvgImageAsync` thread marshalling fix (dispatcher + `TaskCompletionSource`)
 
 ## Build status
-✅ Rebuild succeeded, but app crashes during D3 append test.
+✅ **0 errors** via VS 2026 Insiders MSBuild (x86 Debug, 1m25s)
 
 ## Open issues
-- D3 `append` crashes NiL.JS.
-- Original D3 timeline still not rendered.
-- Pipeline works for static SVG, so the issue is D3-specific.
+- ❌ **XMLHttpRequest not available** in NiL.JS — the primary blocker. D3 v5 needs it for `d3.json` / `d3.csv` / `d3.tsv`.
+- ❌ Timeline `<svg id="timeline"/>` empty (`children=0`) — D3 never receives data to populate it.
+- ❌ No graph data visible anywhere (`window`, `__INITIAL_STATE__`, `__NEXT_DATA__`, etc.) — D3's data loading chain is broken.
+- ✅ G.1 thread crash **FIXED** — will show at least the empty SVG as image.
 
 ---
-*Next session: 5.09 – Decide between manual DOM reconstruction or G.1 fallback.*
+*Next session: 5.10 — Add minimal XMLHttpRequest stub to JavaScriptEngine.cs, rebuild, deploy, test*

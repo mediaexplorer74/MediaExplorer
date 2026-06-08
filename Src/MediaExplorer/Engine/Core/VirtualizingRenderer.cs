@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Threading.Tasks;
 using Windows.Foundation;
 using Windows.UI;
 using Windows.UI.Xaml;
@@ -1305,6 +1306,189 @@ namespace BrowserCore.Engine.Core
                 return path;
             }
             catch { return null; }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        //  SVG INJECTION  (Phase G.1 — Session 5.07, per architect)
+        //  SvgImageSource-based fallback path
+        // ─────────────────────────────────────────────────────────────
+
+        // Throttle: don't re-render SVG more than ~15fps on Snapdragon 810
+        private DateTime _lastSvgRender = DateTime.MinValue;
+
+        /// <summary>
+        /// Phase G.1 fast path: serialize D3-created SVG nodes to SVG strings,
+        /// load each via SvgImageSource, and inject Image elements into the canvas.
+        /// </summary>
+        public async Task InjectSvgAsync(List<LiteElement> svgRoots)
+        {
+            if (svgRoots == null || svgRoots.Count == 0) return;
+
+            // Remove any previously injected SVG images so we don't stack them
+            var dispatcher = _scrollViewer?.Dispatcher;
+            if (dispatcher != null)
+            {
+                await dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
+                {
+                    var old = new List<Image>();
+                    for (int i = 0; i < _canvas.Children.Count; i++)
+                    {
+                        if (_canvas.Children[i] is Image img && img.Tag is string s && s == "svg-inject")
+                            old.Add(img);
+                    }
+                    foreach (var img in old)
+                        _canvas.Children.Remove(img);
+                });
+            }
+
+            double yOffset = 0;
+
+            foreach (var svgRoot in svgRoots)
+            {
+                try
+                {
+                    // Step 1: serialize the LiteElement SVG subtree to SVG text
+                    var svgString = JavaScriptEngine.SerializeSvgNode(svgRoot, isRoot: true);
+                    System.Diagnostics.Debug.WriteLine("[SVG-RENDER] Serialized " + svgString.Length + " chars");
+
+                    if (svgString.Length < 20)
+                    {
+                        System.Diagnostics.Debug.WriteLine("[SVG-RENDER] SVG string too short — "
+                            + "D3 may not have populated children yet.");
+                        continue;
+                    }
+
+                    // Step 2: load into SvgImageSource
+                    var image = await BuildSvgImageAsync(svgString).ConfigureAwait(false);
+                    if (image == null) continue;
+
+                    // Step 3: size and position on canvas
+                    double svgW = ParseSvgAttr(svgRoot, "width", _canvas.ActualWidth > 0 ? _canvas.ActualWidth : 800);
+                    double svgH = ParseSvgAttr(svgRoot, "height", 600);
+
+                    image.Width = svgW;
+                    image.Height = svgH;
+                    image.Tag = "svg-inject";   // marker for cleanup on refresh
+                    image.Stretch = Windows.UI.Xaml.Media.Stretch.Uniform;
+
+                    double yPos = yOffset;
+                    if (dispatcher != null)
+                    {
+                        await dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
+                        {
+                            Canvas.SetLeft(image, 0);
+                            Canvas.SetTop(image, yPos);
+                            _canvas.Children.Add(image);
+                            System.Diagnostics.Debug.WriteLine("[SVG-RENDER] Image added to canvas at y=" + yPos
+                                + " size=" + svgW + "x" + svgH);
+                        });
+                    }
+
+                    yOffset += svgH + 8;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("[SVG-RENDER] Exception: " + ex.GetType().Name + " — " + ex.Message);
+                }
+            }
+        }
+
+        /// <summary>Re-render SVG (call from MutationObserver tick, max 15fps).</summary>
+        public async Task RefreshSvgAsync(List<LiteElement> svgRoots)
+        {
+            if ((DateTime.UtcNow - _lastSvgRender).TotalMilliseconds < 67) return;
+            _lastSvgRender = DateTime.UtcNow;
+            await InjectSvgAsync(svgRoots);
+        }
+
+        /// <summary>Create an Image element from an SVG string via SvgImageSource. MUST run on UI thread.</summary>
+        private async Task<Image> BuildSvgImageAsync(string svgXml)
+        {
+            // Ensure we're on UI thread (SvgImageSource requires it)
+            var dispatcher = _canvas?.Dispatcher ?? _scrollViewer?.Dispatcher
+                             ?? Windows.UI.Xaml.Window.Current?.Dispatcher;
+            if (dispatcher == null)
+            {
+                System.Diagnostics.Debug.WriteLine("[SVG-RENDER] No dispatcher available");
+                return null;
+            }
+
+            if (!dispatcher.HasThreadAccess)
+            {
+                var tcs = new TaskCompletionSource<Image>();
+                // Fire-and-forget on UI thread — RunAsync expects a synchronous delegate,
+                // so we start the async work and signal completion via TaskCompletionSource
+                await dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
+                {
+                    var _ = BuildSvgImageOnUiThreadAsync(svgXml, tcs);
+                });
+                return await tcs.Task.ConfigureAwait(false);
+            }
+
+            return await BuildSvgImageOnUiThreadCoreAsync(svgXml).ConfigureAwait(false);
+        }
+
+        private async Task BuildSvgImageOnUiThreadAsync(string svgXml, TaskCompletionSource<Image> tcs)
+        {
+            try
+            {
+                var result = await BuildSvgImageOnUiThreadCoreAsync(svgXml).ConfigureAwait(true);
+                tcs.TrySetResult(result);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[SVG-RENDER] UI thread error: " + ex.Message);
+                tcs.TrySetResult(null);
+            }
+        }
+
+        private async Task<Image> BuildSvgImageOnUiThreadCoreAsync(string svgXml)
+        {
+            // SvgImageSource requires the SVG to start with a proper namespace.
+            // SerializeSvgNode already adds xmlns for root <svg>, so check before adding.
+            if (!svgXml.Contains("xmlns=\"http://www.w3.org/2000/svg\""))
+                svgXml = svgXml.Replace("<svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"");
+
+            var bytes = System.Text.Encoding.UTF8.GetBytes(svgXml);
+            var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+
+            using (var writer = new Windows.Storage.Streams.DataWriter(stream.GetOutputStreamAt(0)))
+            {
+                writer.WriteBytes(bytes);
+                await writer.StoreAsync();
+            }
+            stream.Seek(0);
+
+            var source = new Windows.UI.Xaml.Media.Imaging.SvgImageSource();
+            var status = await source.SetSourceAsync(stream);
+
+            if (status != Windows.UI.Xaml.Media.Imaging.SvgImageSourceLoadStatus.Success)
+            {
+                System.Diagnostics.Debug.WriteLine("[SVG-RENDER] SvgImageSource.SetSourceAsync → " + status);
+                System.Diagnostics.Debug.WriteLine("[SVG-RENDER] SVG head: "
+                    + svgXml.Substring(0, Math.Min(500, svgXml.Length)));
+                return null;
+            }
+
+            return new Image { Source = source };
+        }
+
+        /// <summary>Parse an SVG attribute from a LiteElement.</summary>
+        private static double ParseSvgAttr(LiteElement el, string attr, double fallback)
+        {
+            if (el?.Attr == null) return fallback;
+            string v;
+            if (!el.Attr.TryGetValue(attr, out v)) return fallback;
+            // Strip "px" suffix if present
+            if (v != null)
+            {
+                v = v.Replace("px", "").Trim();
+                double d;
+                if (double.TryParse(v, System.Globalization.NumberStyles.Any,
+                       System.Globalization.CultureInfo.InvariantCulture, out d))
+                    return d;
+            }
+            return fallback;
         }
     }
 }

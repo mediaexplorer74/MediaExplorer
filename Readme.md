@@ -1,4 +1,4 @@
-# MediaExplorer 0.55.10 - dev branch
+# MediaExplorer 0.55.30 - dev branch
 
 ![](/Images/logo.png)
 
@@ -12,7 +12,6 @@ MediaExplorer is a hobby browser for Windows 10 Mobile (W10M, build 15063+) buil
 
 ![](/Images/sshot01.png)
 ![](/Images/sshot02.png)
-![](/Images/sshot03.png)
 
 
 ## Features

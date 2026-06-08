@@ -2812,10 +2812,10 @@ if (mHrefSet.Success)
         {
             private JavaScriptEngine _engine;
             public HostConsole(JavaScriptEngine engine) { _engine = engine; }
-            public void log(string msg) { System.Diagnostics.Debug.WriteLine(msg); }
-            public void warn(string msg) { System.Diagnostics.Debug.WriteLine("[WARN] " + msg); }
-            public void error(string msg) { System.Diagnostics.Debug.WriteLine("[ERROR] " + msg); }
-            public void info(string msg) { System.Diagnostics.Debug.WriteLine("[INFO] " + msg); }
+            public void log(string msg) { System.Diagnostics.Debug.WriteLine(msg); try { DevToolsLogger.Log(msg); } catch { } }
+            public void warn(string msg) { System.Diagnostics.Debug.WriteLine("[WARN] " + msg); try { DevToolsLogger.Log("[WARN] " + msg); } catch { } }
+            public void error(string msg) { System.Diagnostics.Debug.WriteLine("[ERROR] " + msg); try { DevToolsLogger.Log("[ERROR] " + msg); } catch { } }
+            public void info(string msg) { System.Diagnostics.Debug.WriteLine("[INFO] " + msg); try { DevToolsLogger.Log("[INFO] " + msg); } catch { } }
         }
 
         private class HostNavigator
@@ -3470,6 +3470,8 @@ if (mHrefSet.Success)
                     if (!string.IsNullOrEmpty(txt))
                     {
                         try { System.Diagnostics.Debug.WriteLine("[DIAG:System.import] OK: " + txt.Length + " bytes from " + resolved); DevToolsLogger.Log("[DIAG:System.import] OK: " + txt.Length + " bytes from " + resolved); } catch { }
+                        // Search chunk for embedded graph data (nodes/links)
+                        try { SearchChunkForGraphData(txt); } catch { }
                         // Use SafeEval directly (no IIFE wrapping) to create System
                         // in the global context, then run the chunk — avoids RunInline's
                         // IIFE scope isolation issue with globalThis.
@@ -3487,7 +3489,26 @@ __sys.register = function(deps, declare) {
     try {
         var r = this._reg;
         var url = 'mod:' + (++r._modId);
-        r.set(url, { deps: deps || [], declare: declare, execute: null, url: url });
+        var wrappedDeclare = function(_export, _ctx) {
+            if (typeof __diagLog === 'function') { __diagLog('[DIAG:MOD] declare called url=' + url); }
+            var declared = declare(_export, _ctx);
+            if (declared && typeof declared.execute === 'function') {
+                var origExec = declared.execute;
+                declared.execute = function() {
+                    if (typeof __diagLog === 'function') { __diagLog('[DIAG:MOD] execute START url=' + url); }
+                    try {
+                        var ret = origExec();
+                        if (typeof __diagLog === 'function') { __diagLog('[DIAG:MOD] execute END url=' + url + ' ret=' + (ret === undefined ? 'undefined' : typeof ret)); }
+                        return ret;
+                    } catch(e) {
+                        if (typeof __diagLog === 'function') { __diagLog('[DIAG:MOD] execute FAIL url=' + url + ' err=' + ((e && e.message) || typeof e)); }
+                        throw e;
+                    }
+                };
+            }
+            return declared;
+        };
+        r.set(url, { deps: deps || [], declare: wrappedDeclare, execute: null, url: url });
         if (typeof __diagLog === 'function') { __diagLog('[DIAG:SYS] register OK url=' + url); }
     } catch(e) {
         if (typeof __diagLog === 'function') { __diagLog('[DIAG:SYS] register ERROR: ' + (e.message||e)); }
@@ -3527,6 +3548,43 @@ globalThis.System = __sys;
                         try { var pfx = txt.Length > 80 ? txt.Substring(0, 80) : txt; System.Diagnostics.Debug.WriteLine("[DIAG:SYS] chunk prefix: '" + pfx.Replace("\0","\\0").Replace("\r","\\r").Replace("\n","\\n") + "'"); } catch { }
                         try { var sysIdx = txt.IndexOf("System.register(", StringComparison.Ordinal); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] IndexOf 'System.register(' = " + sysIdx); } catch { }
                         try { var lowerIdx = txt.IndexOf("system.register(", StringComparison.OrdinalIgnoreCase); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] IndexOf (ignore case) 'system.register(' = " + lowerIdx); } catch { }
+                        // Search for Mf definition in chunk (the scheduling function used with 100ms delay)
+                        try {
+                            var mfIdx = txt.IndexOf(",Mf=", StringComparison.Ordinal);
+                            if (mfIdx > 0) {
+                                var s = Math.Max(0, mfIdx - 30);
+                                var e = Math.Min(txt.Length, mfIdx + 150);
+                                var ctx = txt.Substring(s, e - s);
+                                System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Mf context: '" + ctx.Replace("\0","\\0").Replace("\r","\\r").Replace("\n","\\n") + "'");
+                            } else {
+                                mfIdx = txt.IndexOf("Mf=function", StringComparison.Ordinal);
+                                if (mfIdx > 0) {
+                                    var s = Math.Max(0, mfIdx - 20);
+                                    var e = Math.Min(txt.Length, mfIdx + 150);
+                                    var ctx = txt.Substring(s, e - s);
+                                    System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Mf function context: '" + ctx.Replace("\0","\\0").Replace("\r","\\r").Replace("\n","\\n") + "'");
+                                } else {
+                                    mfIdx = txt.IndexOf("Mf=", StringComparison.Ordinal);
+                                    if (mfIdx > 0) {
+                                        var s = Math.Max(0, mfIdx - 20);
+                                        var e = Math.Min(txt.Length, mfIdx + 100);
+                                        var ctx = txt.Substring(s, e - s);
+                                        System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Mf loose context: '" + ctx.Replace("\0","\\0").Replace("\r","\\r").Replace("\n","\\n") + "'");
+                                     } else {
+                                        // Search for function Mf( pattern
+                                        mfIdx = txt.IndexOf("function Mf(", StringComparison.Ordinal);
+                                        if (mfIdx > 0) {
+                                            var s = Math.Max(0, mfIdx - 20);
+                                            var e = Math.Min(txt.Length, mfIdx + 150);
+                                            var ctx = txt.Substring(s, e - s);
+                                            System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Mf function declaration context: '" + ctx.Replace("\0","\\0").Replace("\r","\\r").Replace("\n","\\n") + "'");
+                                        } else {
+                                            System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Mf not found in chunk");
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (Exception mfEx) { try { System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Mf search error: " + mfEx.GetType().Name + " - " + mfEx.Message); } catch { } }
                         // Split chunk into individual System.register(...) calls to
                         // avoid NiL.JS parse failures on the full 589KB file.
                         // The paren matcher must skip //line comments, /*block comments*/,
@@ -3627,9 +3685,25 @@ globalThis.System = __sys;
                         }
                         try { System.Diagnostics.Debug.WriteLine("[DIAG:SYS] split chunk into " + sysCalls.Count + " System.register calls"); } catch { }
                         int sysCallIdx = 0;
-                        foreach (var call in sysCalls)
+                        foreach (var callRaw in sysCalls)
                         {
                             sysCallIdx++;
+                            // Inject scope diagnostics into execute() body of each call
+                            var call = callRaw;
+                            try {
+                                // The call ends with: /*...*/}})) (close execute + return + factory + parens + SysReg)
+                                // Search for }} at the end to find the close of execute body
+                                var tail = call.Length > 8 ? call.Substring(call.Length - 8) : call;
+                                var closeIdx = tail.LastIndexOf("}}", StringComparison.Ordinal);
+                                if (closeIdx >= 0) {
+                                    var globalIdx = call.Length - 8 + closeIdx;
+                                    var inject = ";try{window.__diagMf=Mf}catch(e){}try{window.__diagS=S}catch(e){}try{window.__diagIf=If}catch(e){}try{window.__diagPf=Pf}catch(e){}try{window.__diagR=R}catch(e){}";
+                                    call = call.Substring(0, globalIdx) + inject + call.Substring(globalIdx);
+                                    System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Injected scope diagnostics for call #" + sysCallIdx + " at offset " + globalIdx + " (tail: '" + tail.Replace("\0","\\0").Replace("\r","\\r").Replace("\n","\\n") + "')");
+                                } else {
+                                    System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Inject skip call #" + sysCallIdx + " - no }} in tail: '" + tail.Replace("\0","\\0").Replace("\r","\\r").Replace("\n","\\n") + "'");
+                                }
+                            } catch (Exception injEx) { try { System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Inject error call #" + sysCallIdx + ": " + injEx.GetType().Name + " - " + injEx.Message); } catch { } }
                             try
                             {
                                 var result = sysEngine.SafeEval(call);
@@ -3695,6 +3769,76 @@ globalThis.System = __sys;
                         try { var svgCheck = sysEngine.SafeEval("(function(){var t=document.getElementById('timeline');if(!t)return'no_timeline';var svg=t.querySelector('svg');if(!svg)return'no_svg';return'svg_id='+(svg.id||'none')+' children='+(svg.children?svg.children.length:'null')+' childNodes='+(svg.childNodes?svg.childNodes.length:'null');})()"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] timeline SVG=" + (svgCheck?.ToString() ?? "null")); } catch { }
                         try { var execResult = sysEngine.SafeEval("(function(){try{var S=globalThis.System;if(!S||!S.registry||!S.registry._entries)return'no_reg';for(var k in S.registry._entries){var m=S.registry._entries[k];if(m&&m.declare){var r=m.declare(function(){},{});if(r&&typeof r.execute==='function'){var ret=r.execute();return typeof ret!=='undefined'?('ret='+typeof ret):'ret=undefined';}}}return'no_exec';})()"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] execute return=" + (execResult?.ToString() ?? "null")); } catch { }
                         try { var asyncTest = sysEngine.SafeEval("(function(){try{var fn=new Function('return Promise.resolve(42).then(function(v){return v+1})');var p=fn();return typeof p==='object'&&typeof p.then==='function'?'Promise_chaining_works':'no_then';}catch(e){return 'err:'+(e.message||typeof e);}})()"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] Promise test=" + (asyncTest?.ToString() ?? "null")); } catch { }
+                        // Check setTimeout and requestAnimationFrame availability
+                        try { var st = sysEngine.SafeEval("typeof setTimeout"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] typeof setTimeout=" + (st?.ToString() ?? "null")); } catch { }
+                        try { var rAF = sysEngine.SafeEval("typeof requestAnimationFrame"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] typeof requestAnimationFrame=" + (rAF?.ToString() ?? "null")); } catch { }
+                        try { var cIC = sysEngine.SafeEval("typeof setInterval"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] typeof setInterval=" + (cIC?.ToString() ?? "null")); } catch { }
+                        // Test if setTimeout actually fires: schedule a timer, flush microtasks, check flag
+                        try { sysEngine.SafeEval("window.__timerFlag=false;setTimeout(function(){window.__timerFlag=true},1)"); } catch { }
+                        try { sysEngine.FlushMicrotasks(); } catch { }
+                        try { var stResult = sysEngine.SafeEval("window.__timerFlag ? 'fired' : 'pending'"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] setTimeout fired=" + (stResult?.ToString() ?? "null")); } catch { }
+                        // Also check for post-exec module-scope vars leaked by chunk injection
+                        try { var diagMf = sysEngine.SafeEval("typeof window.__diagMf !== 'undefined' ? (typeof window.__diagMf) : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagMf=" + (diagMf?.ToString() ?? "null")); } catch { }
+                        try { var diagS = sysEngine.SafeEval("typeof window.__diagS !== 'undefined' ? (window.__diagS.tagName||typeof window.__diagS) : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagS=" + (diagS?.ToString() ?? "null")); } catch { }
+                        try { var diagIf = sysEngine.SafeEval("typeof window.__diagIf !== 'undefined' ? (Array.isArray(window.__diagIf)?'array['+window.__diagIf.length+']':typeof window.__diagIf) : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagIf=" + (diagIf?.ToString() ?? "null")); } catch { }
+                        try { var diagR = sysEngine.SafeEval("typeof window.__diagR !== 'undefined' ? 'function' : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagR=" + (diagR?.ToString() ?? "null")); } catch { }
+                        // Route detection and navigation simulation
+                        try { sysEngine.SafeEval(@"
+(function(){
+    try {
+        __diagLog('[DIAG:ROUTE] location=' + (window.location.href || 'none') + ' hash=' + (window.location.hash || 'none') + ' path=' + (window.location.pathname || 'none'));
+        // Find navigation links related to network/timeline/graph
+        var links = document.querySelectorAll('a');
+        var navLink = null;
+        for (var i = 0; i < links.length; i++) {
+            var text = (links[i].textContent || '').toLowerCase().trim();
+            var href = (links[i].getAttribute('href') || '').toLowerCase();
+            var cls = (links[i].getAttribute('class') || '').toLowerCase();
+            var id = (links[i].id || '').toLowerCase();
+            if (text.indexOf('network') >= 0 || text.indexOf('timeline') >= 0 || text.indexOf('graph') >= 0 ||
+                href.indexOf('network') >= 0 || href.indexOf('timeline') >= 0 || href.indexOf('graph') >= 0 ||
+                cls.indexOf('network') >= 0 || cls.indexOf('timeline') >= 0 || cls.indexOf('graph') >= 0) {
+                navLink = links[i];
+                __diagLog('[DIAG:ROUTE] Found nav link #' + i + ' text=[' + (links[i].textContent||'').trim() + '] href=' + href + ' class=' + cls + ' id=' + id);
+            }
+        }
+        if (!navLink) { __diagLog('[DIAG:ROUTE] No network/timeline/graph nav link found'); }
+        // Try to navigate by setting hash
+        if (window.location) {
+            try { window.location.hash = '#/network'; __diagLog('[DIAG:ROUTE] Set hash to #/network'); } catch(e) { __diagLog('[DIAG:ROUTE] hash set error'); }
+        }
+        // Try clicking nav link if found
+        if (navLink && typeof navLink.click === 'function') {
+            try { navLink.click(); __diagLog('[DIAG:ROUTE] Clicked nav link'); } catch(e) { __diagLog('[DIAG:ROUTE] Click error'); }
+        }
+    } catch(e) { __diagLog('[DIAG:ROUTE] Route error'); }
+})();
+"); } catch { }
+// Post-exec data diagnostics
+try { sysEngine.SafeEval(@"
+(function(){
+    try {
+        // Check for If and Pf data references (from chunk analysis)
+        var plot = document.getElementById('plot');
+        __diagLog('[DIAG:DATA] plot=' + (plot?'found':'missing') + ' children=' + (plot?plot.children.length:'0'));
+        var timeline = document.getElementById('timeline');
+        __diagLog('[DIAG:DATA] timeline tag=' + (timeline?timeline.tagName:'none') + ' children=' + (timeline?timeline.children.length:'0'));
+        var canvas = document.querySelector('canvas');
+        __diagLog('[DIAG:DATA] canvas=' + (canvas?'found at '+(canvas.id||'no-id'):'none'));
+        // Check for any large arrays/datasets on window
+        var dataKeys = [];
+        for (var k in window) {
+            try {
+                var v = window[k];
+                if (v && Array.isArray(v) && v.length > 50) {
+                    dataKeys.push(k + '[' + v.length + ']');
+                }
+            } catch(e) {}
+        }
+        __diagLog('[DIAG:DATA] large arrays on window: ' + (dataKeys.length ? dataKeys.join(', ') : 'none'));
+    } catch(e) { __diagLog('[DIAG:DATA] error'); }
+})();
+"); } catch { }
                     }
                 }
                 catch (Exception ex)
@@ -4783,6 +4927,468 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine("[DIAG] Fetch interceptor exception: " + ex.Message);
+            }
+        }
+
+        public void InterceptXhr()
+        {
+            try
+            {
+                RunInline(@"
+                    (function() {
+                        if (window.__xhrIntercepted) return;
+
+                        // If XMLHttpRequest doesn't exist in NiL.JS, create one using fetch
+                        var NativeXHR = null;
+                        try { NativeXHR = XMLHttpRequest; } catch(e) { NativeXHR = null; }
+                        if (!NativeXHR) { NativeXHR = window.XMLHttpRequest; }
+                        if (!NativeXHR)
+                        {
+                            console.log('[XHR] No native XMLHttpRequest — creating fetch-based stub');
+                            NativeXHR = function()
+                            {
+                                var self = this;
+                                self.readyState = 0;
+                                self.status = 0;
+                                self.statusText = '';
+                                self.responseText = '';
+                                self.response = null;
+                                self.responseType = '';
+                                self.withCredentials = false;
+                                self.timeout = 0;
+                                self.onload = null;
+                                self.onerror = null;
+                                self.onreadystatechange = null;
+
+                                var _method = '';
+                                var _url = '';
+                                var _headers = {};
+                                var _aborted = false;
+
+                                self.open = function(method, url, async, user, password)
+                                {
+                                    _method = method;
+                                    _url = url;
+                                    self.readyState = 1;
+                                    console.log('[XHR] open ' + method + ' ' + url);
+                                };
+
+                                self.setRequestHeader = function(name, value)
+                                {
+                                    _headers[name] = value;
+                                };
+
+                                self.send = function(body)
+                                {
+                                    if (_aborted) return;
+                                    console.log('[XHR] send ' + _method + ' ' + _url);
+                                    self.readyState = 2;
+
+                                    window.fetch(_url, {
+                                        method: _method,
+                                        headers: _headers,
+                                        body: body || null
+                                    })
+                                    .then(function(response)
+                                    {
+                                        self.status = response.status;
+                                        self.statusText = response.statusText || '';
+                                        self.readyState = 3;
+                                        return response.text();
+                                    })
+                                    .then(function(text)
+                                    {
+                                        if (_aborted) return;
+                                        self.responseText = text;
+                                        self.response = text;
+                                        self.readyState = 4;
+                                        console.log('[XHR] response from ' + _url + ' status=' + self.status + ' len=' + text.length + ' (first 200): ' + text.substring(0, 200));
+
+                                        if (self.onload) {
+                                            try { self.onload.call(self); } catch(e) { console.log('[XHR] onload error: ' + e); }
+                                        }
+                                        if (self.onreadystatechange) {
+                                            try { self.onreadystatechange.call(self); } catch(e) { console.log('[XHR] onreadystatechange error: ' + e); }
+                                        }
+                                    })
+                                    .catch(function(err)
+                                    {
+                                        if (_aborted) return;
+                                        console.log('[XHR] error for ' + _url + ': ' + err);
+                                        self.status = 0;
+                                        if (self.onerror) {
+                                            try { self.onerror.call(self, err); } catch(e) { console.log('[XHR] onerror error: ' + e); }
+                                        }
+                                    });
+                                };
+
+                                self.abort = function() { _aborted = true; };
+                                self.getResponseHeader = function(name) { return null; };
+                                self.getAllResponseHeaders = function() { return ''; };
+                                self.overrideMimeType = function(mime) {};
+                            };
+                        }
+                        else
+                        {
+                            console.log('[XHR] Native XMLHttpRequest found — wrapping with logging');
+                        }
+
+                        // Wrap the constructor with logging interceptor
+                        window.XMLHttpRequest = function() {
+                            var xhr = new NativeXHR();
+                            var _url = '';
+                            var _method = '';
+                            var _headers = {};
+                            var origOpen = xhr.open.bind(xhr);
+                            var origSend = xhr.send.bind(xhr);
+                            var origSetReqHdr = xhr.setRequestHeader.bind(xhr);
+                            xhr.open = function(method, url, async, user, password) {
+                                _method = method;
+                                _url = url;
+                                console.log('[XHR] open ' + method + ' ' + url);
+                                return origOpen(method, url, async, user, password);
+                            };
+                            xhr.setRequestHeader = function(name, value) {
+                                _headers[name] = value;
+                                return origSetReqHdr(name, value);
+                            };
+                            xhr.send = function(body) {
+                                console.log('[XHR] send ' + _method + ' ' + _url);
+                                var origOnLoad = xhr.onload;
+                                xhr.onload = function() {
+                                    var text = '';
+                                    try { text = xhr.responseText || ''; } catch(e) {}
+                                    console.log('[XHR] response from ' + _url + ' status=' + xhr.status + ' len=' + text.length + ' (first 200): ' + text.substring(0, 200));
+                                    if (origOnLoad) origOnLoad.call(xhr);
+                                };
+                                return origSend(body);
+                            };
+                            return xhr;
+                        };
+                        window.__xhrIntercepted = true;
+                        console.log('[DIAG] XHR interceptor installed');
+                    })();
+                ");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[DIAG] XHR interceptor exception: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Search for global data objects (nodes/links arrays or embedded JSON) and report them.
+        /// </summary>
+        public void SearchGlobalData()
+        {
+            try
+            {
+                RunInline(@"
+                    (function() {
+                        try {
+                            // Search for {nodes, links} pattern objects
+                            var foundData = false;
+                            for (var key in window) {
+                                try {
+                                    var val = window[key];
+                                    if (!val || typeof val !== 'object') continue;
+                                    // Check for {nodes, links}
+                                    if (val.nodes && val.links && Array.isArray(val.nodes) && Array.isArray(val.links)) {
+                                        console.log('[DIAG:DATA] Found graph data at window.' + key + ' nodes=' + val.nodes.length + ' links=' + val.links.length);
+                                        foundData = true;
+                                    }
+                                    // Check for large arrays that might be node/link data
+                                    if (Array.isArray(val)) {
+                                        var first = val[0];
+                                        if (first && typeof first === 'object') {
+                                            var fkeys = Object.keys(first);
+                                            if (fkeys.indexOf('source') >= 0 || fkeys.indexOf('target') >= 0 || fkeys.indexOf('x') >= 0 || fkeys.indexOf('y') >= 0) {
+                                                console.log('[DIAG:DATA] Found data array at window.' + key + ' len=' + val.length + ' sample_keys=' + JSON.stringify(fkeys));
+                                                foundData = true;
+                                            }
+                                        }
+                                    }
+                                } catch(e) { /* ignore individual key errors */ }
+                            }
+                            // Check for __INITIAL_STATE__ or __NEXT_DATA__ or __NUXT__
+                            if (typeof window.__INITIAL_STATE__ !== 'undefined') {
+                                console.log('[DIAG:DATA] Found __INITIAL_STATE__ type=' + typeof window.__INITIAL_STATE__);
+                            }
+                            if (typeof window.__NEXT_DATA__ !== 'undefined') {
+                                console.log('[DIAG:DATA] Found __NEXT_DATA__ type=' + typeof window.__NEXT_DATA__);
+                            }
+                            if (typeof window.__NUXT__ !== 'undefined') {
+                                console.log('[DIAG:DATA] Found __NUXT__ type=' + typeof window.__NUXT__);
+                            }
+                            // Check for data embedded in script tags (as JSON)
+                            var scripts = document.getElementsByTagName('script');
+                            for (var i = 0; i < scripts.length; i++) {
+                                var type = scripts[i].getAttribute('type') || '';
+                                var src = scripts[i].getAttribute('src') || '';
+                                if (type.indexOf('json') >= 0 || type.indexOf('data') >= 0) {
+                                    console.log('[DIAG:DATA] Script #' + i + ' type=' + type + ' src=' + src + ' textLen=' + (scripts[i].textContent || '').length);
+                                }
+                            }
+                            if (!foundData) console.log('[DIAG:DATA] No graph data found in global scope');
+                        } catch(e) { console.log('[DIAG:DATA] Search error: ' + e.message); }
+                    })();
+                ");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[DIAG:DATA] SearchGlobalData exception: " + ex.Message);
+            }
+        }
+
+        /// <summary>Search SystemJS chunk text for embedded graph data (nodes/links arrays).</summary>
+        private static void SearchChunkForGraphData(string chunk)
+        {
+            if (string.IsNullOrEmpty(chunk) || chunk.Length < 100) return;
+
+            int nodesIdx = chunk.IndexOf("nodes", StringComparison.Ordinal);
+            if (nodesIdx < 0) nodesIdx = chunk.IndexOf("\"nodes\"", StringComparison.Ordinal);
+            int linksIdx = chunk.IndexOf("links", StringComparison.Ordinal);
+            if (linksIdx < 0) linksIdx = chunk.IndexOf("\"links\"", StringComparison.Ordinal);
+
+            if (nodesIdx >= 0 || linksIdx >= 0)
+            {
+                System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Found 'nodes' at offset " + nodesIdx
+                    + ", 'links' at offset " + linksIdx);
+                // Sample context around nodes (if it's a different location than links)
+                if (nodesIdx >= 0 && nodesIdx != linksIdx)
+                {
+                    int start = Math.Max(0, nodesIdx - 80);
+                    int len = Math.Min(200, chunk.Length - start);
+                    var ctx = chunk.Substring(start, len);
+                    System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Context around 'nodes': "
+                        + ctx.Replace("\r", "").Replace("\n", "\\n"));
+
+                    // Dump 500 chars after nodes to see the full expression
+                    int afterStart = nodesIdx;
+                    int afterLen = Math.Min(500, chunk.Length - afterStart);
+                    var afterCtx = chunk.Substring(afterStart, afterLen);
+                    System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] 500 chars AFTER 'nodes': "
+                        + afterCtx.Replace("\r", "").Replace("\n", "\\n"));
+                }
+                // Sample context around links
+                if (linksIdx >= 0)
+                {
+                    int start = Math.Max(0, linksIdx - 80);
+                    int len = Math.Min(300, chunk.Length - start);
+                    var ctx = chunk.Substring(start, len);
+                    System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Context around 'links': "
+                        + ctx.Replace("\r", "").Replace("\n", "\\n"));
+                }
+                // Dump 200 chars BEFORE nodes to see where n/t come from
+                if (nodesIdx >= 0)
+                {
+                    int beforeStart = Math.Max(0, nodesIdx - 300);
+                    int beforeLen = Math.Min(300, nodesIdx - beforeStart);
+                    var beforeCtx = chunk.Substring(beforeStart, beforeLen);
+                    System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] 300 chars BEFORE 'nodes': "
+                        + beforeCtx.Replace("\r", "").Replace("\n", "\\n"));
+                }
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] No 'nodes'/'links' found in chunk — data is loaded externally or uses different naming");
+            }
+
+            // Search for large array assignments: =[{ or =[{\"
+            int arrayStart = chunk.IndexOf("=[{", StringComparison.Ordinal);
+            if (arrayStart < 0) arrayStart = chunk.IndexOf("= [{\"", StringComparison.Ordinal);
+            if (arrayStart >= 0)
+            {
+                System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Found large object array pattern at offset " + arrayStart);
+                int previewStart = Math.Max(0, arrayStart - 40);
+                int previewLen = Math.Min(200, chunk.Length - previewStart);
+                System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Preview: " + chunk.Substring(previewStart, previewLen)
+                    .Replace("\r", "").Replace("\n", "\\n"));
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] No large object array assignment found");
+            }
+
+            // Search for link-like data: source/target pairs (minified JS pattern)
+            int sourceIdx = chunk.IndexOf("source:", StringComparison.Ordinal);
+            if (sourceIdx < 0) sourceIdx = chunk.IndexOf("\"source\":", StringComparison.Ordinal);
+            if (sourceIdx >= 0)
+            {
+                int contextStart = Math.Max(0, sourceIdx - 100);
+                int contextLen = Math.Min(200, chunk.Length - contextStart);
+                System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Found 'source:' at offset " + sourceIdx
+                    + " ctx: " + chunk.Substring(contextStart, contextLen).Replace("\r", "").Replace("\n", "\\n"));
+                int targetIdx = chunk.IndexOf("target:", sourceIdx, StringComparison.Ordinal);
+                if (targetIdx < 0) targetIdx = chunk.IndexOf("\"target\":", sourceIdx, StringComparison.Ordinal);
+                if (targetIdx >= 0)
+                {
+                    int tCtxStart = Math.Max(0, targetIdx - 60);
+                    int tCtxLen = Math.Min(120, chunk.Length - tCtxStart);
+                    System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Found 'target:' nearby at offset " + targetIdx
+                        + " ctx: " + chunk.Substring(tCtxStart, tCtxLen).Replace("\r", "").Replace("\n", "\\n"));
+                }
+            }
+            else
+            {
+                // Check for non-colon pattern: source, - might be in different format
+                int sourceStrIdx = chunk.IndexOf("\"source\"", StringComparison.Ordinal);
+                if (sourceStrIdx >= 0)
+                    System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Found '\"source\"' (string key) at offset " + sourceStrIdx);
+                else
+                    System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] No 'source'/'target' link data found in chunk — data is not embedded as static JSON");
+            }
+
+            // Count how many data-like object patterns exist in the chunk
+            int braceCount = 0;
+            int searchFrom = 0;
+            while ((searchFrom = chunk.IndexOf(":{", searchFrom, StringComparison.Ordinal)) >= 0 && searchFrom < chunk.Length - 2)
+            {
+                // Check if followed by " (string value) or number or [
+                char next = chunk[searchFrom + 2];
+                if (next == '{') { /* nested object */ }
+                braceCount++;
+                searchFrom += 2;
+                if (braceCount > 100) break;
+            }
+            System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Total ':{' occurrences (object nesting): " + braceCount);
+
+            // Dump the first 1000 chars of the chunk to understand module structure
+            int dumpLen = Math.Min(1000, chunk.Length);
+            var dump = chunk.Substring(0, dumpLen);
+            System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] First 1000 chars: " + dump.Replace("\r", "").Replace("\n", "\\n"));
+
+            // If chunk is big, also dump a region around 40% (might be the data load area)
+            if (chunk.Length > 200000)
+            {
+                int midRegion = chunk.Length / 3;
+                int midDumpLen = Math.Min(400, chunk.Length - midRegion);
+                System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Dump at offset " + midRegion + ": "
+                    + chunk.Substring(midRegion, midDumpLen).Replace("\r", "").Replace("\n", "\\n"));
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        //  SVG DOM EXTRACTION  (Phase G.1 — Session 5.07, per architect)
+        // ─────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Walk the LiteElement DOM tree and collect all &lt;svg&gt; root elements.
+        /// Call this AFTER RunScriptsAsync() returns and AFTER any D3 patches execute.
+        /// </summary>
+        public List<LiteElement> GetDocumentSvgRoots()
+        {
+            var result = new List<LiteElement>();
+            if (_domRoot == null)
+            {
+                System.Diagnostics.Debug.WriteLine("[SVG] _domRoot is null — cannot collect SVG roots");
+                return result;
+            }
+            CollectSvgRoots(_domRoot, result);
+            System.Diagnostics.Debug.WriteLine("[SVG] GetDocumentSvgRoots → found " + result.Count + " <svg> element(s)");
+            return result;
+        }
+
+        private static void CollectSvgRoots(LiteElement node, List<LiteElement> found)
+        {
+            if (node == null || node.Children == null) return;
+            for (int i = 0; i < node.Children.Count; i++)
+            {
+                var child = node.Children[i];
+                if (child == null) continue;
+                if (string.Equals(child.Tag, "svg", StringComparison.OrdinalIgnoreCase))
+                    found.Add(child);
+                else
+                    CollectSvgRoots(child, found);
+            }
+        }
+
+        /// <summary>
+        /// Serialize a LiteElement SVG subtree to a well-formed SVG string.
+        /// Pass isRoot=true only for the &lt;svg&gt; element itself.
+        /// </summary>
+        public static string SerializeSvgNode(LiteElement node, bool isRoot = true)
+        {
+            if (node == null) return string.Empty;
+            var sb = new System.Text.StringBuilder(512);
+            var tag = (node.Tag ?? "g").ToLowerInvariant();
+
+            sb.Append('<').Append(tag);
+
+            // Root <svg> needs the XML namespace or SvgImageSource rejects it
+            bool hasXmlns = false;
+            if (isRoot && tag == "svg")
+            {
+                sb.Append(" xmlns=\"http://www.w3.org/2000/svg\"");
+                hasXmlns = true;
+            }
+
+            // Attributes (cx, cy, r, fill, stroke, transform, d, …)
+            if (node.Attr != null)
+            {
+                foreach (var kv in node.Attr)
+                {
+                    if (kv.Key.StartsWith("__", StringComparison.Ordinal))
+                        continue;
+                    if (hasXmlns && kv.Key == "xmlns")
+                        continue; // already added above
+                    var val = (kv.Value ?? string.Empty)
+                        .Replace("&", "&amp;")
+                        .Replace("\"", "&quot;");
+                    sb.Append(' ').Append(kv.Key).Append("=\"").Append(val).Append('"');
+                }
+            }
+
+            // D3 often sets styles via element.style.fill, but our LiteElement stores
+            // them as "style" attribute already — so it's covered above.
+
+            bool hasChildren = node.Children != null && node.Children.Count > 0;
+            bool hasText = !string.IsNullOrWhiteSpace(node.Text);
+
+            if (!hasChildren && !hasText)
+            {
+                sb.Append("/>");
+                return sb.ToString();
+            }
+
+            sb.Append('>');
+            if (hasText)
+                sb.Append(System.Net.WebUtility.HtmlEncode(node.Text ?? ""));
+            if (hasChildren)
+            {
+                for (int i = 0; i < node.Children.Count; i++)
+                {
+                    var child = node.Children[i];
+                    if (child == null) continue;
+                    // Serialize text children inline, element children recursively
+                    if (child.IsText)
+                        sb.Append(System.Net.WebUtility.HtmlEncode(child.Text ?? ""));
+                    else
+                        sb.Append(SerializeSvgNode(child, isRoot: false));
+                }
+            }
+            sb.Append("</").Append(tag).Append('>');
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Diagnostic dump — call from anywhere to see what D3 actually built.
+        /// Logs to Debug output.
+        /// </summary>
+        public void DumpSvgDom()
+        {
+            var roots = GetDocumentSvgRoots();
+            if (roots.Count == 0)
+            {
+                System.Diagnostics.Debug.WriteLine("[SVG-DUMP] No SVG elements in LiteElement DOM. "
+                    + "Check: (1) D3 ran, (2) appendChild wired, (3) body identity.");
+                return;
+            }
+            foreach (var r in roots)
+            {
+                var s = SerializeSvgNode(r);
+                System.Diagnostics.Debug.WriteLine("[SVG-DUMP] " + s.Length + " chars · first 300: "
+                    + s.Substring(0, Math.Min(300, s.Length)));
             }
         }
 

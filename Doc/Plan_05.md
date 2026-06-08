@@ -2,10 +2,10 @@
 ```
 ╔═══════════════════════════════════════════════════════════════════=═══╗
 ║  LUMIA UPLINK PROTOCOL  //  MISSION DOSSIER  //  CLEARANCE: MUSEUM    ║
-║  Node: MediaExplorer v0.55.10  ·  Uplink: nokiadesignarchive.aalto.fi ║
+║  Node: MediaExplorer v0.55.11  ·  Uplink: nokiadesignarchive.aalto.fi ║
 ║  Hardware: Lumia 950 · Snapdragon 810 · ARM64 · 3 GB LPDDR4           ║
 ║  Engine: NiL.JS 2.6 · XAML Renderer · Custom HTML/CSS Stack           ║
-║  Status: UPLINK STABLE — SVG delayed refresh added; test on emulator  ║
+║  Status: GRAPH=CANVAS — injection fixed, build 0 err, Mf(fn) found    ║
 ╚═════════════════════════════════════════════════════════════════════=═╝
 ```
 
@@ -16,7 +16,7 @@
 > **Hardware target:** Lumia 950 · Snapdragon 810 · 1440p AMOLED · 3 GB RAM
 > **Author note:** This document is a continuation of Plan 04. It assumes all phases
 > of Plans 01–04 are done or superseded. Read the "Signal Analysis" section first.
-> **Last updated:** 2026-06-08 (Phase G.2 v3 — SVG delayed refresh + build verified, Summary 5.08)
+> **Last updated:** 2026-06-08 (Phase G.2 v6 — injection→call, `function Mf` search, build fix)
 
 ---
 
@@ -57,6 +57,15 @@ That's the science fiction angle, and it's real.
 | **addedNodes population fix (was always empty)** | **5.06** | **Bug fix** |
 | **TriggerDelayedSvgRefresh — post-Phase4 delay + SVG re-render** | **5.06** | **Safety net** |
 | **Build verified: 0 errors via VS 2026 Insiders MSBuild** | **5.06** | **Build** |
+| **D3 patch confirmed working — manual circle renders in UI** | **5.08** | **Milestone** |
+| **G.1 thread marshalling crash fixed (RPC_E_WRONG_THREAD)** | **5.08** | **Bug fix** |
+| **NiL.JS missing XMLHttpRequest — no graph data flows** | **5.08** | **Root cause** |
+| **System.register execute wrapped with `[DIAG:MOD]` START/END/FAIL** | **5.10** | **Insight: execute returns undefined, module closure vars** |
+| **Route detection + nav simulation (`[DIAG:ROUTE]`, `[DIAG:NAV]`)** | **5.10** | **Nav links found, hash set, clicks dispatched** |
+| **Graph = Canvas (not SVG)** — `N.clearRect/save/restore` | **5.10** | **Paradigm shift: no SVG children expected** |
+| **Data processing code discovered:** `If`/`Pf` closure vars, `t.push({id,e.name,...})` | **5.10** | **Data is module-scoped, not global** |
+| **Crash fix:** `(e.message||e)` → static strings in catch | **5.10** | **StringConcatenation.prep crash eliminated** |
+| **Post-exec data diagnostics** — `#plot`, `<canvas>`, large arrays on window | **5.10** | **New visibility into Canvas-based render** |
 
 ### Honest assessment: where is the signal?
 
@@ -71,7 +80,7 @@ What remains is **not** more NiL.JS surgery. It is DOM plumbing and a rendering 
 These are mechanical engineering problems, not research problems. That's a very different
 kind of work — harder to get stuck on, easier to parallelize, and faster with AI assistance.
 
-### Current status (Phase G.2 v3 – static injection works, D3 append fails)
+### Current status (Phase G.2 v5 – graph=Canvas, route/nav sim, `(e.message||e)` crash fix)
 
 **Phase I (DOM Iterable Fix) — ✅ DONE (Session 5.03)**
 
@@ -96,23 +105,42 @@ Confirmed in PhaseG2-log.txt:
 [DIAG:EXEC] typeof d3.forceSimulation = function
 ```
 
-### The remaining blocker: SVG element rendering — diagnosis complete
+### The remaining blocker: no XMLHttpRequest → D3 has no data
 
-d3 builds a DOM tree of SVG elements (`circle`, `line`, `path`, `text`, `g`) in memory
-via `document.createElementNS(svgNs, tag)`. The `LiteElement` nodes are created and
-attributes stored — but **D3 inserts SVG asynchronously after Phase 4 BuildVisualTree**.
-The timeline SVG appears during repaint with `children=0` because D3's `appendChild`
-triggers repaint before D3 adds path/circle children.
+D3 v5 is loaded and operational: `d3.select = function`, `d3.forceSimulation = function`.
+Our `PatchD3DomManipulation` wrapper works — manual D3 calls (`append('circle')`, `.attr('r',...)`) 
+produce visible red circles on screen via `UpdateView()`. The XAML pipeline is fully confirmed.
 
-**Session 5.06 diagnosis revealed:**
-- Two SVGs on page: search icon (Phase 4) vs timeline (async repaint)
-- Incremental update (`PatchAdded`) creates generic Border/Rectangle for SVG children
-- `addedNodes` list was always empty — SVG mutations never detected
-- Path.Data frozen Geometry crash via `XamlReader.Load`
+**Session 5.08 diagnosis revealed the true bottleneck:**
 
-**Fix:** SVG mutation detection in `ApplyIncrementalUpdateAsync` — when any mutation
-affects SVG subtree, force full `UpdateView()` instead of individual patches. Combined
-with `CreateSvgPathElement` (bypasses frozen Geometry), and populated `addedNodes` list.
+**Two SVG elements on page:**
+1. `<svg class="search-icon">` (251 chars, static X icon) — renders via G.2 `CreateBoxVisual` → visible
+2. `<svg id="timeline"/>` (55 chars, self-closing, empty) — D3 created the shell but never filled it
+
+**The D3 patch is confirmed working:**
+- `[DIAG] D3 patch applied successfully`
+- Manual D3 circle appears at every delay check: `[DIAG] D3 circle appended` → triggers `UpdateView()`
+- `document.getElementById('timeline')` returns the element (D3 selection: ok)
+- The wrapper intercepts `d3.select('#timeline')` and returns a valid selection
+
+**Why the timeline stays empty:**
+
+The root cause is not D3 DOM manipulation (which works), but data loading:
+
+1. **No XMLHttpRequest in NiL.JS** — `[XHR] No XMLHttpRequest available`. D3 v5 uses XMLHttpRequest by default for `d3.json`, `d3.csv`, `d3.tsv`. Without XHR, D3 never receives node/link data and never creates graph elements.
+
+2. **SystemJS main module (589KB) executed `execute()` but returned undefined** — the app's main module likely calls D3 data loading via XHR, which fails silently because XHR constructor doesn't exist.
+
+3. **No graph data found in global scope** — `[DIAG:DATA] No graph data found in global scope` — all scans of `window` objects return nothing. The data is either fetched at runtime or never loaded.
+
+4. **Fetch interceptor captured only consent-manager requests** (`usercentrics.eu`) — no timeline data URL was fetched via `fetch()`. This strongly suggests the site uses XHR exclusively.
+
+5. **G.1 injection crashed with `RPC_E_WRONG_THREAD`** — `SvgImageSource` was being created on a background thread. **Now fixed** with `TaskCompletionSource` + dispatcher marshalling.
+
+**Fix strategy:**
+1. Add a minimal `XMLHttpRequest` stub to `JavaScriptEngine.cs` (constructor, `open`, `send`, `onload`, `responseText`)
+2. With XHR present, D3's data loading should work → timeline SVG gets children → G.2 detects mutations → graph renders via XAML shapes
+3. If XHR stub still doesn't trigger data loading, search for embedded JSON in the SystemJS chunk source
 
 ---
 
@@ -612,23 +640,54 @@ Session 5.06: Phase G.2 v2/v3 — SVG async diagnosis + mutation fix + delayed r
               ✅ `addedNodes` population fix (was always empty)
               ✅ `TriggerDelayedSvgRefresh` — 400ms post-Phase4 SVG child check
               ✅ Build: 0 errors via VS 2026 Insiders MSBuild (x86)
-              Target: deploy on emulator → test Nokia Archive
 
 Session 5.07: Deploy UWP build → test on emulator with Nokia Archive
-              → If D3 force graph visible: declare Phase G.2 done
-              → If not: diagnostics, check SVG mutation log/debug output
+              ✅ Forced D3 init attempts added
+              ✅ Fetch interceptor installed (captures usercentrics.eu only)
+              ❌ Timeline SVG stays empty — `_activeJs` null at delay time
+              ❌ No fetch calls for graph data captured
+              Key finding: JS engine not preserved after Phase 3
 
-Session 5.08: Phase G.2 — Force simulation tick → XAML property updates
-              Hook D3 tick updates (cx/cy→Canvas.Left/Top) to live XAML elements
-              or if static render is sufficient, skip and move to validation
+Session 5.08: Static SVG injection test + D3 patch diagnosis
+              ✅ Static SVG via DOM methods renders via XAML pipeline
+              ✅ D3 patch (`PatchD3DomManipulation`) works — manual circle renders
+              ✅ G.1 `InjectSvgAsync` `RPC_E_WRONG_THREAD` diagnosed + fixed
+              ✅ SystemJS main-legacy (589KB) loads and executes via SafeEval
+              ✅ Two SVGs found: search-icon (251 chars) and empty timeline (55 chars)
+              ❌ No XMLHttpRequest in NiL.JS — D3 cannot load graph data
+              ❌ Timeline SVG (`<svg id="timeline"/>`) stays empty with children=0
+              ❌ No graph data in global scope after all delays
+              ❌ G.1 crashed with cross-thread exception (now fixed)
+              Key finding: Missing XHR is the root cause — D3 needs it for data
 
-Session 5.07: Full Nokia Archive test on emulator
-              → If network graph visible: declare G.2 partial done, tag v0.50-nokia
-              → If not: diagnosis session, identify remaining gap
+Session 5.09: Add XMLHttpRequest stub + G.1 thread marshal fix
+               ✅ G.1 `BuildSvgImageAsync` → dispatcher marshalling via `TaskCompletionSource`
+               ⬜ Add minimal `XMLHttpRequest` constructor to `JavaScriptEngine.cs`
+               ⬜ Rebuild + deploy → check if timeline SVG now gets children
+               ⬜ If XHR enabled: graph renders via G.2 mutation detection
+               ⬜ If XHR still doesn't trigger data: search SystemJS chunk for embedded JSON
 
-Session 5.12: Phase K (if G.2 done) — Click event dispatch, drag support
-Session 5.13: Phase Z — Full Nokia Archive validation, perf tuning
-Session 5.14: v1.0 release preparation — changelog, README, GitHub release tag
+Session 5.10: Deep chunk analysis — execute wrapping, route sim, Canvas discovery
+               ✅ System.register execute wrapped with `[DIAG:MOD]` START/END/FAIL tracing
+               ✅ Route detection + nav simulation — Network/Timeline links found, hash set, click dispatched
+               ✅ Expanded SearchChunkForGraphData — dumps 500/300/300 chars around nodes/links
+               ✅ Crash fix: `(e.message||e)` → static strings in catch blocks (`StringConcatenation.prep`)
+               ✅ Post-exec data diagnostics — checks `#plot`, `<canvas>`, large arrays on `window`
+               ✅ **Key insight: Graph uses Canvas 2D** (`N.clearRect/save/restore/translate/scale`)
+               ✅ **Data processing code revealed**: `If`/`Pf` closure vars, `t.push({id:e.id,...})`, `n.push({source:e,...})`
+               ❌ `#plot` stays empty (no Canvas created), `#timeline` stays empty (graph is Canvas, not SVG)
+               ❌ `execute()` returns `undefined` — module runs but D3 render path (`R(t,n)`) never called
+               ❌ No graph data in global scope — data is in module closure vars, not exposed globally
+               ⬜ Build + deploy with crash fix + new diagnostics
+
+Session 5.11: Analyse Canvas render path
+               → If diagnostics from 5.10 reveal Canvas created by D3: capture Canvas2D content as image
+               → If still no Canvas: call `R(t,n)` manually with extracted data from `If`/`Pf`
+               → If `If`/`Pf` unreachable: inject XHR stub + mock JSON response
+
+Session 5.11: Phase K (if G.2 done) — Click event dispatch, drag support
+Session 5.12: Phase Z — Full Nokia Archive validation, perf tuning
+Session 5.13: v1.0 release preparation — changelog, README, GitHub release tag
 ```
 
 ---
@@ -669,18 +728,18 @@ both have their backs. Test on emulator next.
 Next action: sync → build → deploy → test Nokia Archive on emulator.
 The uplink awaits.
 
-STATUS: SVG BRIDGE + DELAY  //  SIGNAL STRENGTH: STRONG
-NEXT: Phase G.2 — Emulator Test
-ETA: 1 SESSION
+STATUS: GRAPH=CANVAS + BUILD 0 ERR // INJECTION RELOCATED TO System.register CALL
+NEXT: Phase G.2 — Deploy, collect `__diagMf/If/S/R`, verify `function Mf` context
+ETA: 1-2 SESSIONS
 ──────────────────────────────────────────────────────────────────────
 ```
 
 ---
 
-*Plan v5.4 — 2026-06-08*
-*Based on: Plans 01–04, sessions 3.18–5.06, Summaries 5.01–5.06*
+*Plan v5.5 — 2026-06-08*
+*Based on: Plans 01–04, sessions 3.18–5.09, Summaries 5.01–5.09*
 *Build target: VS 2026 Insiders MSBuild. Platform: x86 (emulator) + ARM (Lumia 950)*
-*Next session: 5.09 — Nokia Archive emulator test*
+*Next session: 5.11 — Analyse Canvas render path, inspect __diag* vars, verify `function Mf` context*
 
 ---
 

@@ -1542,6 +1542,14 @@ namespace BrowserCore.Engine
                                 try { js?.PatchD3DomManipulation(); } catch (Exception patchEx) { System.Diagnostics.Debug.WriteLine("[DIAG] D3 patch error: " + patchEx.Message); }
                                 // Install fetch interceptor to capture data URL
                                 try { js?.InterceptFetch(); } catch (Exception fetchEx) { System.Diagnostics.Debug.WriteLine("[DIAG] Fetch interceptor error: " + fetchEx.Message); }
+                                // Install XHR interceptor to capture XMLHttpRequest data fetches
+                                try { js?.InterceptXhr(); } catch (Exception xhrEx) { System.Diagnostics.Debug.WriteLine("[DIAG] XHR interceptor error: " + xhrEx.Message); }
+                                // Search for global data objects
+                                try { js?.SearchGlobalData(); } catch (Exception dataEx) { System.Diagnostics.Debug.WriteLine("[DIAG] Global data search error: " + dataEx.Message); }
+                                // Kick off G.1 SVG extraction (fire-and-forget) — Phase G.1 fast path
+#pragma warning disable CS4014
+                                try { TriggerDelayedSvgExtractionAsync(); } catch { }
+#pragma warning restore CS4014
                             }
                             catch (Exception ex) { var m3 = "[DIAG] RenderAsync Phase3 JS EXC " + ex.Message; System.Diagnostics.Debug.WriteLine(m3); DevToolsLogger.Log(m3); }
                         }
@@ -1811,6 +1819,47 @@ namespace BrowserCore.Engine
             return false;
         }
 
+        // ─────────────────────────────────────────────────────────────
+        //  SVG EXTRACTION TRIGGER  (Phase G.1 — Session 5.07, per architect)
+        // ─────────────────────────────────────────────────────────────
+        private async Task TriggerDelayedSvgExtractionAsync()
+        {
+            try
+            {
+                if (_activeJs == null || _activeDom == null) return;
+
+                // Diagnostic: dump immediately to see if D3 built anything at all
+                System.Diagnostics.Debug.WriteLine("[SVG] Immediate dump (before D3 settles):");
+                _activeJs.DumpSvgDom();
+
+                // Wait for D3 force simulation to settle (2s)
+                await Task.Delay(2000).ConfigureAwait(false);
+
+                System.Diagnostics.Debug.WriteLine("[SVG] Post-delay dump (after 2s):");
+                _activeJs.DumpSvgDom();
+
+                var svgRoots = _activeJs.GetDocumentSvgRoots();
+
+                if (svgRoots.Count == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine("[SVG] Still no SVG roots after 2s. "
+                        + "D3 may not be executing. Check [d3-err:...] log lines.");
+                    return;
+                }
+
+                System.Diagnostics.Debug.WriteLine("[SVG] Injecting " + svgRoots.Count + " SVG root(s) into renderer.");
+
+                if (_currentRenderer != null)
+                {
+                    await _currentRenderer.InjectSvgAsync(svgRoots).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[SVG] TriggerDelayedSvgExtractionAsync EXC: " + ex.GetType().Name + " - " + ex.Message);
+            }
+        }
+
         private void TriggerDelayedSvgRefresh()
         {
             System.Diagnostics.Debug.WriteLine("[DIAG] _activeJs is " + (_activeJs != null ? "not null" : "null"));
@@ -1832,11 +1881,14 @@ namespace BrowserCore.Engine
             var disp = _uiDispatcher ?? UiThreadHelper.TryGetDispatcher();
             if (disp == null) { _svgRefreshPending = 0; return; }
 
-            // Diagnostic: test D3 DOM manipulation by drawing a red circle
+            // Diagnostic: search for global data and test D3 DOM manipulation
             try
             {
                 if (_activeJs != null)
                 {
+                    // Search for global data objects
+                    try { _activeJs.SearchGlobalData(); } catch { }
+
                     // First, search for any global timeline/graph init functions
                     _activeJs.RunInline(@"
                         var found = [];
@@ -1917,6 +1969,11 @@ if (cc > 0) { svgWithChildren++; found = true; break; }
                                 {
                                     try
                                     {
+                                        // Search global data objects each attempt
+                                        try { _activeJs?.SearchGlobalData(); } catch { }
+                                        // Install XHR interceptor if not already (try each attempt)
+                                        try { _activeJs?.InterceptXhr(); } catch { }
+
                                         // Diagnostic: search for global timeline/graph init functions
                                         _activeJs?.RunInline(@"
                                             (function() {
@@ -1988,7 +2045,64 @@ if (cc > 0) { svgWithChildren++; found = true; break; }
                                             })();
                                         ");
 
-                                        // Force re-execute the main module after container exists
+                                        // Route/navigation simulation — try to activate the graph page
+                                        _activeJs.RunInline(@"
+                                            (function() {
+                                                try {
+                                                    console.log('[DIAG:NAV] location href=' + (window.location.href || 'none') + ' hash=' + (window.location.hash || 'none'));
+                                                    // Check for nav links by text content
+                                                    var navLinks = document.querySelectorAll('a');
+                                                    var graphNav = null;
+                                                    for (var i = 0; i < navLinks.length; i++) {
+                                                        var t = (navLinks[i].textContent || '').toLowerCase().trim();
+                                                        var h = (navLinks[i].getAttribute('href') || '').toLowerCase();
+                                                        if (t === 'network' || t === 'timeline' || t === 'graph' ||
+                                                            h.indexOf('network') >= 0 || h.indexOf('timeline') >= 0) {
+                                                            graphNav = navLinks[i];
+                                                            console.log('[DIAG:NAV] Found graph link #' + i + ' text=[' + t + '] href=[' + h + ']');
+                                                        }
+                                                    }
+                                                    if (graphNav) {
+                                                        if (typeof graphNav.click === 'function') {
+                                                            try { graphNav.click(); console.log('[DIAG:NAV] Clicked graph nav link'); } catch(e) { try { __diagLog('[DIAG:NAV] Click error'); } catch(_) {} }
+                                                        }
+                                                        // Also try dispatching a click event
+                                                        if (typeof document.createEvent === 'function') {
+                                                            try {
+                                                                var evt = document.createEvent('MouseEvents');
+                                                                if (evt && typeof evt.initEvent === 'function') {
+                                                                    evt.initEvent('click', true, true);
+                                                                    graphNav.dispatchEvent(evt);
+                                                                    console.log('[DIAG:NAV] Dispatched click event on nav link');
+                                                                }
+                                                            } catch(e) { try { __diagLog('[DIAG:NAV] DispatchEvent error'); } catch(_) {} }
+                                                        }
+                                                    } else {
+                                                        console.log('[DIAG:NAV] No graph nav link found — checking hash-based routing');
+                                                    }
+                                                    // Set hash to trigger route
+                                                    try {
+                                                        var oldHash = window.location.hash;
+                                                        window.location.hash = '#/network';
+                                                        console.log('[DIAG:NAV] Set hash from [' + oldHash + '] to #/network');
+                                                    } catch(e) { try { __diagLog('[DIAG:NAV] Hash set error'); } catch(_) {} }
+                                                    // Fire hashchange event manually
+                                                    try {
+                                                        if (typeof window.__hashchangeFired === 'undefined') {
+                                                            var listeners = document._events && document._events['hashchange'];
+                                                            if (listeners) {
+                                                                for (var i = 0; i < listeners.length; i++) {
+                                                                    try { listeners[i]({ type: 'hashchange', newURL: '#/network', oldURL: '' }); } catch(e) {}
+                                                                }
+                                                                console.log('[DIAG:NAV] Fired hashchange listeners');
+                                                            }
+                                                            window.__hashchangeFired = true;
+                                                        }
+                                                    } catch(e) { try { __diagLog('[DIAG:NAV] hashchange fire error'); } catch(_) {} }
+                                                } catch(e) { try { __diagLog('[DIAG:NAV] Error in nav simulation'); } catch(_) {} }
+                                            })();
+                                        ");
+                                        // Force re-execute the main module after navigation
                                         _activeJs.RunInline(@"
                                             (function() {
                                                 try {
