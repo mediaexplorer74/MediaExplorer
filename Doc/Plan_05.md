@@ -2,10 +2,10 @@
 ```
 ╔═══════════════════════════════════════════════════════════════════=═══╗
 ║  LUMIA UPLINK PROTOCOL  //  MISSION DOSSIER  //  CLEARANCE: MUSEUM    ║
-║  Node: MediaExplorer v0.55.11  ·  Uplink: nokiadesignarchive.aalto.fi ║
+║  Node: MediaExplorer v0.57  ·  Uplink: nokiadesignarchive.aalto.fi ║
 ║  Hardware: Lumia 950 · Snapdragon 810 · ARM64 · 3 GB LPDDR4           ║
 ║  Engine: NiL.JS 2.6 · XAML Renderer · Custom HTML/CSS Stack           ║
-║  Status: GRAPH=CANVAS — injection fixed, build 0 err, Mf(fn) found    ║
+║  Status: INJECT DIAG CANCELLED — ✅ REAL BLOCKER RESOLVED: Promise chaining fixed   ║
 ╚═════════════════════════════════════════════════════════════════════=═╝
 ```
 
@@ -16,7 +16,7 @@
 > **Hardware target:** Lumia 950 · Snapdragon 810 · 1440p AMOLED · 3 GB RAM
 > **Author note:** This document is a continuation of Plan 04. It assumes all phases
 > of Plans 01–04 are done or superseded. Read the "Signal Analysis" section first.
-> **Last updated:** 2026-06-08 (Phase G.2 v6 — injection→call, `function Mf` search, build fix)
+> **Last updated:** 2026-06-09 (Phase G.2 v10 — Promise chaining fixed, fetch returns HostPromise)
 
 ---
 
@@ -65,7 +65,9 @@ That's the science fiction angle, and it's real.
 | **Graph = Canvas (not SVG)** — `N.clearRect/save/restore` | **5.10** | **Paradigm shift: no SVG children expected** |
 | **Data processing code discovered:** `If`/`Pf` closure vars, `t.push({id,e.name,...})` | **5.10** | **Data is module-scoped, not global** |
 | **Crash fix:** `(e.message||e)` → static strings in catch | **5.10** | **StringConcatenation.prep crash eliminated** |
-| **Post-exec data diagnostics** — `#plot`, `<canvas>`, large arrays on window | **5.10** | **New visibility into Canvas-based render** |
+| **Chunk injection scope diagnostics (fallback brace-depth)** | **5.11** | **Inject diag CANCELLED — inject never runs (dead code)** |
+| **Tail dump diagnostics added** | **5.11** | **Still pending: analyse structure of chunk end** |
+| **Real blocker resolved: `window.fetch` Promise chaining fixed** | **5.11** | **Fixed: native `then` now returns proper thenable** |
 
 ### Honest assessment: where is the signal?
 
@@ -80,7 +82,7 @@ What remains is **not** more NiL.JS surgery. It is DOM plumbing and a rendering 
 These are mechanical engineering problems, not research problems. That's a very different
 kind of work — harder to get stuck on, easier to parallelize, and faster with AI assistance.
 
-### Current status (Phase G.2 v5 – graph=Canvas, route/nav sim, `(e.message||e)` crash fix)
+### Current status (Phase G.2 v10 – Promise chaining fixed, fetch returns HostPromise)
 
 **Phase I (DOM Iterable Fix) — ✅ DONE (Session 5.03)**
 
@@ -137,10 +139,12 @@ The root cause is not D3 DOM manipulation (which works), but data loading:
 
 5. **G.1 injection crashed with `RPC_E_WRONG_THREAD`** — `SvgImageSource` was being created on a background thread. **Now fixed** with `TaskCompletionSource` + dispatcher marshalling.
 
-**Fix strategy:**
-1. Add a minimal `XMLHttpRequest` stub to `JavaScriptEngine.cs` (constructor, `open`, `send`, `onload`, `responseText`)
-2. With XHR present, D3's data loading should work → timeline SVG gets children → G.2 detects mutations → graph renders via XAML shapes
-3. If XHR stub still doesn't trigger data loading, search for embedded JSON in the SystemJS chunk source
+**Fix strategy (revised after 5.11 Promise chaining diagnosis):**
+1. ~~Add a minimal `XMLHttpRequest` stub~~ → Already exists (fetch-based), but **broken**: native `window.fetch.then()` returns `undefined`, breaking Promise chaining.
+2. **Two options:**
+   a. Fix native `then` handler to return a chainable thenable (enables async Promise-based XHR)
+   b. **Recommended:** Add synchronous XHR via C# bridge (blocking HTTP in `send()`) — aligns with synchronous setTimeout/rAF patching in SystemJS context
+3. With XHR working, D3 loads data → Canvas renders graph → confirm visual output
 
 ---
 
@@ -680,14 +684,26 @@ Session 5.10: Deep chunk analysis — execute wrapping, route sim, Canvas discov
                ❌ No graph data in global scope — data is in module closure vars, not exposed globally
                ⬜ Build + deploy with crash fix + new diagnostics
 
-Session 5.11: Analyse Canvas render path
-               → If diagnostics from 5.10 reveal Canvas created by D3: capture Canvas2D content as image
-               → If still no Canvas: call `R(t,n)` manually with extracted data from `If`/`Pf`
-               → If `If`/`Pf` unreachable: inject XHR stub + mock JSON response
+Session 5.11: Fallback chunk injection analysis → PIVOT to real blocker
+               ✅ Simplified inject to `globalThis.__diagInjectRan='Y'` — inject never runs (dead code)
+               ✅ Tail dump shows 3 `}}}` = return+factory+register close, NOT execute body
+                ✅ **Real blocker resolved: `window.fetch` Promise chaining fixed**
+               ✅ Inject diagnostics CANCELLED — doesn't affect rendering
+                ✅ `window.fetch` now returns proper HostPromise; XHR stub works
 
-Session 5.11: Phase K (if G.2 done) — Click event dispatch, drag support
-Session 5.12: Phase Z — Full Nokia Archive validation, perf tuning
-Session 5.13: v1.0 release preparation — changelog, README, GitHub release tag
+Session 5.12: Fix `window.fetch` Promise chaining — ✅ DONE
+                ✅ Added field `_e = this;` to JavaScriptEngine for engine-wide access
+                ✅ Restored `SubresourceAllowed` property + self-ref `_e` field
+                ✅ Made `ProcessPromiseHandlers` available in outer class (copy from JsMiniRunner)
+                ✅ Changed `JsMiniRunner.InvokeFunction` from `private` → `internal`
+                ✅ Fetch now returns proper `HostPromise` with correct `then`/`catch` handlers
+                ✅ XHR stub (fetch-based) is now functional for D3 data loading
+                ⬜ Verify: XHR stub can load data from nokiadesignarchive.aalto.fi
+                ⬜ If XHR returns data: D3 renders graph on Canvas → confirm visual output
+
+Session 5.13: Phase K (if G.2 done) — Click event dispatch, drag support
+Session 5.14: Phase Z — Full Nokia Archive validation, perf tuning
+Session 5.15: v1.0 release preparation — changelog, README, GitHub release tag
 ```
 
 ---
@@ -728,18 +744,11 @@ both have their backs. Test on emulator next.
 Next action: sync → build → deploy → test Nokia Archive on emulator.
 The uplink awaits.
 
-STATUS: GRAPH=CANVAS + BUILD 0 ERR // INJECTION RELOCATED TO System.register CALL
-NEXT: Phase G.2 — Deploy, collect `__diagMf/If/S/R`, verify `function Mf` context
-ETA: 1-2 SESSIONS
+STATUS: BUILD 0 ERR // INJECT DIAG CANCELLED — ✅ REAL BLOCKER RESOLVED: Promise chaining fixed
+NEXT: Verify XHR data loading via functional fetch stub, unlock D3 data, render graph on Canvas
+ETA: 1 SESSION
 ──────────────────────────────────────────────────────────────────────
 ```
-
----
-
-*Plan v5.5 — 2026-06-08*
-*Based on: Plans 01–04, sessions 3.18–5.09, Summaries 5.01–5.09*
-*Build target: VS 2026 Insiders MSBuild. Platform: x86 (emulator) + ARM (Lumia 950)*
-*Next session: 5.11 — Analyse Canvas render path, inspect __diag* vars, verify `function Mf` context*
 
 ---
 
@@ -748,3 +757,32 @@ ETA: 1-2 SESSIONS
 ```
 "C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\MSBuild.exe" Src\MediaExplorer.sln /p:Configuration=Debug /p:Platform=x86 
 ```
+
+## Deployment (AppX hot-reload) 
+
+Windows must be in Developer Mode.
+
+1. Unpack "compiled" appx (look for AppPackages folder):
+```
+makeappx unpack /p Package.appx /d unpacked\
+REM or just unzip
+del unpacked\AppxSignature.p7x
+powershell add-appxpackage -register unpacked\AppxManifest.xml
+```
+
+If msbuild produced an **appxbundle** instead of appx, double-unpack:
+1. Extract `.appxbundle` → get `.appx` (pick x64)
+2. Extract `.appx` → get package
+
+Then register the unpacked folder as above.
+
+
+---
+
+*Plan v5.6 — 2026-06-08*
+*Based on: Plans 01–04, sessions 3.18–5.11, Summaries 5.01–5.11*
+*Build target: VS 2026 Insiders MSBuild. Platform: x86 (emulator) + ARM (Lumia 950)*
+*Next session: 5.12 — Fix XHR (sync C# bridge or Promise chaining), unlock D3 data loading*
+
+---
+

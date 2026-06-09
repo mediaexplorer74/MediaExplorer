@@ -31,6 +31,7 @@ namespace WEBVIEW
 
         private readonly HttpClient _http = new HttpClient();
         private readonly ResourceManager _resources;
+        private StorageFile _logFile; // Log file in Pictures/MediaExplorer/Logger.txt
         private readonly CustomHtmlEngine _welcomeEngine = new CustomHtmlEngine();
         private readonly BrowserHost _browser;
         private bool _barExpanded = false;
@@ -241,8 +242,30 @@ namespace WEBVIEW
             Task.Run(() => RunNilJsStartupTest());
         }
 
-        protected override void OnNavigatedTo(NavigationEventArgs e)
+        protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
+            try
+            {
+                var folder = Windows.Storage.ApplicationData.Current.LocalFolder;
+                var file = await folder.CreateFileAsync("OnNavTest.txt", CreationCollisionOption.ReplaceExisting);
+                await Windows.Storage.FileIO.WriteTextAsync(file, "OnNavigatedTo OK");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("NAVTEST FAIL: " + ex.Message);
+            }
+
+            // Priority: launch args > env var > default
+            var launchUrl = e.Parameter as string;
+            if (string.IsNullOrWhiteSpace(launchUrl))
+            {
+                try { launchUrl = Environment.GetEnvironmentVariable("MEDIAEXPLORER_STARTUP_URL"); } catch { }
+            }
+            if (!string.IsNullOrWhiteSpace(launchUrl))
+            {
+                var _ = NavigateAsync(launchUrl);
+                return;
+            }
                 if (!_startupStatusPinned)
                 UpdateStatusMessage("Enter a URL and press Go.");
             if (!_welcomeShown)

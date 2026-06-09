@@ -1,0 +1,81 @@
+Кратко о том, зачем — и как — PackageDependency
+
+Microsoft.VCLibs.140.00.UWPDesktop — это UWP‑фреймворк‑пакет, в котором уже находятся:
+
+VCRUNTIME140_APP.dll
+другие бинарники, которые требуются приложению, собранному как Desktop Bridge (AppContainerExe)
+системный файл UWPHOST.dll (он идёт в комплекте с Windows 10 1809 и новее, но он проверяется только после того, как всё‑это найдётся в установленных пакетах)
+Если в манифесте не указана эта зависимость, пакет‑менеджер пытается «потянуть» нужные файлы из текущей системы. На машине, где нужный VCLibs‑пакет не установлен (что часто случается на чистой Windows 10 или в новых сборках VS), вы получаете диалог о VCRUNTIME140_APP.dll и UWPHOST.dll. Добавив строку
+
+<PackageDependency Name="Microsoft.VCLibs.140.00.UWPDesktop"
+                   MinVersion="14.0.0.0"
+                   Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
+вы говорите системе: «если этих файлов нет, автоматически загрузите фреймворк‑пакет Microsoft.VCLibs.140.00.UWPDesktop». При первой попытке регистрации Windows скачает и установит его (из Microsoft Store) и ошибка исчезнет.
+
+Почему у вас всё равно «двойной» конфликт (x86 vs x64)
+Сейчас в системе уже установлен пакет MediaExplorerV0p55_0.55.30.0_x64….
+Когда вы пытаетесь установить одинаковый PackageFamilyName (MediaExplorerV0p55) но другой архитектуры, Add‑AppxPackage выдаёт 0x80073CF3 — «пакет уже существует для другой архитектуры». Это не связано с VCLibs, а с тем, что Windows не позволяет одновременно иметь две версии пакета с одинаковой фамилией, но разными Architecture/ProcessorArchitecture.
+
+Что делаем сейчас в DeployAndRun.ps1:
+
+Удаляем любые старые пакеты MediaExplorer* (для всех пользователей).
+$existing = Get-AppxPackage -AllUsers | Where-Object { $_.PackageFamilyName -like "*MediaExplorer*" }
+foreach ($pkg in $existing) {
+    Remove-AppxPackage -Package $pkg.PackageFullName -ErrorAction SilentlyContinue
+    try { Remove-AppxPackage -Package $pkg.PackageFullName -AllUsers -ErrorAction SilentlyContinue } catch {}
+}
+– если скрипт запущен без прав администратора, он удалит только те, что установлены для текущего пользователя; при запуске от админа он попытается очистить и глобально.
+Ждём пару секунд (Start‑Sleep -Seconds 2) — чтобы система успела освободить ресурсы.
+Пытаемся зарегистрировать новый x86‑пакет.
+Если в вашем случае скрипт всё ещё выдаёт диалог, вероятно:
+
+Вы запускали его без административных прав, и глобальная часть пакета (x64‑версия) осталась. Запустите PowerShell от имени администратора и выполните скрипт ещё раз.
+Пакет‑зависимость ещё не скачалась (потому что Windows не запустила автоматическую загрузку). Можно установить её вручную:
+# Скачайте последнюю версию фреймворка из Microsoft Store (или используйте офлайн‑пакет)
+Add-AppxPackage -Path "C:\Path\To\Microsoft.VCLibs.140.00.UWPDesktop_<ver>_x64__8wekyb3d8bbwe.appx"
+# или через Store:
+# Поставьте Microsoft Store и найдите «Visual C++ 2015‑2022 Runtime (UWP)».
+После того как VCLibs и любой конфликтующий пакет будут удалены, регистрация завершается успешно — и ошибка про VCRUNTIME140_APP.dll и UWPHOST.dll исчезает.
+
+Что сделать завтра (пошаговый чек‑лист)
+Откройте PowerShell от имени администратора.
+Установите VCLibs вручную (если ещё не установлены).
+Get-AppxPackage -Name "Microsoft.VCLibs.140.00.UWPDesktop"   # проверьте, есть ли запись
+# При отсутствии:
+#   откройте Microsoft Store и установите «Visual C++ 2015‑2022 Runtime (UWP)».
+Запустите DeployAndRun.ps1 снова (по‑прежнему с параметрами -Configuration Debug -Platform x86).
+При первом запуске скрипт выведет Removing existing MediaExplorer packages… и удалит как x64, так и любые другие версии.
+Затем Registering app … должно завершиться без ошибки.
+После Press ENTER… вы сможете поработать с приложением, а после нажатия Enter скрипт покажет содержимое Logger.txt.
+Если ошибка всё равно появляется:
+Выполните Get-AppxLog -ActivityId <идентификатор из сообщения> — это даст детальный лог Windows Package Manager.
+Проверьте, есть ли в логах строки Error: Conflict with package family name (это подтверждает, что конфликт архитектур ещё жив).
+При необходимости принудительно удалите оставшийся пакет:
+Get-AppxPackage -AllUsers | Where-Object { $_.PackageFamilyName -like "*MediaExplorer*" } |
+  ForEach-Object { Remove-AppxPackage -Package $_.PackageFullName -AllUsers }
+Если хотите полностью отключить регистрацию
+Для быстрой отладки (когда вам важен только исполняемый файл) добавьте в DeployAndRun.ps1 простой переключатель:
+
+param(
+    [string]$Configuration = "Debug",
+    [string]$Platform      = "x86",
+    [switch]$SkipRegistration   # ← добавить
+)
+
+# ...
+
+if (-not $SkipRegistration) {
+    Register-App -UnpackedFolder $unpackedFolder
+}
+Запускайте:
+
+.\DeployAndRun.ps1 -Configuration Debug -Platform x86 -SkipRegistration
+Тогда пакет не будет регистрироваться, а exe из распакованного .appx будет запущен напрямую – никаких диалогов о DLL не будет.
+
+Итого:
+
+Добавленная зависимость дано корректно сообщает Windows, какие системные библиотеки нужны, и решает проблему с VCRUNTIME140_APP.dll/UWPHOST.dll.
+Текущий конфликт — это другие установленнные версии того же пакета. Сценарий в скрипте уже пытается их удалить; для полной уверенности запускать скрипт от администратора.
+Если всё равно останутся сообщения, проверьте лог Get‑AppxLog и/или вручную удалите оставшийся пакет.
+Если после пробного запуска останутся вопросы — сообщите, и я помогу доработать скрипт (например, добавить автоустановку VCLibs, более надёжную очистку, вывод отладочной информации). Спокойной ночи и удачной отладки утром!
+

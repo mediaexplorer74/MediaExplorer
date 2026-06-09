@@ -1465,11 +1465,7 @@ namespace BrowserCore.Engine
                 if (js != null)
                 {
                     js.CookieBridge = scope => _jsCookieJar;
-    #if USE_NILJS
                     js.UseMiniPrattEngine = false;
-    #else
-                    js.UseMiniPrattEngine = true;
-    #endif
 
                     // When a ResourceManager-backed fetcher is available, reuse it for
                     // script text as well so we benefit from its disk cache and

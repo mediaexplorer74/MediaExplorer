@@ -15,10 +15,6 @@ using System.Reflection;
 using System.Globalization;
 using Newtonsoft.Json;
 using Math = System.Math;
-#if USE_ECMA_EXPERIMENTAL
-using EcmaEngine.Interpreter;
-using EcmaEngine.Runtime;
-#endif
 using NiL.JS.Core;
 using NiL.JS.BaseLibrary;
 using Windows.UI;
@@ -42,11 +38,6 @@ namespace BrowserCore.Engine
 
         public Func<Uri, Task<string>> FetchOverride { get; set; }
 
-        // Optional: Jint ES5 runtime integration (guarded by USE_JINT)
-#if USE_JINT && !WINDOWS_PHONE_APP
-        private Jint.Engine _jint;
-#endif
-#if USE_NILJS
         private GlobalContext _nil;
         private Context _evalContext;
         private bool _niljsSafeEvalFailed;
@@ -94,11 +85,6 @@ namespace BrowserCore.Engine
         private readonly object _badHashSaveTimerLock = new object();
         private System.Threading.Timer _badHashSaveTimer;
         private const int BadHashSaveDebounceMs = 2000; // 2s debounce
-#endif
-#if USE_ECMA_EXPERIMENTAL
-        private JsInterpreter _exp;
-        public bool UseExperimentalEcmaEngine { get; set; } = false;
-#endif
         private readonly IJsHost _host;
         // MiniJS interpreter (removed — DISABLED since migration to MiniRunner)
         private JsContext _ctx;
@@ -139,6 +125,7 @@ namespace BrowserCore.Engine
         
         // Subresource validation delegate (optional)
         public Func<Uri, string, bool> SubresourceAllowed { get; set; }
+        private readonly JavaScriptEngine _e;
 
         internal bool SandboxAllows(SandboxFeature feature, string detail = null)
         {
@@ -703,7 +690,6 @@ namespace BrowserCore.Engine
             catch { /* swallow */ }
         }
 
-#if USE_NILJS
         // Load persisted bad-hash store from local folder (JSON format).
         private async Task LoadBadHashStoreAsync()
         {
@@ -919,7 +905,6 @@ namespace BrowserCore.Engine
             }
             catch { /* swallow */ }
         }
-#endif
 
         // ---------------- Cookies (best-effort via CookieBridge) ----------------
         private void SetCookieString(Uri scope, string cookieString)
@@ -1039,11 +1024,7 @@ namespace BrowserCore.Engine
                 case "location":
                     return TryLocationPatterns(line, ctx);
                 case "return":
-#if USE_NILJS
                     return false;
-#else
-                    return TryReturnPatterns(line);  // "return false;"
-#endif
                 case "alert":
                     return TryAlertPatterns(line);
                 case "void":
@@ -1447,17 +1428,6 @@ namespace BrowserCore.Engine
                 XhrSend(id, body, onload, onerr, ctx);
                 return true;
             }
-#if !USE_NILJS
-            var mXdeliver = RxXhrDeliver.Match(line);
-            if (mXdeliver.Success)
-            {
-                var token = mXdeliver.Groups["token"].Value;
-                var fn = mXdeliver.Groups["fn"].Value;
-                int status; if (!int.TryParse(mXdeliver.Groups["status"].Value, out status)) status = -1;
-                XhrDeliver(token, fn, status);
-                return true;
-            }
-#endif
             return false;
         }
 
@@ -2176,6 +2146,8 @@ if (mHrefSet.Success)
         // No full JS engine bundled here; we keep a tiny allowlist (JS-0) for inline handlers.
         public JavaScriptEngine(IJsHost host)
         {
+            _host = host;
+
             // ***
 
             try
@@ -2186,67 +2158,17 @@ if (mHrefSet.Success)
             catch { }
 
             // ***
-            _host = host ?? new JsHostAdapter(_ => { }, (_, __) => { }, _ => { });
+            _e = this;
             try { _http = new System.Net.Http.HttpClient(CreateManagedHandler(null)); } catch { _http = new System.Net.Http.HttpClient(); }
             try { var _ = RestoreLocalStorageAsync(); } catch { /* swallow */ }
-#if !USE_NILJS
-            // start a background cleanup task to evict expired or over-capacity response tokens
-            if (!_responseCleanupRunning)
-            {
-                _responseCleanupRunning = true;
-                Task.Run(async () =>
-                {
-                    try
-                    {
-                        while (_responseCleanupRunning)
-                        {
-                            try
-                            {
-                                lock (_responseLock)
-                                {
-                                    var now = DateTime.UtcNow;
-                                    var expired = _responseRegistry.Where(kv => now - kv.Value.Ts > _responseTtl).Select(kv => kv.Key).ToList();
-                                    foreach (var k in expired) { _responseRegistry.Remove(k); _responseLru.Remove(k); }
-                                    while (_responseLru.Count > _responseCapacity)
-                                    {
-                                        var last = _responseLru.Last.Value;
-                                        _responseLru.RemoveLast();
-                                        _responseRegistry.Remove(last);
-                                    }
-                                }
-                            }
-                            catch { /* swallow */ }
-                            await Task.Delay(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
-                        }
-                    }
-                    catch { /* swallow */ }
-                });
-            }
-#endif
-#if USE_NILJS
             try
             {
-                // NiL.JS context initialized here when compiled with USE_NILJS
+                // NiL.JS context initialized here
                 _nilInit();
                 _moduleLoader = new ModuleLoader(this, _nil);
             }
             catch { /* swallow */ }
-#if USE_NILJS
             try { var _ = LoadBadHashStoreAsync(); } catch { }
-#endif
-#endif
-
-#if USE_JINT && !WINDOWS_PHONE_APP
-            try
-            {
-                _jint = new Jint.Engine(cfg => cfg.Strict(false));
-                InitJintGlobals();
-            }
-            catch { _jint = null; }
-#endif
-#if USE_ECMA_EXPERIMENTAL
-            try { _exp = new JsInterpreter(); } catch { _exp = null; }
-#endif
         }
 
 
@@ -2894,7 +2816,6 @@ if (mHrefSet.Success)
             
             private void TriggerPopState()
             {
-#if USE_NILJS
                 try
                 {
                     if (_engine.OnPopState != null && _engine.OnPopState.ValueType == JSValueType.Function)
@@ -2904,7 +2825,6 @@ if (mHrefSet.Success)
                     }
                 }
                 catch { /* swallow */ }
-#endif
             }
 
             public int length => 1;
@@ -2996,7 +2916,6 @@ if (mHrefSet.Success)
             public string Expr;        // expression body source (arrow)
         }
 
-#if USE_NILJS
         // ------------------------------------------------------------------------------------
         // NiL.JS Integration
         // ------------------------------------------------------------------------------------
@@ -3006,6 +2925,7 @@ if (mHrefSet.Success)
             _niljsSafeEvalFailed = false;
             _nil = new GlobalContext();
             _evalContext = new Context(_nil);
+            var _e = this;
 
             // Create host window once and reuse for all aliases
             var hostWindow = new HostWindow(this);
@@ -3187,7 +3107,8 @@ if (mHrefSet.Success)
             _nil.DefineVariable("HTMLDocument").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { }))));
             _nil.DefineVariable("Option").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { value = JSValue.Marshal(""), text = JSValue.Marshal("") }))));
 
-            // Expose fetch API (async via Promise-like thenable)
+            // Expose fetch API (returns proper HostPromise)
+
             _nil.DefineVariable("fetch").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
             {
                 if (args.Length == 0) return JSValue.Undefined;
@@ -3196,60 +3117,51 @@ if (mHrefSet.Success)
                 if (uri == null) return JSValue.Undefined;
                 var capturedUri = uri;
 
-                var thenable = JSValue.Marshal(new { });
-                thenable["then"] = JSValue.Marshal(new Func<Arguments, JSValue>(a =>
+                // Create a pending HostPromise
+
+var promise = new JsMiniRunner.HostPromise { E = this, State = 0, Value = JsMiniRunner.JsVal.Null() };
+
+                // Perform async fetch and settle the promise
+                Task.Run(async () =>
                 {
-                    if (a.Length > 0 && a[0].ValueType == JSValueType.Function)
+                    try
                     {
-                        var onResolve = a[0] as Function;
-                        System.Diagnostics.Debug.WriteLine("[FETCH] Starting fetch for: " + capturedUri);
-                        Task.Run(async () =>
+                        var result = await FetchAsync(capturedUri, null).ConfigureAwait(false);
+                        var resp = JSValue.Marshal(new { });
+                        resp["ok"] = JSValue.Marshal(true);
+                        resp["status"] = JSValue.Marshal(200);
+                        resp["statusText"] = JSValue.Marshal("OK");
+                        resp["text"] = JSValue.Marshal(new Func<Arguments, JSValue>(b => JSValue.Marshal(result ?? "")));
+                        resp["json"] = JSValue.Marshal(new Func<Arguments, JSValue>(b =>
                         {
-                            try
-                            {
-                                var result = await FetchAsync(capturedUri).ConfigureAwait(false);
-                                System.Diagnostics.Debug.WriteLine("[FETCH] Completed fetch for " + capturedUri + ": " + (result != null ? result.Length + " chars" : "null"));
-                                EnqueueMacroTask(() =>
-                                {
-                                    try
-                                    {
-                                        var resp = JSValue.Marshal(new { });
-                                        resp["ok"] = JSValue.Marshal(true);
-                                        resp["status"] = JSValue.Marshal(200);
-                                        resp["statusText"] = JSValue.Marshal("OK");
-                                        resp["text"] = JSValue.Marshal(new Func<Arguments, JSValue>(b => JSValue.Marshal(result ?? "")));
-                                        resp["json"] = JSValue.Marshal(new Func<Arguments, JSValue>(b =>
-                                        {
-                                            try { return SafeEval("JSON.parse(" + JsEscape(result ?? "{}", '\'') + ")"); }
-                                            catch { return JSValue.Null; }
-                                        }));
-                                        resp["headers"] = JSValue.Marshal(new { get = new Func<Arguments, JSValue>(h => JSValue.Marshal("text/plain")) });
-                                        onResolve.Call(JSValue.Undefined, new Arguments { resp });
-                                    }
-                                    catch { /* swallow */ }
-                                });
-                            }
-                            catch (Exception ex)
-                            {
-                                EnqueueMacroTask(() =>
-                                {
-                                    try
-                                    {
-                                        var errResp = JSValue.Marshal(new { });
-                                        errResp["ok"] = JSValue.Marshal(false);
-                                        errResp["status"] = JSValue.Marshal(0);
-                                        errResp["statusText"] = JSValue.Marshal("Error");
-                                        errResp["text"] = JSValue.Marshal(new Func<Arguments, JSValue>(b => JSValue.Marshal(ex.Message ?? "")));
-                                        onResolve.Call(JSValue.Undefined, new Arguments { errResp });
-                                    }
-                                    catch { /* swallow */ }
-                                });
-                            }
-                        });
+                            try { return SafeEval("JSON.parse(" + JsEscape(result ?? "{}", '\'') + ")"); }
+                            catch { return JSValue.Null; }
+                        }));
+                        resp["headers"] = JSValue.Marshal(new { get = new Func<Arguments, JSValue>(h => JSValue.Marshal("text/plain")) });
+
+                        promise.State = 1; // fulfilled
+                        promise.Value = new JsMiniRunner.JsVal { Obj = resp };
                     }
-                    return thenable;
-                }));
-                return thenable;
+                    catch (Exception ex)
+                    {
+                        var errResp = JSValue.Marshal(new { });
+                        errResp["ok"] = JSValue.Marshal(false);
+                        errResp["status"] = JSValue.Marshal(0);
+                        errResp["statusText"] = JSValue.Marshal("Error");
+                        errResp["text"] = JSValue.Marshal(new Func<Arguments, JSValue>(b => JSValue.Marshal(ex.Message ?? "")));
+
+                        promise.State = -1; // rejected
+                        promise.Value = new JsMiniRunner.JsVal { Obj = errResp };
+                    }
+                    finally
+                    {
+                        // Schedule promise handling as a microtask
+                        EnqueueMicrotask(() => { try { ProcessPromiseHandlers(promise); } catch { /* swallow */ } });
+                    }
+                });
+
+                // Return the promise object to JavaScript
+                return JSValue.Marshal(promise);
             })));
 
             // Expose Canvas API
@@ -3477,6 +3389,16 @@ if (mHrefSet.Success)
                         // IIFE scope isolation issue with globalThis.
                         var sysInject = @"
 if (typeof __diagLog === 'function') { __diagLog('[DIAG:SYS] __diagLog accessible'); }
+// Patch setTimeout/requestAnimationFrame synchronously so async callbacks fire immediately
+(function(){
+    if (typeof setTimeout === 'function') {
+        var origST = setTimeout;
+        setTimeout = function(fn, d) { if (typeof fn === 'function') { try { fn(); } catch(e) { if (typeof __diagLog === 'function') __diagLog('[DIAG:TIMER] sync setTimeout err: ' + ((e&&e.message)||typeof e)); } } return 0; };
+    }
+    if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame = function(fn) { if (typeof fn === 'function') { try { fn(); } catch(e) {} } return 0; };
+    }
+})();
 var __sys = { _reg: { _entries: {}, _modId: 0 } };
 (function(r){
     r.set = function(k,v) { this._entries[k] = v; };
@@ -3688,20 +3610,97 @@ globalThis.System = __sys;
                         foreach (var callRaw in sysCalls)
                         {
                             sysCallIdx++;
-                            // Inject scope diagnostics into execute() body of each call
                             var call = callRaw;
                             try {
-                                // The call ends with: /*...*/}})) (close execute + return + factory + parens + SysReg)
-                                // Search for }} at the end to find the close of execute body
-                                var tail = call.Length > 8 ? call.Substring(call.Length - 8) : call;
-                                var closeIdx = tail.LastIndexOf("}}", StringComparison.Ordinal);
-                                if (closeIdx >= 0) {
-                                    var globalIdx = call.Length - 8 + closeIdx;
-                                    var inject = ";try{window.__diagMf=Mf}catch(e){}try{window.__diagS=S}catch(e){}try{window.__diagIf=If}catch(e){}try{window.__diagPf=Pf}catch(e){}try{window.__diagR=R}catch(e){}";
-                                    call = call.Substring(0, globalIdx) + inject + call.Substring(globalIdx);
-                                    System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Injected scope diagnostics for call #" + sysCallIdx + " at offset " + globalIdx + " (tail: '" + tail.Replace("\0","\\0").Replace("\r","\\r").Replace("\n","\\n") + "')");
-                                } else {
-                                    System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Inject skip call #" + sysCallIdx + " - no }} in tail: '" + tail.Replace("\0","\\0").Replace("\r","\\r").Replace("\n","\\n") + "'");
+                                // Try multiple patterns to find execute() body start
+                                string[] execPrefixes = {
+                                    "return{execute:function(){",
+                                    "return{execute:function() {",
+                                    "execute:function(){",
+                                    "execute:function() {",
+                                    ":function(){"
+                                };
+                                int execStart = -1;
+                                string execPrefix = null;
+                                // Use default comparison (CurrentCulture) to rule out Ordinal-specific issues
+                                foreach (var p in execPrefixes) {
+                                    execStart = call.IndexOf(p);
+                                    if (execStart >= 0) { execPrefix = p; break; }
+                                }
+                                // Diagnostic: try Contains if still not found
+                                if (execStart < 0) {
+                                    if (call.Contains("execute:function")) {
+                                        System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] call Contains execute:function but IndexOf returned -1!");
+                                    }
+                                }
+                                bool injected = false;
+                                if (execStart >= 0) {
+                                    int depth = 1;
+                                    int pos = execStart + execPrefix.Length;
+                                    while (pos < call.Length && depth > 0) {
+                                        char c = call[pos];
+                                        if (c == '\'') {
+                                            pos++; while (pos < call.Length && call[pos] != '\'') { if (call[pos] == '\\') pos++; pos++; }
+                                            if (pos < call.Length) pos++; continue;
+                                        }
+                                        if (c == '"') {
+                                            pos++; while (pos < call.Length && call[pos] != '"') { if (call[pos] == '\\') pos++; pos++; }
+                                            if (pos < call.Length) pos++; continue;
+                                        }
+                                        if (c == '/' && pos + 1 < call.Length) {
+                                            if (call[pos + 1] == '/') {
+                                                pos += 2; while (pos < call.Length && call[pos] != '\n') pos++;
+                                                continue;
+                                            }
+                                            if (call[pos + 1] == '*') {
+                                                pos += 2; while (pos + 1 < call.Length && !(call[pos] == '*' && call[pos + 1] == '/')) pos++;
+                                                if (pos + 1 < call.Length) pos += 2; continue;
+                                            }
+                                        }
+                                        if (c == '{') { depth++; }
+                                        else if (c == '}') {
+                                            depth--;
+                                            if (depth == 0) {
+                                                var inject = ";try{__diagLog('INJECT_RAN typeof gt='+typeof globalThis)}catch(e){}";
+                                                call = call.Substring(0, pos) + inject + call.Substring(pos);
+                                                System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Injected scope diagnostics for call #" + sysCallIdx + " before execute-close } at offset " + pos);
+                                                injected = true;
+                                                break;
+                                            }
+                                        }
+                                        pos++;
+                                    }
+                                }
+                                if (!injected) {
+                                    // Diagnostic: dump first 200 chars of call
+                                    try {
+                                        var prefix = call.Length > 200 ? call.Substring(0, 200) : call;
+                                        System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Inject fail call #" + sysCallIdx + " - could not find execute() body close. call(" + call.Length + " bytes) prefix=[" + prefix + "]");
+                                    } catch {
+                                        System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Inject fail call #" + sysCallIdx + " - could not find execute() body close. call(" + call.Length + " bytes)");
+                                    }
+                                    // Fallback: find trailing }}} sequence and inject before the first }
+                                    // This places the inject INSIDE the execute body (before the body's closing })
+                                    int lastBrace = call.LastIndexOf('}');
+                                    if (lastBrace > 0) {
+                                        // Walk back to find the start of consecutive closing braces
+                                        int seqStart = lastBrace;
+                                        while (seqStart > 0 && call[seqStart - 1] == '}') seqStart--;
+                                        // Dump tail for diagnostics
+                                        try {
+                                            var tailStart = Math.Max(0, call.Length - 400);
+                                            var tail = call.Substring(tailStart);
+                                            System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] TAIL (" + tailStart + "->" + call.Length + "): " + tail);
+                                            var ctxBefore = Math.Max(0, seqStart - 100);
+                                            var ctxLen = Math.Min(250 + 46, call.Length - ctxBefore);
+                                            var ctx = call.Substring(ctxBefore, ctxLen);
+                                            System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] SEQ-CTX: " + ctx);
+                                        } catch { }
+                                         var inject = ";try{__diagLog('INJECT_RAN typeof gt='+typeof globalThis)}catch(e){}";
+                                        call = call.Substring(0, seqStart) + inject + call.Substring(seqStart);
+                                        System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Sequence-injected scope diagnostics for call #" + sysCallIdx + " before } sequence at offset " + seqStart + " (depth " + (lastBrace - seqStart + 1) + " braces)");
+                                        injected = true;
+                                    }
                                 }
                             } catch (Exception injEx) { try { System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Inject error call #" + sysCallIdx + ": " + injEx.GetType().Name + " - " + injEx.Message); } catch { } }
                             try
@@ -3778,10 +3777,11 @@ globalThis.System = __sys;
                         try { sysEngine.FlushMicrotasks(); } catch { }
                         try { var stResult = sysEngine.SafeEval("window.__timerFlag ? 'fired' : 'pending'"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] setTimeout fired=" + (stResult?.ToString() ?? "null")); } catch { }
                         // Also check for post-exec module-scope vars leaked by chunk injection
-                        try { var diagMf = sysEngine.SafeEval("typeof window.__diagMf !== 'undefined' ? (typeof window.__diagMf) : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagMf=" + (diagMf?.ToString() ?? "null")); } catch { }
-                        try { var diagS = sysEngine.SafeEval("typeof window.__diagS !== 'undefined' ? (window.__diagS.tagName||typeof window.__diagS) : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagS=" + (diagS?.ToString() ?? "null")); } catch { }
-                        try { var diagIf = sysEngine.SafeEval("typeof window.__diagIf !== 'undefined' ? (Array.isArray(window.__diagIf)?'array['+window.__diagIf.length+']':typeof window.__diagIf) : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagIf=" + (diagIf?.ToString() ?? "null")); } catch { }
-                        try { var diagR = sysEngine.SafeEval("typeof window.__diagR !== 'undefined' ? 'function' : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagR=" + (diagR?.ToString() ?? "null")); } catch { }
+                        try { var diagInject = sysEngine.SafeEval("typeof globalThis.__diagInjectRan !== 'undefined' ? globalThis.__diagInjectRan : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagInjectRan=" + (diagInject?.ToString() ?? "null")); } catch { }
+                        try { var diagMf = sysEngine.SafeEval("typeof globalThis.__diagMf !== 'undefined' ? (typeof globalThis.__diagMf) : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagMf=" + (diagMf?.ToString() ?? "null")); } catch { }
+                        try { var diagS = sysEngine.SafeEval("typeof globalThis.__diagS !== 'undefined' ? (globalThis.__diagS.tagName||typeof globalThis.__diagS) : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagS=" + (diagS?.ToString() ?? "null")); } catch { }
+                        try { var diagIf = sysEngine.SafeEval("typeof globalThis.__diagIf !== 'undefined' ? (Array.isArray(globalThis.__diagIf)?'array['+globalThis.__diagIf.length+']':typeof globalThis.__diagIf) : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagIf=" + (diagIf?.ToString() ?? "null")); } catch { }
+                        try { var diagR = sysEngine.SafeEval("typeof globalThis.__diagR !== 'undefined' ? 'function' : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagR=" + (diagR?.ToString() ?? "null")); } catch { }
                         // Route detection and navigation simulation
                         try { sysEngine.SafeEval(@"
 (function(){
@@ -4036,7 +4036,6 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                 paused = true; 
             }
         }
-#endif
 
         private abstract class JsBindingPattern
         {
@@ -4111,7 +4110,6 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
             _domRoot = domRoot;
             // JS is "enabled" in this app; hide server noscript overlays & flip no-js ? js
             this.SanitizeForScriptingEnabled(domRoot);
-#if USE_NILJS
             try { _nilSyncDocument(); } catch { /* swallow */ }
             
             // Execute inline scripts
@@ -4166,12 +4164,10 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                 try { DumpBadHashSummary(10); } catch { }
             }
             catch { /* swallow */ }
-#endif
         }
 
         private JSValue SafeEval(string code)
         {
-#if USE_NILJS
             // Phase DIAG (issue D): code hash + first 80 chars of code to
             // disambiguate which call site triggered the failure.
             int _diagCodeHash = 0;
@@ -4377,9 +4373,6 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                 }
                 catch { /* swallow */ }
             }
-#else
-            System.Diagnostics.Debug.WriteLine("[JS] SafeEval skipped (USE_NILJS not defined)");
-#endif
             return JSValue.Undefined;
         }
 
@@ -4387,7 +4380,6 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
         // which triggers NiL.JS Regex issues in UWP build for scripts > 100KB.
         private void SafeEvalFast(string code)
         {
-#if USE_NILJS
             try
             {
                 lock (_nilEvalLock)
@@ -4402,7 +4394,6 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
             {
                 try { System.Diagnostics.Debug.WriteLine("[NiLJS] SafeEvalFast: " + ex.GetType().Name + ": " + ex.Message); } catch { }
             }
-#endif
         }
 
         private void RunGlobalScript(string js)
@@ -4524,13 +4515,7 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
         private void ExecuteCachedInline(JsFuncDef def)
         {
             if (def == null || string.IsNullOrWhiteSpace(def.Body)) return;
-#if USE_NILJS
             try { _nilSyncDocument(); SafeEval(def.Body); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[NiLJS] ExecuteCachedInline: " + ex.GetType().Name + ": " + ex.Message); }
-#else
-            var r = new JsMiniRunner(this);
-            r._src = def.Body; r._pos = 0; r._len = r._src.Length; r.SkipWs();
-            while (!r.Eof()) { r.ParseStatement(); r.SkipWs(); }
-#endif
         }
 
         // Small Response-like wrapper for JS-0 so fetch(...).then(fnName) can be invoked as fnName(response)
@@ -4947,7 +4932,8 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                             console.log('[XHR] No native XMLHttpRequest — creating fetch-based stub');
                             NativeXHR = function()
                             {
-                                var self = this;
+                                // Capture JsMiniRunner instance for closures
+var self = this;
                                 self.readyState = 0;
                                 self.status = 0;
                                 self.statusText = '';
@@ -5405,7 +5391,6 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
             var prevCtx = _ctx;
             if (ctx != null) _ctx = ctx;
             _preventDefaultRequested = false;
-#if USE_NILJS
             try
             {
                 if (_nil != null)
@@ -5417,40 +5402,6 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                 }
             }
             catch { /* swallow */ }
-#endif
-#if USE_JINT && !WINDOWS_PHONE_APP
-            // Try Jint first for ES5 inline code; wrap to capture return value
-            try
-            {
-                if (_jint != null)
-                {
-                    // Sync location-href variable
-                    _jint.SetValue("__host_location_href", _ctx?.BaseUri?.AbsoluteUri ?? string.Empty);
-                    var wrapped = "(function(){" + js + "})()";
-                    var val = _jint.Execute(wrapped).GetCompletionValue();
-                    try
-                    {
-                        // if explicit false is returned, cancel default
-                        if (val.IsBoolean() && !val.AsBoolean()) return true;
-                    }
-                    catch { /* swallow */ }
-                }
-            }
-            catch { /* fall back to JS-0 allowlist below */ }
-#endif
-#if USE_ECMA_EXPERIMENTAL
-            // Try experimental interpreter as an optional path
-            try
-            {
-                if (UseExperimentalEcmaEngine && _exp != null)
-                {
-                    var wrapped = "(function(){" + js + "})()";
-                    var v = _exp.Execute(wrapped);
-                    if (v.Type == JsValue.Kind.Boolean && v.Bool == false) return true;
-                }
-            }
-            catch { /* fall back to JS-0 allowlist below */ }
-#endif
             bool miniHandled = false;
             bool miniCanceled = false;
             try
@@ -6833,7 +6784,6 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
             var prev = _ctx; if (ctx != null) _ctx = ctx;
             try
             {
-#if USE_NILJS
                 // Try full NiL.JS engine first for proper JavaScript execution
                 try
                 {
@@ -6853,7 +6803,6 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                     // Log the exception but don't rethrow - fall back to mini runner
                     try { System.Diagnostics.Debug.WriteLine($"[JS] NiL.JS failed: {ex.Message}"); } catch { /* swallow */ }
                 }
-#endif
 
                 // Try advanced ES5-lite execution
                 try
@@ -6912,7 +6861,6 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
             var prev = _ctx; if (ctx != null) _ctx = ctx;
             try
             {
-#if USE_NILJS
                 try
                 {
                     if (_nil != null)
@@ -6923,19 +6871,6 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                     }
                 }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[NiLJS] EvalToString: " + ex.GetType().Name + ": " + ex.Message); }
-#endif
-#if USE_JINT && !WINDOWS_PHONE_APP
-                try
-                {
-                    if (_jint != null)
-                    {
-                        _jint.SetValue("__host_location_href", _ctx?.BaseUri?.AbsoluteUri ?? string.Empty);
-                        var v = _jint.Execute(expr).GetCompletionValue();
-                        return v != null ? v.ToString() : string.Empty;
-                    }
-                }
-                catch { /* swallow */ }
-#endif
                 // Mini runner expression parse
                 try
                 {
@@ -7094,7 +7029,7 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
             private readonly Dictionary<string, JsVal> _globals = new Dictionary<string, JsVal>(StringComparer.Ordinal);
             private readonly List<Dictionary<string, JsVal>> _blockScopes = new List<Dictionary<string, JsVal>>();
 
-            private sealed class JsVal
+            public sealed class JsVal
             {
                 public double? Num; public string Str; public bool? Bool; public object Obj;
                 public static JsVal FromNum(double n) { var v = new JsVal(); v.Num = n; return v; }
@@ -7205,8 +7140,8 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
             private sealed class HostFunc { public Func<List<JsVal>, JsVal> F; public HostFunc(Func<List<JsVal>, JsVal> f) { F = f; } }
             private sealed class HostFetchResp { public JavaScriptEngine E; public System.Threading.Tasks.Task<FetchResult> Task; }
             private sealed class HostPromiseType { public JavaScriptEngine E; public HostPromiseType(JavaScriptEngine e) { E = e; } }
-            private sealed class PromiseHandler { public bool IsFulfill; public JsFuncDef Fn; public HostPromise Next; }
-            private sealed class HostPromise
+            public sealed class PromiseHandler { public bool IsFulfill; public JsFuncDef Fn; public HostPromise Next; }
+            public sealed class HostPromise
             {
                 public JavaScriptEngine E;
                 public int State; // 0=pending, 1=resolved, -1=rejected
@@ -9705,7 +9640,7 @@ public bool Execute(string code)
             private JsVal Invoke(JsVal callee, List<JsVal> args)
             { var host = callee.Obj as HostFunc; if (host != null) { try { return host.F(args ?? new List<JsVal>()); } catch { return JsVal.Null(); } } var def = callee.Obj as JsFuncDef; if (def != null) { return InvokeFunction(def, args ?? new List<JsVal>()); } return JsVal.Null(); }
 
-            private JsVal InvokeFunction(JsFuncDef def, List<JsVal> args, JsVal thisObj = null)
+            internal JsVal InvokeFunction(JsFuncDef def, List<JsVal> args, JsVal thisObj = null)
             {
                 var initial = new Dictionary<string, JsVal>(_globals, StringComparer.Ordinal);
                 if (thisObj != null) initial["this"] = thisObj;
@@ -9844,7 +9779,7 @@ public bool Execute(string code)
                         if (h.Fn != null)
                         {
                             var r = new JsMiniRunner(_e);
-                            var ret = r.InvokeFunction(h.Fn, new List<JsVal> { p.Value });
+                        var ret = r.InvokeFunction(h.Fn, new List<JsMiniRunner.JsVal> { p.Value });
                             var rp = ret != null ? ret.Obj as HostPromise : null;
                             if (rp != null)
                             {
@@ -9891,6 +9826,51 @@ public bool Execute(string code)
                 if (changed) el.setAttribute("class", string.Join(" ", set.ToArray()));
             }
             catch { /* swallow */ }
+        }
+
+
+        // Process promise handlers for a settled HostPromise (outer engine implementation)
+        private void ProcessPromiseHandlers(JsMiniRunner.HostPromise p)
+        {
+            if (p == null || p.State == 0) return;
+            var handlers = p.Handlers != null ? p.Handlers.ToArray() : new JsMiniRunner.PromiseHandler[0];
+            for (int i = 0; i < handlers.Length; i++)
+            {
+                var h = handlers[i]; if (h == null) continue;
+                bool match = (p.State == 1 && h.IsFulfill) || (p.State == -1 && !h.IsFulfill);
+                if (!match) continue;
+                try
+                {
+                    if (h.Fn != null)
+                    {
+                        var r = new JsMiniRunner(_e);
+                        var ret = r.InvokeFunction(h.Fn, new List<JsMiniRunner.JsVal> { p.Value });
+                        var rp = ret != null ? ret.Obj as JsMiniRunner.HostPromise : null;
+                        if (rp != null)
+                        {
+                            if (rp.State == 0)
+                            {
+                                rp.Handlers.Add(new JsMiniRunner.PromiseHandler { IsFulfill = true, Fn = null, Next = h.Next });
+                                rp.Handlers.Add(new JsMiniRunner.PromiseHandler { IsFulfill = false, Fn = null, Next = h.Next });
+                            }
+                            else
+                            {
+                                if (h.Next != null) { h.Next.State = rp.State; h.Next.Value = rp.Value; EnqueueMicrotask(() => { try { ProcessPromiseHandlers(h.Next); } catch { } }); }
+                            }
+                        }
+                        else
+                        {
+                             if (h.Next != null) { h.Next.State = 1; h.Next.Value = ret ?? JsMiniRunner.JsVal.Null(); EnqueueMicrotask(() => { try { ProcessPromiseHandlers(h.Next); } catch { } }); }
+                        }
+                    }
+                    else
+                    {
+                        // no handler => propagate as-is
+                        if (h.Next != null) { h.Next.State = p.State; h.Next.Value = p.Value; EnqueueMicrotask(() => { try { ProcessPromiseHandlers(h.Next); } catch { } }); }
+                    }
+                }
+                catch { /* swallow */ }
+            }
         }
 
         private static Uri Resolve(Uri baseUri, string url)

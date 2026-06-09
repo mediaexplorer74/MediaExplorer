@@ -9,13 +9,15 @@
 
   <ItemGroup>
     <Reference Include="MediaExplorer">
-      <HintPath>..\Src\MediaExplorer\bin\x86\Release\ilc\MediaExplorer.dll</HintPath>
+      <HintPath>..\MediaExplorer\bin\x86\Release\MediaExplorer.exe</HintPath>
     </Reference>
-    <Reference Include="NiL.JS">
-      <HintPath>..\Src\MediaExplorer\bin\x86\Release\NiL.JS.dll</HintPath>
-    </Reference>
+<Reference Include="NiL.JS">
+  <HintPath>..\MediaExplorer\bin\x86\Release\NiL.JS.dll</HintPath>
+  <Private>True</Private>
+</Reference>
     <Reference Include="Newtonsoft.Json">
-      <HintPath>..\Src\MediaExplorer\bin\x86\Release\Newtonsoft.Json.dll</HintPath>
+      <HintPath>..\MediaExplorer\bin\x86\Release\Newtonsoft.Json.dll</HintPath>
+      <Private>True</Private>
     </Reference>
   </ItemGroup>
 

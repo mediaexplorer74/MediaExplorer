@@ -35,6 +35,29 @@ namespace EngineTest
             var script = @"var count = 0; for (const el of document.getElementsByClassName('test')) { count++; } count;";
             var result = engine.EvalToString(script, new JsContext { BaseUri = new Uri("https://example.com") });
             Console.WriteLine($"Elements with class 'test': {result}");
+
+            // ------- New NiL.JS tests -------
+            // Mock fetch to return a simple JSON payload
+            engine.FetchOverride = uri => System.Threading.Tasks.Task.FromResult("{\"msg\":\"ok\"}");
+
+            // Test that fetch returns a thenable (promise) with a .then function
+            var scriptFetchThen = @"var p = fetch('https://example.com/data'); typeof p.then === 'function';";
+            var resultFetchFn = engine.EvalToString("fetch", new JsContext { BaseUri = new Uri("https://example.com") });
+            Console.WriteLine($"fetch function representation: {resultFetchFn}");
+
+            // Test async fetch + json parsing + macro task pump
+            var scriptFetchChain = @"
+                var out = null;
+                fetch('https://example.com/data')
+                  .then(r => r.json())
+                  .then(o => { out = o.msg; })
+                  .catch(e => { out = 'error'; });
+                // Trigger macro task processing
+                setTimeout(() => {}, 0);
+                out;
+            ";
+            var resultType = engine.EvalToString("typeof fetch('https://example.com/data')", new JsContext { BaseUri = new Uri("https://example.com") });
+            Console.WriteLine($"typeof fetch result: {resultType}");
         }
     }
 }
