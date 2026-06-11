@@ -1,12 +1,12 @@
 
 ```
-╔═══════════════════════════════════════════════════════════════════=═══╗
-║  LUMIA UPLINK PROTOCOL  //  MISSION DOSSIER  //  CLEARANCE: MUSEUM    ║
-║  Node: MediaExplorer v0.57  ·  Uplink: nokiadesignarchive.aalto.fi ║
-║  Hardware: Lumia 950 · Snapdragon 810 · ARM64 · 3 GB LPDDR4           ║
-║  Engine: NiL.JS 2.6 · XAML Renderer · Custom HTML/CSS Stack           ║
-║  Status: INJECT DIAG CANCELLED — ✅ REAL BLOCKER RESOLVED: Promise chaining fixed   ║
-╚═════════════════════════════════════════════════════════════════════=═╝
+╔═══════════════════════════════════════════════════════════════════════════════════════╗
+║  LUMIA UPLINK PROTOCOL  //  MISSION DOSSIER  //  CLEARANCE: MUSEUM                    ║
+║  Node: MediaExplorer v0.57.100  ·  Uplink: nokiadesignarchive.aalto.fi                ║
+║  Hardware: Lumia 950 · Snapdragon 810 · ARM64 · 3 GB LPDDR4                           ║
+║  Engine: NiL.JS 2.6 · XAML Renderer · Custom HTML/CSS Stack                         	║
+║  Status: INJECT DIAG CANCELLED — ✅ REAL BLOCKER RESOLVED: Promise chaining fixed	║
+╚═══════════════════════════════════════════════════════════════════════════════════════╝
 ```
 
 # MediaExplorer / WEBVIEW — Plan 05: The Nokia Uplink
@@ -16,7 +16,7 @@
 > **Hardware target:** Lumia 950 · Snapdragon 810 · 1440p AMOLED · 3 GB RAM
 > **Author note:** This document is a continuation of Plan 04. It assumes all phases
 > of Plans 01–04 are done or superseded. Read the "Signal Analysis" section first.
-> **Last updated:** 2026-06-09 (Phase G.2 v10 — Promise chaining fixed, fetch returns HostPromise)
+> **Last updated:** 2026-06-11 (Phase G.2 v10 — Promise chaining fixed, fetch returns HostPromise)
 
 ---
 
@@ -701,7 +701,21 @@ Session 5.12: Fix `window.fetch` Promise chaining — ✅ DONE
                 ⬜ Verify: XHR stub can load data from nokiadesignarchive.aalto.fi
                 ⬜ If XHR returns data: D3 renders graph on Canvas → confirm visual output
 
-Session 5.13: Phase K (if G.2 done) — Click event dispatch, drag support
+Session 6.11: **BREAKTHROUGH** — C# data extraction bypasses NiL.JS 589KB eval failure
+               ✅ **Core insight: NiL.JS cannot evaluate 589KB chunk at all**
+               ✅ SafeEval + SafeEvalFast both silently fail the chunk's System.register
+               ✅ All previous execute-body injections = dead code (never execute)
+               ✅ **Fix: C# string brace-counting extraction** — find `Kf=`, walk braces, extract literals
+               ✅ `window.Kf`, `window.wf`, `window.Cf`, `window.vf` set via small SafeEval calls
+               ✅ Sync graph builder runs as SafeEval using window.* globals
+               ✅ **Result: `__graphData` = 755 nodes + 1647 links** (confirmed in logs)
+               ✅ All raw data: `__entries` (722), `__stories` (230), `__keywords` (91), etc.
+               ❌ D3 canvas rendering still broken — original code waits on Promise chain
+               Key finding: bypass NiL.JS entirely for the large chunk; extract as C# strings
+               Files: `JavaScriptEngine.cs:3487-3562` (data extraction), `Summary_6_11.md`
+
+Session 6.12: Phase R — D3 Canvas Rendering with extracted __graphData
+               Goal: trigger D3 force simulation + canvas rendering using our data
 Session 5.14: Phase Z — Full Nokia Archive validation, perf tuning
 Session 5.15: v1.0 release preparation — changelog, README, GitHub release tag
 ```
@@ -758,23 +772,9 @@ ETA: 1 SESSION
 "C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\MSBuild.exe" Src\MediaExplorer.sln /p:Configuration=Debug /p:Platform=x86 
 ```
 
-## Deployment (AppX hot-reload) 
+## Deployment  
 
-Windows must be in Developer Mode.
-
-1. Unpack "compiled" appx (look for AppPackages folder):
-```
-makeappx unpack /p Package.appx /d unpacked\
-REM or just unzip
-del unpacked\AppxSignature.p7x
-powershell add-appxpackage -register unpacked\AppxManifest.xml
-```
-
-If msbuild produced an **appxbundle** instead of appx, double-unpack:
-1. Extract `.appxbundle` → get `.appx` (pick x64)
-2. Extract `.appx` → get package
-
-Then register the unpacked folder as above.
+$ powershell -ExecutionPolicy Bypass -File "C:\Users\Admin\source\repos\!OpenCode\MediaExplorer\Src\MediaExplorer\DeployAndRun.ps1" -Platform x64 -SkipBuild -TimeoutSec 30 -Url "https://nokiadesignarchive.aalto.fi"
 
 
 ---
@@ -782,7 +782,7 @@ Then register the unpacked folder as above.
 *Plan v5.6 — 2026-06-08*
 *Based on: Plans 01–04, sessions 3.18–5.11, Summaries 5.01–5.11*
 *Build target: VS 2026 Insiders MSBuild. Platform: x86 (emulator) + ARM (Lumia 950)*
-*Next session: 5.12 — Fix XHR (sync C# bridge or Promise chaining), unlock D3 data loading*
+*Next session: 6.12 — Phase R: D3 Canvas Rendering with extracted __graphData (755 nodes, 1647 links)*
 
 ---
 

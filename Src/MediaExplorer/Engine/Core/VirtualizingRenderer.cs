@@ -1041,7 +1041,7 @@ namespace BrowserCore.Engine.Core
                     double cx = ParseSvgLength(GetAttr(node, "cx")) + state.TranslateX;
                     double cy = ParseSvgLength(GetAttr(node, "cy")) + state.TranslateY;
                     double r = ParseSvgLength(GetAttr(node, "r"));
-                    if (double.IsNaN(r) || r <= 0) break;
+                    if (double.IsNaN(r) || r <= 0 || double.IsNaN(cx) || double.IsInfinity(cx) || double.IsNaN(cy) || double.IsInfinity(cy)) break;
 
                     var brushFill = state.Fill ?? new SolidColorBrush(Colors.Black);
                     var ellipse = new Ellipse
@@ -1065,6 +1065,7 @@ namespace BrowserCore.Engine.Core
                     double y1 = ParseSvgLength(GetAttr(node, "y1")) + state.TranslateY;
                     double x2 = ParseSvgLength(GetAttr(node, "x2")) + state.TranslateX;
                     double y2 = ParseSvgLength(GetAttr(node, "y2")) + state.TranslateY;
+                    if (double.IsNaN(x1) || double.IsInfinity(x1) || double.IsNaN(y1) || double.IsInfinity(y1) || double.IsNaN(x2) || double.IsInfinity(x2) || double.IsNaN(y2) || double.IsInfinity(y2)) break;
 
                     var line = new Line
                     {

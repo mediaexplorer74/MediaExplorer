@@ -1,4 +1,4 @@
-# MediaExplorer 0.57 - dev branch
+# MediaExplorer 0.57.100 - dev branch
 
 
 ![](/Images/logo.png)
@@ -77,6 +77,6 @@ MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的�
 
 按原样提供。不提供支持。仅用于研究。自己动手。
 
-[m][e] 2026 年 6 月 08 日
+[m][e] 2026 年 6 月 11 日
 
 ![](/Images/footer.png)

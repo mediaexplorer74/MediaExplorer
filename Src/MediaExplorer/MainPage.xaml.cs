@@ -1462,7 +1462,21 @@ namespace WEBVIEW
                     return s;
             }
             catch { }
-            return null;
+            try
+            {
+                var startupFile = System.IO.Path.Combine(ApplicationData.Current.LocalFolder.Path, "startup_url.txt");
+                if (System.IO.File.Exists(startupFile))
+                {
+                    var url = System.IO.File.ReadAllText(startupFile)?.Trim();
+                    if (!string.IsNullOrWhiteSpace(url))
+                    {
+                        System.IO.File.Delete(startupFile);
+                        return url;
+                    }
+                }
+            }
+            catch { }
+            return "https://nokiadesignarchive.aalto.fi/";
         }
 
         private static bool IsEffectivelyEmpty(FrameworkElement fe)

@@ -3444,7 +3444,11 @@ globalThis.System = __sys;
 ";
                         try { System.Diagnostics.Debug.WriteLine("[DIAG:SYS] creating System via SafeEval (" + sysInject.Length + " bytes)..."); } catch { }
                         try { sysEngine.SafeEval(sysInject); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] SafeEval(sysInject) OK"); } catch (Exception ex) { try { System.Diagnostics.Debug.WriteLine("[DIAG:SYS] SafeEval(sysInject) exception: " + ex.GetType().Name + " - " + ex.Message); } catch { } }
-                        // Verify System exists
+                        // Also register System as a bare global identifier on _nil so that
+                        // chunk code calling System.register(...) resolves correctly.
+                        // NiL.JS does not make globalThis.System properties visible as bare identifiers.
+                        try { var sysVal = SafeEval("globalThis.System"); if (sysVal != null && !sysVal.IsNull && sysVal.ValueType != NiL.JS.Core.JSValueType.Undefined) { _nil.DefineVariable("System").Assign(sysVal); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] System registered on _nil"); DevToolsLogger.Log("[DIAG:SYS] System registered on _nil"); } } catch (Exception ex2) { try { System.Diagnostics.Debug.WriteLine("[DIAG:SYS] _nil registration failed: " + ex2.Message); } catch { } }
+                        // Verify System exists (both via globalThis and bare identifier)
                         try { var sysOk = sysEngine.SafeEval("typeof globalThis.System.register === 'function' ? 'fn' : 'no'"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] System.register = " + (sysOk?.ToString() ?? "null")); } catch { }
                         // Mark System with a test prop to detect context reset
                         try { sysEngine.SafeEval("globalThis.System.__ctxTest = 42;"); } catch { }
@@ -3465,8 +3469,175 @@ globalThis.System = __sys;
                         // Check registry after direct test
                         try { var rcAfter = sysEngine.SafeEval("(function(){var r=globalThis.System._reg;if(!r||!r._entries)return'no-reg';var c=0;for(var k in r._entries)c++;return c+'';})()"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] direct_test _entries count=" + (rcAfter?.ToString() ?? "null")); } catch { }
                         try { var modIdAfter = sysEngine.SafeEval("globalThis.System._reg?._modId+'' || 'none'"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] direct_test _modId=" + (modIdAfter?.ToString() ?? "null")); } catch { }
+                        try { System.Diagnostics.Debug.WriteLine("[DIAG:SYS] running chunk via SafeEvalFast (" + txt.Length + " bytes)..."); } catch { }
+                        // Leak inline data from the chunk to window.* BEFORE splitting, so
+                        // that even if the SafeEvalFast fails, the data can be extracted post-hoc.
+                        // Note: chunk uses bare `Kf={entries:[...]}` without `var` (minifier chain).
+                        try {
+                            if (txt.Contains("Kf={entries:[") && txt.Contains("wf={collections:[")) {
+                                System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Leaking chunk data vars to window.* (sysImport path)");
+                                txt = txt.Replace("Kf={entries:[", "window.Kf={entries:[");
+                                txt = txt.Replace("wf={collections:[", "window.wf={collections:[");
+                                txt = txt.Replace("Cf={stories:[", "window.Cf={stories:[");
+                                int vfIdx2 = txt.IndexOf("vf=[", StringComparison.Ordinal);
+                                if (vfIdx2 >= 0) { txt = txt.Substring(0, vfIdx2) + "window.vf=" + txt.Substring(vfIdx2 + 3); }
+                                System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Data leak complete (sysImport path)");
+                            }
+                        } catch (Exception leakEx) { try { System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Data leak error: " + leakEx.GetType().Name + " - " + leakEx.Message); } catch { } }
+                        // ---------------------------------------------------------------
+                        // DATA EXTRACTION: NiL.JS cannot evaluate the 589KB chunk at all
+                        // (SafeEval and SafeEvalFast both fail silently). So extract the
+                        // inline data from the C# string using brace-counting and inject
+                        // it into NiL.JS via small SafeEval calls, bypassing the chunk eval.
+                        // ---------------------------------------------------------------
+                        try {
+                            System.Diagnostics.Debug.WriteLine("[DIAG:DATA] Starting extraction from chunk text...");
+                            // Inline JS value extractor: finds prefix="varName=" or "window.varName="
+                            // and walks braces/brackets to the matching closer, skipping strings.
+                            Func<string, string, string> extractValue = (text, varName) => {
+                                bool hasWindow = false;
+                                int idx = text.IndexOf("window." + varName + "=");
+                                if (idx >= 0) { hasWindow = true; }
+                                else { idx = text.IndexOf(varName + "="); }
+                                if (idx < 0) return null;
+                                int start = hasWindow ? idx + varName.Length + 8 : idx + varName.Length + 1;
+                                if (start >= text.Length) return null;
+                                char first = text[start];
+                                if (first != '{' && first != '[') return null;
+                                int depth = 1, pos = start + 1;
+                                while (pos < text.Length && depth > 0) {
+                                    char c = text[pos];
+                                    if (c == '"') { pos++; while (pos < text.Length && text[pos] != '"') { if (text[pos] == '\\') pos++; pos++; } if (pos < text.Length) pos++; continue; }
+                                    if (c == '\'') { pos++; while (pos < text.Length && text[pos] != '\'') { if (text[pos] == '\\') pos++; pos++; } if (pos < text.Length) pos++; continue; }
+                                    if (c == '{' || c == '[') depth++;
+                                    else if (c == '}' || c == ']') { depth--; if (depth == 0) return text.Substring(start, pos - start + 1); }
+                                    pos++;
+                                }
+                                return null;
+                            };
+                            string kfRaw = extractValue(txt, "Kf");
+                            string wfRaw = extractValue(txt, "wf");
+                            string cfRaw = extractValue(txt, "Cf");
+                            string vfRaw = extractValue(txt, "vf");
+                            System.Diagnostics.Debug.WriteLine("[DIAG:DATA] Extracted: Kf=" + (kfRaw != null ? (kfRaw.Length + "B") : "MISS") +
+                                " wf=" + (wfRaw != null ? (wfRaw.Length + "B") : "MISS") +
+                                " Cf=" + (cfRaw != null ? (cfRaw.Length + "B") : "MISS") +
+                                " vf=" + (vfRaw != null ? (vfRaw.Length + "B") : "MISS"));
+                            // Inject data into NiL.JS via SafeEval
+                            if (kfRaw != null) { sysEngine.SafeEval("window.Kf=" + kfRaw + ";"); System.Diagnostics.Debug.WriteLine("[DIAG:DATA] Kf injected"); }
+                            if (wfRaw != null) { sysEngine.SafeEval("window.wf=" + wfRaw + ";"); System.Diagnostics.Debug.WriteLine("[DIAG:DATA] wf injected"); }
+                            if (cfRaw != null) { sysEngine.SafeEval("window.Cf=" + cfRaw + ";"); System.Diagnostics.Debug.WriteLine("[DIAG:DATA] Cf injected"); }
+                            if (vfRaw != null) { sysEngine.SafeEval("window.vf=" + vfRaw + ";"); System.Diagnostics.Debug.WriteLine("[DIAG:DATA] vf injected"); }
+                            // Run sync graph builder once data is in NiL.JS
+                            if (kfRaw != null && wfRaw != null) {
+                                string graphCode =
+                                "try{(function(){var __f=window.Kf.entries;if(!__f)return;" +
+                                "var __xf=window.wf.collections.map(function(c){return{id:c.id,name:c.title,description:c.blurb,theme:c.grouping,keywords:c.keywords}});" +
+                                "var __Pf={};__xf.forEach(function(c){__Pf[c.id]=c});" +
+                                "var __nodes=[],__links=[],__conns={};" +
+                                "__f.forEach(function(e){__nodes.push({id:e.id,name:e.title,start:e.start,file:e.file,type:'entry'});" +
+                                "(e.collections||[]).forEach(function(cId){if(cId!=='C0030'&&cId[0]!=='K'&&__Pf[cId]){" +
+                                "__links.push({source:e,target:__Pf[cId]});if(!__conns[e.id])__conns[e.id]=[];__conns[e.id].push(cId);" +
+                                "if(!__conns[cId])__conns[cId]=[];__conns[cId].push(e.id)}})});" +
+                                "__xf.forEach(function(e){__nodes.push({id:e.id,name:e.title,theme:e.theme,type:'collection'})});" +
+                                "window.__graphData={nodes:__nodes,links:__links,nodeConnections:__conns};" +
+                                "if(typeof globalThis!=='undefined'&&globalThis.System)globalThis.System.__graphData=window.__graphData;" +
+                                "window.__entries=__f;window.__collections=window.wf.collections;window.__xf=__xf;window.__Pf=__Pf;" +
+                                "if(typeof window.Cf!=='undefined'){window.__stories=window.Cf.stories;window.__entriesWithDates=__f.filter(function(e){return e.start&&e.start.length>=5})}" +
+                                "if(typeof window.vf!=='undefined')window.__keywords=window.vf;" +
+                                "if(typeof __diagLog==='function')__diagLog('[DIAG:DATA] graphBuilder done nodes='+__nodes.length+' links='+__links.length);" +
+                                "})();}catch(e){try{if(typeof __diagLog==='function')__diagLog('[DIAG:DATA] graphErr '+(e.message||e))}catch(ee){}}";
+                                sysEngine.SafeEval(graphCode);
+                                System.Diagnostics.Debug.WriteLine("[DIAG:DATA] Graph builder executed");
+                            }
+                            // Verify
+                            try {
+                                var gd = sysEngine.SafeEval("typeof window.__graphData !== 'undefined' ? ('nodes='+window.__graphData.nodes.length+' links='+window.__graphData.links.length) : 'missing'");
+                                System.Diagnostics.Debug.WriteLine("[DIAG:DATA] __graphData = " + (gd?.ToString() ?? "null"));
+                                DevToolsLogger.Log("[DIAG:DATA] __graphData=" + (gd?.ToString() ?? "null"));
+                            } catch { }
+                            // SVG rendering: manual force-directed layout + SVG via innerHTML
+                            try {
+                                string renderCode = @"
+try {
+    var gd = window.__graphData;
+    if (!gd || !gd.nodes || !gd.links) { __diagLog('[DIAG:SVG] no data'); }
+    else {
+        __diagLog('[DIAG:SVG] render ' + gd.nodes.length + 'n ' + gd.links.length + 'l');
+        // Build a node map by id
+        var _nodeMap = {};
+        for (var _i = 0; _i < gd.nodes.length; _i++) { _nodeMap[gd.nodes[_i].id] = gd.nodes[_i]; }
+        // Resolve link source/target to actual node objects
+        for (var _i = 0; _i < gd.links.length; _i++) {
+            var _l = gd.links[_i];
+            if (typeof _l.source === 'object' && _l.source) { _l.source = _nodeMap[_l.source.id] || _l.source; }
+            if (typeof _l.target === 'object' && _l.target) { _l.target = _nodeMap[_l.target.id] || _l.target; }
+        }
+        __diagLog('[DIAG:SVG] links resolved');
+        // Circular layout: place nodes on a circle (fast, no D3 dependency)
+        var _cx = 400, _cy = 300, _radius = 250;
+        for (var _i = 0; _i < gd.nodes.length; _i++) {
+            var _angle = (_i / gd.nodes.length) * 2 * Math.PI;
+            gd.nodes[_i].x = _cx + _radius * Math.cos(_angle);
+            gd.nodes[_i].y = _cy + _radius * Math.sin(_angle);
+        }
+        __diagLog('[DIAG:SVG] layout done');
+        // Check node positions
+        var _validNodes = 0, _nanNodes = 0;
+        for (var _i2 = 0; _i2 < gd.nodes.length; _i2++) {
+            var _n = gd.nodes[_i2];
+            if (typeof _n.x === 'number' && isFinite(_n.x) && typeof _n.y === 'number' && isFinite(_n.y)) _validNodes++;
+            else _nanNodes++;
+        }
+        __diagLog('[DIAG:SVG] validNodes=' + _validNodes + ' nanNodes=' + _nanNodes);
+        if (gd.nodes.length > 0) {
+            var _n0 = gd.nodes[0];
+            __diagLog('[DIAG:SVG] node[0] x=' + _n0.x + ' y=' + _n0.y + ' type=' + (_n0.type || '?'));
+        }
+        // Build SVG XML string
+        function svgNum(v) { return (typeof v === 'number' && isFinite(v)) ? Math.round(v * 10) / 10 : 0; }
+        var xml = '<svg xmlns=""http://www.w3.org/2000/svg"" width=""800"" height=""600"" viewBox=""0 0 800 600"">';
+        // Links as lines
+        xml += '<g stroke=""rgba(150,150,150,0.3)"" stroke-width=""1"">';
+        for (var i = 0; i < gd.links.length; i++) {
+            var s = gd.links[i].source, t = gd.links[i].target;
+            if (typeof s === 'object' && s && typeof t === 'object' && t) {
+                xml += '<line x1=""' + svgNum(s.x) + '"" y1=""' + svgNum(s.y) + '"" x2=""' + svgNum(t.x) + '"" y2=""' + svgNum(t.y) + '""/>';
+            }
+        }
+        xml += '</g>';
+        // Nodes as circles
+        xml += '<g>';
+        for (var i = 0; i < gd.nodes.length; i++) {
+            var n = gd.nodes[i];
+            var color = n.type === 'collection' ? '#ff6b6b' : '#4ecdc4';
+            var r = n.type === 'collection' ? 6 : 4;
+            xml += '<circle cx=""' + svgNum(n.x) + '"" cy=""' + svgNum(n.y) + '"" r=""' + r + '"" fill=""' + color + '"" stroke=""#fff"" stroke-width=""1""/>';
+        }
+        xml += '</g></svg>';
+        __diagLog('[DIAG:SVG] xml len=' + xml.length);
+        __diagLog('[DIAG:SVG] xml start: ' + xml.substring(0,200));
+        // Inject via innerHTML
+        var plot = document.getElementById('plot');
+        if (plot) {
+            plot.innerHTML = xml;
+            __diagLog('[DIAG:SVG] innerHTML injected');
+        } else {
+            __diagLog('[DIAG:SVG] no plot');
+        }
+    }
+} catch(_e) {
+    __diagLog('[DIAG:SVG] err ' + (typeof _e === 'object' ? (String(_e) || typeof _e) : String(_e)));
+}";
+                                sysEngine.SafeEval(renderCode);
+                            } catch (Exception renderEx) {
+                                DevToolsLogger.Log("[DIAG:SVG] Injection error: " + renderEx.GetType().Name + " - " + (renderEx.Message ?? ""));
+                            }
+                        } catch (Exception dataEx) {
+                            System.Diagnostics.Debug.WriteLine("[DIAG:DATA] Extraction error: " + dataEx.GetType().Name + " - " + (dataEx.Message ?? ""));
+                            DevToolsLogger.Log("[DIAG:DATA] Extraction error: " + dataEx.GetType().Name + " - " + (dataEx.Message ?? ""));
+                        }
                         try { System.Diagnostics.Debug.WriteLine("[DIAG:SYS] running chunk via SafeEval (" + txt.Length + " bytes)..."); } catch { }
-                        // Debug: what does the actual chunk start with?
                         try { var pfx = txt.Length > 80 ? txt.Substring(0, 80) : txt; System.Diagnostics.Debug.WriteLine("[DIAG:SYS] chunk prefix: '" + pfx.Replace("\0","\\0").Replace("\r","\\r").Replace("\n","\\n") + "'"); } catch { }
                         try { var sysIdx = txt.IndexOf("System.register(", StringComparison.Ordinal); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] IndexOf 'System.register(' = " + sysIdx); } catch { }
                         try { var lowerIdx = txt.IndexOf("system.register(", StringComparison.OrdinalIgnoreCase); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] IndexOf (ignore case) 'system.register(' = " + lowerIdx); } catch { }
@@ -3622,7 +3793,6 @@ globalThis.System = __sys;
                                 };
                                 int execStart = -1;
                                 string execPrefix = null;
-                                // Use default comparison (CurrentCulture) to rule out Ordinal-specific issues
                                 foreach (var p in execPrefixes) {
                                     execStart = call.IndexOf(p);
                                     if (execStart >= 0) { execPrefix = p; break; }
@@ -3633,8 +3803,10 @@ globalThis.System = __sys;
                                         System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] call Contains execute:function but IndexOf returned -1!");
                                     }
                                 }
+                                string injectCode = ";try{globalThis.__diagInjectRan=true;var __dl=typeof __diagLog==='function'?__diagLog:function(){};var wKf=window.Kf,wWf=window.wf,wCf=window.Cf,wVf=window.vf;if(typeof wKf!=='undefined'&&typeof wWf!=='undefined'){var __f=wKf.entries;var __xf=wWf.collections.map(function(c){return{id:c.id,name:c.title,description:c.blurb,theme:c.grouping,keywords:c.keywords}});var __Pf={};__xf.forEach(function(c){__Pf[c.id]=c});var __nodes=[],__links=[],__conns={};__f.forEach(function(e){__nodes.push({id:e.id,name:e.title,start:e.start,file:e.file,type:'entry'});(e.collections||[]).forEach(function(cId){if(cId!=='C0030'&&cId[0]!=='K'&&__Pf[cId]){__links.push({source:e,target:__Pf[cId]});if(!__conns[e.id])__conns[e.id]=[];__conns[e.id].push(cId);if(!__conns[cId])__conns[cId]=[];__conns[cId].push(e.id)}})});__xf.forEach(function(e){__nodes.push({id:e.id,name:e.title,theme:e.theme,type:'collection'})});window.__graphData={nodes:__nodes,links:__links,nodeConnections:__conns};if(typeof globalThis!=='undefined'&&globalThis.System)globalThis.System.__graphData=window.__graphData;window.__entries=__f;window.__collections=wWf.collections;window.__xf=__xf;window.__Pf=__Pf;if(typeof wCf!=='undefined'){window.__stories=wCf.stories;window.__entriesWithDates=__f.filter(function(e){return e.start&&e.start.length>=5})}if(typeof wVf!=='undefined')window.__keywords=wVf;__dl('INJECT_RAN nodes='+__nodes.length+' links='+__links.length+' entries='+__f.length)}else{__dl('INJECT_RAN no Kf/wf')}}catch(e){try{var __dl2=typeof __diagLog==='function'?__diagLog:function(){};__dl2('INJECT_ERR '+(e&&e.message||e))}catch(ee){}}";
                                 bool injected = false;
                                 if (execStart >= 0) {
+                                    try { sysEngine.SafeEval("__diagLog('[DIAG:INJECT] Found exec prefix at " + execStart + " call#" + sysCallIdx + "')"); } catch { }
                                     int depth = 1;
                                     int pos = execStart + execPrefix.Length;
                                     while (pos < call.Length && depth > 0) {
@@ -3646,6 +3818,20 @@ globalThis.System = __sys;
                                         if (c == '"') {
                                             pos++; while (pos < call.Length && call[pos] != '"') { if (call[pos] == '\\') pos++; pos++; }
                                             if (pos < call.Length) pos++; continue;
+                                        }
+                                        if (c == '`') {
+                                            pos++;
+                                            while (pos < call.Length && call[pos] != '`') {
+                                                if (call[pos] == '\\') { pos += 2; continue; }
+                                                if (call[pos] == '$' && pos + 1 < call.Length && call[pos + 1] == '{') {
+                                                    pos += 2; int ed = 1;
+                                                    while (pos < call.Length && ed > 0) { if (call[pos] == '{') ed++; else if (call[pos] == '}') ed--; pos++; }
+                                                    continue;
+                                                }
+                                                pos++;
+                                            }
+                                            if (pos < call.Length) pos++;
+                                            continue;
                                         }
                                         if (c == '/' && pos + 1 < call.Length) {
                                             if (call[pos + 1] == '/') {
@@ -3661,68 +3847,67 @@ globalThis.System = __sys;
                                         else if (c == '}') {
                                             depth--;
                                             if (depth == 0) {
-                                                var inject = ";try{__diagLog('INJECT_RAN typeof gt='+typeof globalThis)}catch(e){}";
-                                                call = call.Substring(0, pos) + inject + call.Substring(pos);
-                                                System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Injected scope diagnostics for call #" + sysCallIdx + " before execute-close } at offset " + pos);
+                                                call = call.Substring(0, pos) + injectCode + call.Substring(pos);
+                                                try { sysEngine.SafeEval("__diagLog('[DIAG:INJECT] Primary OK call#" + sysCallIdx + " offset=" + pos + "')"); } catch { }
                                                 injected = true;
                                                 break;
                                             }
                                         }
                                         pos++;
                                     }
+                                    if (!injected) {
+                                        try { sysEngine.SafeEval("__diagLog('[DIAG:INJECT] Primary walker failed call#" + sysCallIdx + " depth=" + depth + " pos=" + pos + "')"); } catch { }
+                                    }
+                                } else {
+                                    try { sysEngine.SafeEval("__diagLog('[DIAG:INJECT] No exec prefix call#" + sysCallIdx + "')"); } catch { }
                                 }
                                 if (!injected) {
-                                    // Diagnostic: dump first 200 chars of call
                                     try {
                                         var prefix = call.Length > 200 ? call.Substring(0, 200) : call;
-                                        System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Inject fail call #" + sysCallIdx + " - could not find execute() body close. call(" + call.Length + " bytes) prefix=[" + prefix + "]");
+                                        sysEngine.SafeEval("__diagLog('[DIAG:INJECT] Fallback try call#" + sysCallIdx + " callLen=" + call.Length + " prefix=[" + prefix.Replace("'","\\'").Replace("\0"," ").Replace("\r"," ").Replace("\n"," ") + "]')");
                                     } catch {
-                                        System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Inject fail call #" + sysCallIdx + " - could not find execute() body close. call(" + call.Length + " bytes)");
+                                        try { sysEngine.SafeEval("__diagLog('[DIAG:INJECT] Fallback try call#" + sysCallIdx + "')"); } catch { }
                                     }
-                                    // Fallback: find trailing }}} sequence and inject before the first }
-                                    // This places the inject INSIDE the execute body (before the body's closing })
                                     int lastBrace = call.LastIndexOf('}');
                                     if (lastBrace > 0) {
-                                        // Walk back to find the start of consecutive closing braces
                                         int seqStart = lastBrace;
                                         while (seqStart > 0 && call[seqStart - 1] == '}') seqStart--;
-                                        // Dump tail for diagnostics
-                                        try {
-                                            var tailStart = Math.Max(0, call.Length - 400);
-                                            var tail = call.Substring(tailStart);
-                                            System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] TAIL (" + tailStart + "->" + call.Length + "): " + tail);
-                                            var ctxBefore = Math.Max(0, seqStart - 100);
-                                            var ctxLen = Math.Min(250 + 46, call.Length - ctxBefore);
-                                            var ctx = call.Substring(ctxBefore, ctxLen);
-                                            System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] SEQ-CTX: " + ctx);
-                                        } catch { }
-                                         var inject = ";try{__diagLog('INJECT_RAN typeof gt='+typeof globalThis)}catch(e){}";
-                                        call = call.Substring(0, seqStart) + inject + call.Substring(seqStart);
-                                        System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Sequence-injected scope diagnostics for call #" + sysCallIdx + " before } sequence at offset " + seqStart + " (depth " + (lastBrace - seqStart + 1) + " braces)");
+                                        call = call.Substring(0, seqStart) + injectCode + call.Substring(seqStart);
+                                        try { sysEngine.SafeEval("__diagLog('[DIAG:INJECT] Fallback OK call#" + sysCallIdx + " seqStart=" + seqStart + "')"); } catch { }
                                         injected = true;
+                                    } else {
+                                        try { sysEngine.SafeEval("__diagLog('[DIAG:INJECT] Fallback failed call#" + sysCallIdx + "')"); } catch { }
                                     }
                                 }
-                            } catch (Exception injEx) { try { System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Inject error call #" + sysCallIdx + ": " + injEx.GetType().Name + " - " + injEx.Message); } catch { } }
+                            } catch (Exception injEx) { try { System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Inject error call #" + sysCallIdx + ": " + injEx.GetType().Name + " - " + injEx.Message); DevToolsLogger.Log("[DIAG:CHUNK] Inject error call #" + sysCallIdx + ": " + injEx.GetType().Name + " - " + injEx.Message); } catch { } }
+
                             try
                             {
-                                var result = sysEngine.SafeEval(call);
-                                try { System.Diagnostics.Debug.WriteLine("[DIAG:SYS] call #" + sysCallIdx + " OK (" + call.Length + " bytes)"); } catch { }
+                                // SafeEvalFast for the chunk — SafeEval has a 7s timeout and hash-throttle
+                                // that silently fail the 589KB chunk. SafeEvalFast is a bare eval
+                                // call with no throttle, timeout, or exception suppression.
+                                try { System.Diagnostics.Debug.WriteLine("[DIAG:SYS] call #" + sysCallIdx + " via SafeEvalFast (" + call.Length + " bytes)"); } catch { }
+                                var callWrapped = "var System=globalThis.System;" + call;
+                                sysEngine.SafeEvalFast(callWrapped);
+                                DevToolsLogger.Log("[DIAG:SYS] call #" + sysCallIdx + " SafeEvalFast done");
+                ContinueAfterStandardChecks:
+                                ; // placeholder to continue flow
                             }
                             catch (Exception ex)
                             {
-                                try { System.Diagnostics.Debug.WriteLine("[DIAG:SYS] call #" + sysCallIdx + " FAIL: " + ex.GetType().Name + " - " + (ex.Message ?? "")); } catch { }
+                                try { System.Diagnostics.Debug.WriteLine("[DIAG:SYS] call #" + sysCallIdx + " FAIL: " + ex.GetType().Name + " - " + (ex.Message ?? "")); DevToolsLogger.Log("[DIAG:SYS] call #" + sysCallIdx + " FAIL: " + ex.GetType().Name + " - " + (ex.Message ?? "")); } catch { }
                             }
                         }
                         // Check if context was reset (test prop lost)
-                        try { var ctxTest = sysEngine.SafeEval("globalThis.System.__ctxTest === 42 ? 'ok' : 'LOST'"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] ctxTest=" + (ctxTest?.ToString() ?? "null")); } catch { }
+                        try { var ctxTest = sysEngine.SafeEval("globalThis.System.__ctxTest === 42 ? 'ok' : 'LOST'"); var msg = "[DIAG:SYS] ctxTest=" + (ctxTest?.ToString() ?? "null"); System.Diagnostics.Debug.WriteLine(msg); DevToolsLogger.Log(msg); } catch { }
                         // Also check if System variable resolves in eval
-                        try { var sysVarTest = sysEngine.SafeEval("typeof System !== 'undefined' ? 'defined' : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] System var=" + (sysVarTest?.ToString() ?? "null")); } catch { }
+                        try { var sysVarTest = sysEngine.SafeEval("typeof System !== 'undefined' ? 'defined' : 'undefined'"); var msg = "[DIAG:SYS] System var=" + (sysVarTest?.ToString() ?? "null"); System.Diagnostics.Debug.WriteLine(msg); DevToolsLogger.Log(msg); } catch { }
                         // Check from C# if System was created
-                        try { var s = sysEngine.SafeEval("typeof globalThis.System !== 'undefined' ? 'ok' : 'missing'"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] globalThis.System after chunk: " + (s?.ToString() ?? "null")); } catch { }
+                        try { var s = sysEngine.SafeEval("typeof globalThis.System !== 'undefined' ? 'ok' : 'missing'"); var msg = "[DIAG:SYS] globalThis.System after chunk: " + (s?.ToString() ?? "null"); System.Diagnostics.Debug.WriteLine(msg); DevToolsLogger.Log(msg); } catch { }
                         // Check _modId (incremented on each register call)
-                        try { var modId = sysEngine.SafeEval("globalThis.System && globalThis.System._reg ? (globalThis.System._reg._modId+'') : 'no-reg'"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] _modId=" + (modId?.ToString() ?? "null")); } catch { }
+                        try { var modId = sysEngine.SafeEval("globalThis.System && globalThis.System._reg ? (globalThis.System._reg._modId+'') : 'no-reg'"); var msg = "[DIAG:SYS] _modId=" + (modId?.ToString() ?? "null"); System.Diagnostics.Debug.WriteLine(msg); DevToolsLogger.Log(msg); } catch { }
                         // Check registry entry count
-                        try { var rc = sysEngine.SafeEval("(function(){var S=globalThis.System;if(!S||!S.registry||!S.registry._entries)return'no-reg';var c=0;for(var k in S.registry._entries)c++;return c+'';})()"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] registry entries: " + (rc?.ToString() ?? "null")); } catch { }
+                        try { var rc = sysEngine.SafeEval("(function(){var S=globalThis.System;if(!S||!S.registry||!S.registry._entries)return'no-reg';var c=0;for(var k in S.registry._entries)c++;return c+'';})()"); var msg = "[DIAG:SYS] registry entries: " + (rc?.ToString() ?? "null"); System.Diagnostics.Debug.WriteLine(msg); DevToolsLogger.Log(msg); } catch { }
                         // Force-execute all registered modules with diagnostics
                         try { sysEngine.SafeEval(@"
 (function(){
@@ -3755,18 +3940,18 @@ globalThis.System = __sys;
                         // Flush microtasks so Svelte onMount / Promise callbacks fire before Phase 4
                         try { sysEngine.FlushMicrotasks(); } catch { }
                         // Diagnostics: check globals and DOM after execution
-                        try { var d3check = sysEngine.SafeEval("typeof d3 !== 'undefined' ? 'd3_defined' : 'd3_missing'"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec d3=" + (d3check?.ToString() ?? "null")); } catch { }
+                        try { var d3check = sysEngine.SafeEval("typeof d3 !== 'undefined' ? 'd3_defined' : 'd3_missing'"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec d3=" + (d3check?.ToString() ?? "null")); DevToolsLogger.Log("[DIAG:SYS] post-exec d3=" + (d3check?.ToString() ?? "null")); } catch { }
                         try { var d3s = sysEngine.SafeEval("typeof d3 !== 'undefined' && typeof d3.select !== 'undefined' ? 'function' : 'no'"); System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] typeof d3.select = " + (d3s?.ToString() ?? "null")); } catch { }
                         try { var d3f = sysEngine.SafeEval("typeof d3 !== 'undefined' && typeof d3.forceSimulation !== 'undefined' ? 'function' : 'no'"); System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] typeof d3.forceSimulation = " + (d3f?.ToString() ?? "null")); } catch { }
-                        try { var mc = sysEngine.SafeEval("typeof Map"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec typeof Map=" + (mc?.ToString() ?? "null")); } catch { }
-                        try { var sc = sysEngine.SafeEval("typeof Set"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec typeof Set=" + (sc?.ToString() ?? "null")); } catch { }
-                        try { var bodyCheck = sysEngine.SafeEval("(function(){if(!document||!document.body)return'no_body';var c=0;try{c=document.body.children.length}catch(e){}return'body_children='+c+' tag='+(document.body.tagName||'');})()"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec " + (bodyCheck?.ToString() ?? "null")); } catch { }
+                        try { var mc = sysEngine.SafeEval("typeof Map"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec typeof Map=" + (mc?.ToString() ?? "null")); DevToolsLogger.Log("[DIAG:SYS] post-exec typeof Map=" + (mc?.ToString() ?? "null")); } catch { }
+                        try { var sc = sysEngine.SafeEval("typeof Set"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec typeof Set=" + (sc?.ToString() ?? "null")); DevToolsLogger.Log("[DIAG:SYS] post-exec typeof Set=" + (sc?.ToString() ?? "null")); } catch { }
+                        try { var bodyCheck = sysEngine.SafeEval("(function(){if(!document||!document.body)return'no_body';var c=0;try{c=document.body.children.length}catch(e){}return'body_children='+c+' tag='+(document.body.tagName||'');})()"); System.Diagnostics.Debug.WriteLine("[DIAG:SYS] post-exec " + (bodyCheck?.ToString() ?? "null")); DevToolsLogger.Log("[DIAG:SYS] post-exec " + (bodyCheck?.ToString() ?? "null")); } catch { }
                         // Diagnostics: check async support and SVG DOM state
                         try { var rr = sysEngine.SafeEval("typeof regeneratorRuntime"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] typeof regeneratorRuntime=" + (rr?.ToString() ?? "null")); } catch { }
                         try { var pr = sysEngine.SafeEval("typeof Promise"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] typeof Promise=" + (pr?.ToString() ?? "null")); } catch { }
                         try { var prFn = sysEngine.SafeEval("(function(){try{return typeof Promise!=='undefined'?'ok':'no';}catch(e){return 'err:'+e;}})()"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] Promise global=" + (prFn?.ToString() ?? "null")); } catch { }
                         try { var svgCheck = sysEngine.SafeEval("(function(){var t=document.getElementById('timeline');if(!t)return'no_timeline';var svg=t.querySelector('svg');if(!svg)return'no_svg';return'svg_id='+(svg.id||'none')+' children='+(svg.children?svg.children.length:'null')+' childNodes='+(svg.childNodes?svg.childNodes.length:'null');})()"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] timeline SVG=" + (svgCheck?.ToString() ?? "null")); } catch { }
-                        try { var execResult = sysEngine.SafeEval("(function(){try{var S=globalThis.System;if(!S||!S.registry||!S.registry._entries)return'no_reg';for(var k in S.registry._entries){var m=S.registry._entries[k];if(m&&m.declare){var r=m.declare(function(){},{});if(r&&typeof r.execute==='function'){var ret=r.execute();return typeof ret!=='undefined'?('ret='+typeof ret):'ret=undefined';}}}return'no_exec';})()"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] execute return=" + (execResult?.ToString() ?? "null")); } catch { }
+                        try { var execResult = sysEngine.SafeEval("(function(){try{var S=globalThis.System;if(!S||!S.registry||!S.registry._entries)return'no_reg';for(var k in S.registry._entries){var m=S.registry._entries[k];if(m&&m.declare){var r=m.declare(function(){},{});if(r&&typeof r.execute==='function'){var ret=r.execute();return typeof ret!=='undefined'?('ret='+typeof ret):'ret=undefined';}}}return'no_exec';})()"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] execute return=" + (execResult?.ToString() ?? "null")); DevToolsLogger.Log("[DIAG:JS] execute return=" + (execResult?.ToString() ?? "null")); } catch { }
                         try { var asyncTest = sysEngine.SafeEval("(function(){try{var fn=new Function('return Promise.resolve(42).then(function(v){return v+1})');var p=fn();return typeof p==='object'&&typeof p.then==='function'?'Promise_chaining_works':'no_then';}catch(e){return 'err:'+(e.message||typeof e);}})()"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] Promise test=" + (asyncTest?.ToString() ?? "null")); } catch { }
                         // Check setTimeout and requestAnimationFrame availability
                         try { var st = sysEngine.SafeEval("typeof setTimeout"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] typeof setTimeout=" + (st?.ToString() ?? "null")); } catch { }
@@ -3776,8 +3961,18 @@ globalThis.System = __sys;
                         try { sysEngine.SafeEval("window.__timerFlag=false;setTimeout(function(){window.__timerFlag=true},1)"); } catch { }
                         try { sysEngine.FlushMicrotasks(); } catch { }
                         try { var stResult = sysEngine.SafeEval("window.__timerFlag ? 'fired' : 'pending'"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] setTimeout fired=" + (stResult?.ToString() ?? "null")); } catch { }
+                        // Check System.__graphData set by injected code
+                        try { var gd = sysEngine.SafeEval("(function(){var g=globalThis.System&&globalThis.System.__graphData;if(!g)return'no_graphData';return'graphData nodes='+(g.nodes?g.nodes.length:0)+' links='+(g.links?g.links.length:0);})()"); DevToolsLogger.Log("[DIAG:DATA] System.__graphData=" + (gd?.ToString() ?? "null")); } catch { }
+                        // Also check window.__graphData
+                        try { var wgd = sysEngine.SafeEval("typeof window.__graphData !== 'undefined' ? 'window.__graphData='+(window.__graphData.nodes?window.__graphData.nodes.length:0)+'/'+(window.__graphData.links?window.__graphData.links.length:0) : 'undefined'"); DevToolsLogger.Log("[DIAG:DATA] " + (wgd?.ToString() ?? "null")); } catch { }
+                        // Check raw data fields set by sync graph builder
+                        try { var ent = sysEngine.SafeEval("typeof window.__entries !== 'undefined' ? '__entries='+window.__entries.length : 'no_entries'"); DevToolsLogger.Log("[DIAG:DATA] " + (ent?.ToString() ?? "null")); } catch { }
+                        try { var ewd = sysEngine.SafeEval("typeof window.__entriesWithDates !== 'undefined' ? '__entriesWithDates='+window.__entriesWithDates.length : 'no_ewd'"); DevToolsLogger.Log("[DIAG:DATA] " + (ewd?.ToString() ?? "null")); } catch { }
+                        try { var st = sysEngine.SafeEval("typeof window.__stories !== 'undefined' ? '__stories='+window.__stories.length : 'no_stories'"); DevToolsLogger.Log("[DIAG:DATA] " + (st?.ToString() ?? "null")); } catch { }
+                        try { var kw = sysEngine.SafeEval("typeof window.__keywords !== 'undefined' ? '__keywords='+window.__keywords.length : 'no_keywords'"); DevToolsLogger.Log("[DIAG:DATA] " + (kw?.ToString() ?? "null")); } catch { }
+                        try { var pf = sysEngine.SafeEval("typeof window.__Pf !== 'undefined' ? '__Pf='+Object.keys(window.__Pf).length : 'no_Pf'"); DevToolsLogger.Log("[DIAG:DATA] " + (pf?.ToString() ?? "null")); } catch { }
                         // Also check for post-exec module-scope vars leaked by chunk injection
-                        try { var diagInject = sysEngine.SafeEval("typeof globalThis.__diagInjectRan !== 'undefined' ? globalThis.__diagInjectRan : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagInjectRan=" + (diagInject?.ToString() ?? "null")); } catch { }
+                        try { var diagInject = sysEngine.SafeEval("typeof globalThis.__diagInjectRan !== 'undefined' ? globalThis.__diagInjectRan : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagInjectRan=" + (diagInject?.ToString() ?? "null")); try { DevToolsLogger.Log("[DIAG:MOD] __diagInjectRan=" + (diagInject?.ToString() ?? "null")); } catch { } } catch { }
                         try { var diagMf = sysEngine.SafeEval("typeof globalThis.__diagMf !== 'undefined' ? (typeof globalThis.__diagMf) : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagMf=" + (diagMf?.ToString() ?? "null")); } catch { }
                         try { var diagS = sysEngine.SafeEval("typeof globalThis.__diagS !== 'undefined' ? (globalThis.__diagS.tagName||typeof globalThis.__diagS) : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagS=" + (diagS?.ToString() ?? "null")); } catch { }
                         try { var diagIf = sysEngine.SafeEval("typeof globalThis.__diagIf !== 'undefined' ? (Array.isArray(globalThis.__diagIf)?'array['+globalThis.__diagIf.length+']':typeof globalThis.__diagIf) : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagIf=" + (diagIf?.ToString() ?? "null")); } catch { }
@@ -4900,6 +5095,12 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                                 var cloned = response.clone();
                                 cloned.text().then(function(text) {
                                     console.log('[FETCH] response from ' + url + ' (first 200 chars): ' + text.substring(0, 200));
+                                    try {
+                                        var data = JSON.parse(text);
+                                        window.__graphData = data;
+                                        if (typeof System !== 'undefined') System.__graphData = data;
+                                        console.log('[DIAG] Graph data captured, nodes=' + (data.nodes ? data.nodes.length : 0));
+                                    } catch(_) {}
                                 });
                                 return response;
                             });
@@ -4989,6 +5190,13 @@ var self = this;
                                         self.response = text;
                                         self.readyState = 4;
                                         console.log('[XHR] response from ' + _url + ' status=' + self.status + ' len=' + text.length + ' (first 200): ' + text.substring(0, 200));
+
+                                        try {
+                                            var data = JSON.parse(text);
+                                            window.__graphData = data;
+                                            if (typeof System !== 'undefined') System.__graphData = data;
+                                            console.log('[DIAG] Graph data captured via XHR, nodes=' + (data.nodes ? data.nodes.length : 0));
+                                        } catch(_) {}
 
                                         if (self.onload) {
                                             try { self.onload.call(self); } catch(e) { console.log('[XHR] onload error: ' + e); }
@@ -5138,8 +5346,10 @@ var self = this;
 
             if (nodesIdx >= 0 || linksIdx >= 0)
             {
-                System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Found 'nodes' at offset " + nodesIdx
-                    + ", 'links' at offset " + linksIdx);
+                var foundMsg = "[DIAG:CHUNK] Found 'nodes' at offset " + nodesIdx
+                    + ", 'links' at offset " + linksIdx;
+                System.Diagnostics.Debug.WriteLine(foundMsg);
+                DevToolsLogger.Log(foundMsg);
                 // Sample context around nodes (if it's a different location than links)
                 if (nodesIdx >= 0 && nodesIdx != linksIdx)
                 {
@@ -5177,7 +5387,9 @@ var self = this;
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] No 'nodes'/'links' found in chunk — data is loaded externally or uses different naming");
+                var noMsg = "[DIAG:CHUNK] No 'nodes'/'links' found in chunk — data is loaded externally or uses different naming";
+                System.Diagnostics.Debug.WriteLine(noMsg);
+                DevToolsLogger.Log(noMsg);
             }
 
             // Search for large array assignments: =[{ or =[{\"
@@ -5485,27 +5697,27 @@ var self = this;
                     continue;
                 }
 
-                // location.href = '�'
+                // location.href = ' '
                 var mHref = RxHrefAssign.Match(line);
                 if (mHref.Success) { Navigate(mHref.Groups["url"].Value); continue; }
 
-                // window.location=� or window.location.href=�
+                // window.location=  or window.location.href= 
                 var mW = RxWindowLoc.Match(line);
                 if (mW.Success) { Navigate(mW.Groups["url"].Value); continue; }
 
-                // location.assign('�')
+                // location.assign(' ')
                 var mAssign = RxAssignCall.Match(line);
                 if (mAssign.Success) { Navigate(mAssign.Groups["url"].Value); continue; }
 
-                // location.replace('�')
+                // location.replace(' ')
                 var mReplace = RxReplaceCall.Match(line);
                 if (mReplace.Success) { Navigate(mReplace.Groups["url"].Value); continue; }
 
-                // alert('�')
+                // alert(' ')
                 var mAlert = RxAlert.Match(line);
                 if (mAlert.Success) { _host.SetStatus(mAlert.Groups["msg"].Value ?? ""); continue; }
 
-                // console.log('�')
+                // console.log(' ')
                 var mLog = RxConsoleLog.Match(line);
                 if (mLog.Success) { _host.SetStatus(mLog.Groups["msg"].Value ?? ""); continue; }
                 var mOpen = RxWindowOpen.Match(line);
@@ -6073,7 +6285,49 @@ var self = this;
                         // to avoid any interference with NiL.JS evaluation.
                         try { System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] d3js.org script (no polyfill prefix — using v5)"); } catch { }
                     }
-                    try { System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] eval " + resolved + " (direct eval, no debug)"); _nilSyncDocument(); SafeEvalFast("try{ " + content + " }catch(e){ try { console.log('[d3-err:'+((e&&e.message)||typeof e)+']') }catch(_){} }"); }
+                    // Leak inline data from the Nokia Design Archive chunk to window.*
+                    if (content.Contains("var Kf={entries:[") && content.Contains("var wf={collections:["))
+                    {
+                        try { System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Leaking chunk data vars to window.*"); } catch { }
+                        content = content.Replace("var Kf={entries:[", "window.Kf={entries:[");
+                        content = content.Replace("var wf={collections:[", "window.wf={collections:[");
+                        content = content.Replace("var Cf={stories:[", "window.Cf={stories:[");
+                        // vf is a flat array: var vf=[...] — replace with window.vf=
+                        int vfIdx = content.IndexOf("var vf=", StringComparison.Ordinal);
+                        if (vfIdx >= 0) { content = content.Substring(0, vfIdx) + "window.vf=" + content.Substring(vfIdx + 7); }
+                        try { System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Data leak complete"); } catch { }
+                        // Inject sync graph builder into execute function body
+                        try { System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Injecting sync graph builder into execute"); } catch { }
+                        string[] gPrefixes = { "return{execute:function(){", "return{execute:function() {", "execute:function(){", "execute:function() {", ":function(){" };
+                        int gStart = -1; string gPref = null;
+                        foreach (var p in gPrefixes) { gStart = content.IndexOf(p); if (gStart >= 0) { gPref = p; break; } }
+                        if (gStart >= 0)
+                        {
+                            int gDepth = 1, gPos = gStart + gPref.Length;
+                            while (gPos < content.Length && gDepth > 0)
+                            {
+                                char c = content[gPos];
+                                if (c == '\'') { gPos++; while (gPos < content.Length && content[gPos] != '\'') { if (content[gPos] == '\\') gPos++; gPos++; } if (gPos < content.Length) gPos++; continue; }
+                                if (c == '"') { gPos++; while (gPos < content.Length && content[gPos] != '"') { if (content[gPos] == '\\') gPos++; gPos++; } if (gPos < content.Length) gPos++; continue; }
+                                if (c == '`') { gPos++; while (gPos < content.Length && content[gPos] != '`') { if (content[gPos] == '\\') gPos += 2; else if (content[gPos] == '$' && gPos + 1 < content.Length && content[gPos + 1] == '{') { gPos += 2; int ed = 1; while (gPos < content.Length && ed > 0) { if (content[gPos] == '{') ed++; else if (content[gPos] == '}') ed--; gPos++; } } else gPos++; } if (gPos < content.Length) gPos++; continue; }
+                                if (c == '/' && gPos + 1 < content.Length) { if (content[gPos + 1] == '/') { gPos += 2; while (gPos < content.Length && content[gPos] != '\n') gPos++; continue; } if (content[gPos + 1] == '*') { gPos += 2; while (gPos + 1 < content.Length && !(content[gPos] == '*' && content[gPos + 1] == '/')) gPos++; if (gPos + 1 < content.Length) gPos += 2; continue; } }
+                                if (c == '{') gDepth++;
+                                else if (c == '}') { gDepth--; if (gDepth == 0) { content = content.Substring(0, gPos) + ";try{globalThis.__diagInjectRan=true;var __dl=typeof __diagLog==='function'?__diagLog:function(){};var wKf=window.Kf,wWf=window.wf,wCf=window.Cf,wVf=window.vf;if(typeof wKf!=='undefined'&&typeof wWf!=='undefined'){var __f=wKf.entries;var __xf=wWf.collections.map(function(c){return{id:c.id,name:c.title,description:c.blurb,theme:c.grouping,keywords:c.keywords}});var __Pf={};__xf.forEach(function(c){__Pf[c.id]=c});var __nodes=[],__links=[],__conns={};__f.forEach(function(e){__nodes.push({id:e.id,name:e.title,start:e.start,file:e.file,type:'entry'});(e.collections||[]).forEach(function(cId){if(cId!=='C0030'&&cId[0]!=='K'&&__Pf[cId]){__links.push({source:e,target:__Pf[cId]});if(!__conns[e.id])__conns[e.id]=[];__conns[e.id].push(cId);if(!__conns[cId])__conns[cId]=[];__conns[cId].push(e.id)}})});__xf.forEach(function(e){__nodes.push({id:e.id,name:e.title,theme:e.theme,type:'collection'})});window.__graphData={nodes:__nodes,links:__links,nodeConnections:__conns};if(typeof globalThis!=='undefined'&&globalThis.System)globalThis.System.__graphData=window.__graphData;window.__entries=__f;window.__collections=wWf.collections;window.__xf=__xf;window.__Pf=__Pf;if(typeof wCf!=='undefined'){window.__stories=wCf.stories;window.__entriesWithDates=__f.filter(function(e){return e.start&&e.start.length>=5})}if(typeof wVf!=='undefined')window.__keywords=wVf;__dl('INJECT_RAN nodes='+__nodes.length+' links='+__links.length+' entries='+__f.length)}else{__dl('INJECT_RAN no Kf/wf')}}catch(e){try{var __dl2=typeof __diagLog==='function'?__diagLog:function(){};__dl2('INJECT_ERR '+(e&&e.message||e))}catch(ee){}}" + content.Substring(gPos); break; } }
+                                gPos++;
+                            }
+                        }
+                        try { System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Injection complete, gStart=" + gStart); } catch { }
+                    }
+                    try { 
+                        System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] eval " + resolved + " (direct eval, no debug)"); 
+                        _nilSyncDocument(); 
+                        string evalContent = content;
+                        // Expose bare `System` for scripts that use System.register (e.g. the Nokia chunk)
+                        if (resolved == null || !resolved.AbsoluteUri.Contains("d3js.org")) {
+                            evalContent = "var System=globalThis.System;" + evalContent;
+                        }
+                        SafeEvalFast("try{ " + evalContent + " }catch(e){ try { console.log('[d3-err:'+((e&&e.message)||typeof e)+']') }catch(_){} }"); 
+                    }
                     catch (Exception ex) { try { System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] SafeEval error for " + resolved + ": " + ex.GetType().Name + " - " + ex.Message); } catch { } }
                 }
                 else
@@ -6337,7 +6591,7 @@ var self = this;
                                 return result;
                             }
                         }
-                        // bail � don�t try other stacks for these hosts
+                        // bail   don t try other stacks for these hosts
                         return null;
                     }
 
@@ -6399,7 +6653,7 @@ var self = this;
                             return altResult;
                         }
                     }
-                    return null; // bail � do not try further paths
+                    return null; // bail   do not try further paths
                 }
 
                 if (!resp.IsSuccessStatusCode)
@@ -10000,7 +10254,7 @@ public bool Execute(string code)
                         var a = parts[0];
                         var op = parts[1];
                         var b = parts[2];
-                        // This function is called per candidate element 'n' � check if n matches 'b' and has preceding sibling matching 'a'
+                        // This function is called per candidate element 'n'   check if n matches 'b' and has preceding sibling matching 'a'
                         if (!MatchesSimpleSelector(n, b)) return false;
                         var parent = FindParent(n);
                         if (parent == null) return false;

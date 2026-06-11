@@ -1340,6 +1340,9 @@ namespace BrowserCore.Engine
                 // 1.25) Prewarm images in the background so first paint can swap in sooner
                 try { PrewarmImages(dom, baseUri, imageLoader, viewportWidth); } catch { /* swallow */ }
 
+                // Диагностика режима рендеринга и состояния JS
+                DevToolsLogger.Log("[DIAG:MODE] _renderMode=" + _renderMode + " EnableJavaScript=" + EnableJavaScript + " allowJs_initial=" + EnableJavaScript);
+
                 bool allowJs = EnableJavaScript;
                 bool richMode = _renderMode == RenderModeType.Rich;
                 if (richMode)
