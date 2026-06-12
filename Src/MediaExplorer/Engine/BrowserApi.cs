@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -130,6 +130,7 @@ namespace BrowserCore.Api
             _engine.EnableJavaScript = true;
 
             _engine.RepaintReady += async delegate (FrameworkElement e) {
+                DevToolsLogger.Log("[DIAG:CARD] _engine.RepaintReady fired — calling RaiseRepaintAsync");
                 await RaiseRepaintAsync(e);
             };
             _engine.LoadingChanged += delegate (object s, bool isLoading) {
@@ -168,6 +169,52 @@ namespace BrowserCore.Api
             return _engine.GetActiveDom();
         }
 
+        public string ExtractEntriesJson()
+        {
+            try
+            {
+                // Read from _storedData first (populated by __storeData callback during JS execution)
+                string stored = _js.GetStoredData("__entries");
+                if (!string.IsNullOrEmpty(stored)) return stored;
+                return null;
+            }
+            catch { return null; }
+        }
+
+        public string ExtractCollectionsJson()
+        {
+            try
+            {
+                string stored = _js.GetStoredData("__collections");
+                if (!string.IsNullOrEmpty(stored)) return stored;
+                return null;
+            }
+            catch { return null; }
+        }
+
+        public string ExtractStoriesJson()
+        {
+            try
+            {
+                string stored = _js.GetStoredData("__stories");
+                if (!string.IsNullOrEmpty(stored)) return stored;
+                return null;
+            }
+            catch { return null; }
+        }
+
+        public string ExtractKeywordsJson()
+        {
+            try
+            {
+                string stored = _js.GetStoredData("__keywords");
+                if (!string.IsNullOrEmpty(stored)) return stored;
+                return null;
+            }
+            catch { return null; }
+        }
+
+
         private void RaiseStatus(string msg)
         {
             try
@@ -180,8 +227,9 @@ namespace BrowserCore.Api
 
         private async Task RaiseRepaintAsync(FrameworkElement element)
         {
-            if (element == null) return;
+            if (element == null) { DevToolsLogger.Log("[DIAG:CARD] RaiseRepaintAsync SKIP element=null"); return; }
             var handler = RepaintReady;
+            DevToolsLogger.Log("[DIAG:CARD] RaiseRepaintAsync handler=" + (handler == null ? "null" : "non-null"));
             if (handler == null) return;
 
             try
@@ -414,6 +462,7 @@ namespace BrowserCore.Api
 
                 if (_navigationId != currentNavId) { System.Diagnostics.Debug.WriteLine("[DIAG] BrowserHost ABORT after render navId " + currentNavId + " -> " + _navigationId); return false; }
 
+                DevToolsLogger.Log("[DIAG:CARD] Calling RaiseRepaintAsync from NavigateAsync main path navId=" + currentNavId);
                 await RaiseRepaintAsync(element2);
                 System.Diagnostics.Debug.WriteLine("[DIAG] BrowserHost RaiseRepaintAsync DONE navId=" + currentNavId);
                 DevToolsLogger.Log("[DIAG:NAV] Repaint done navId=" + currentNavId);

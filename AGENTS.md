@@ -9,88 +9,101 @@ msbuild "Src\MediaExplorer\MediaExplorer.csproj" /t:Rebuild /p:Configuration=Deb
 # Step 2 — Deploy + launch
 powershell -ExecutionPolicy Bypass -File "Src\MediaExplorer\DeployAndRun.ps1" -Platform x64
 
-# Step 3 — Wait 120s for app to render, then auto-close
-Start-Sleep -Seconds 120
+# Step 3 — Wait 150s for app to render (Nokia Archive loads ~589KB JS chunk)
+Start-Sleep -Seconds 150
 Get-Process -Name "MediaExplorer" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Write-Host "MediaExplorer closed after 120s wait"
 
 # Step 4 — Read diagnostics log
-Get-Content "$env:LOCALAPPDATA\Packages\MediaExplorerV0p57_5gyrq6psz227t\LocalState\Logger.txt" -Tail 80
+Get-Content "$env:LOCALAPPDATA\Packages\MediaExplorerV1p0_5gyrq6psz227t\LocalState\Logger.txt" -Tail 80
 ```
 
-**Loop**: Build → Deploy+Launch → wait 120s → Kill → Read log → Analyze → Fix → Rebuild → repeat.
+**Loop**: Build → Deploy+Launch → wait 150s → Kill → Read log → Analyze → Fix → Rebuild → repeat.
 
-**One-liner** (AI executes all steps in sequence):
+**One-liner**:
 ```powershell
-msbuild "Src\MediaExplorer\MediaExplorer.csproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /v:m; if ($?) { powershell -ExecutionPolicy Bypass -File "Src\MediaExplorer\DeployAndRun.ps1" -Platform x64; Start-Sleep -Seconds 120; Get-Process -Name "MediaExplorer" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Get-Content "$env:LOCALAPPDATA\Packages\MediaExplorerV0p57_5gyrq6psz227t\LocalState\Logger.txt" -Tail 80 }
+msbuild "Src\MediaExplorer\MediaExplorer.csproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /v:m; if ($?) { powershell -ExecutionPolicy Bypass -File "Src\MediaExplorer\DeployAndRun.ps1" -Platform x64; Start-Sleep -Seconds 150; Get-Process -Name "MediaExplorer" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Get-Content "$env:LOCALAPPDATA\Packages\MediaExplorerV1p0_5gyrq6psz227t\LocalState\Logger.txt" -Tail 80 }
 ```
 
-## Current State (June 12, 2026)
+## Current State (June 12, 2026 — Session 6.15)
 
-**Version**: 0.57.100.0, AUMID `MediaExplorerV0p57!App`, PackageFamilyName `MediaExplorerV0p57_5gyrq6psz227t`
+**Version**: 1.0.0.0, AUMID `MediaExplorerV1p0!App`, PackageFamilyName `MediaExplorerV1p0_5gyrq6psz227t`
+**Package Identity**: `MediaExplorerV1p0` (renamed from V0p57, new GUID, fresh install required)
 
-### Done
+### Critical Decision: SVG→XAML Bridge Abandoned
 
-#### Session 1 (June 11–12 morning) — Core rendering & overlay fixes
-- **Data extraction** from 589KB JS chunk via brace-counting: extracts `Kf`, `wf`, `Cf`, `vf` → `__graphData` (755 nodes, 1647 links)
-- **Graph rendering** via circular layout (O(n) cos/sin) → SVG XML → `#plot.innerHTML` → XAML Ellipse/Line
-- **Timeline rendering** via compact greedy-packing layout → SVG XML → `#timeline.innerHTML` → XAML Line/Circle
-  - 230 stories packed into 140 rows at 3px/row, total SVG height 490px (31KB)
-  - Year axis with tick marks, story bars (teal), secondary date ranges (red), entry scatter at bottom
-- **Route detection** — log-only (hash set + nav link click disabled to prevent re-render cycle)
-- **No second render cycle** — app runs single pass, clean exit
-- **DeployAndRun.ps1** — `-Build` flag, `-NoLaunch` flag, platform support
-- **Pure circular layout** — stable, no NaN nodes, all 755 nodes valid
-- **SVG coordinate rounding** (1dp) reduces XML size ~40%
-- **Timeline height explosion**: 140 rows × 3px (was 16px/row); labels removed → height 490px vs 2340px
-- **Double render loop**: removed `window.location.hash = '#/network'` and `navLink.click()` from route detection
-- **"Inception" visual bug (nested windows)**: disabled redundant `TriggerDelayedSvgExtractionAsync` and `TriggerDelayedSvgRefresh` in `CustomHtmlEngine.cs`
-- **Overlay race — overrideStartup:true for "Loaded."**
-- **NavigationCacheMode=Required** on MainPage
-- **RunNilJsStartupTest checks _welcomeShown**
-- **OnNavigatedTo guard with _welcomeShown**
-- **_navigationComplete guard in LoadingChanged handler**
-- **Dark background rect added to graph SVG** (`<rect fill="#1a1a2e"/>`)
-- **Timeline rendering DISABLED** (try-catch skip) for isolating Network rendering issues
+After 18+ sessions of debugging, the SVG→XAML rendering bridge is declared **unfit**:
+- Content doubles on every scroll/window-move — unfixable
+- Architectural mismatch: SVG attributes vs XAML properties with no delta-update path
+- Win SDK 15063 (RS2) lacks modern capabilities (`x:Load`, `SvgImageSource` without hacks)
+- 200+ XAML shapes re-created per scroll — too heavy for Lumia 950 (3GB) / 640 (1GB)
 
-#### Session 2 (June 12 afternoon) — CacheMode fix, node limiting, label contrast
-- **CacheMode="{x:Null}"** on ScrollViewer (MainPage.xaml:172) — removes BitmapCache that caused "mirror world" / garbage from other windows when app was covered/uncovered
-- **Graph node limiting** (first 200 nodes) — `_maxNodes` + `_limitedIds` set filter links + circles in JavaScriptEngine.cs for debug
-- **Checkbox/Radio label contrast** — `Foreground = #CCC` on all CheckBox & RadioButton controls in DomBasicRenderer.cs (both standalone and form-group variants)
-- **Fixed XamlParseException crash** — `CacheMode="None"` is invalid in UWP; replaced with `CacheMode="{x:Null}"`
+**New direction:** Remove all SVG→XAML rendering. Render only simplified content:
+text blocks, images, link handlers via the existing stable DomBasicRenderer.
+Return to complex graph/timeline at v1.1+ using SkiaSharp (hardware Canvas2D).
+
+### Critical Decision #2: Card Mode is Now Default on All Viewports
+
+Card mode activates whenever `__entries` data is available, regardless of viewport width.
+On desktop (1024px+), card mode provides the same swipe/detail/filter UI as on phones.
+For sites without entry data, `TryLoadEntryCards()` returns false → normal full-page rendering.
+
+### Critical Decision #3: NiL.JS `globalThis` vs `window` for Data Injection
+
+`HostWindow` (JavaScriptEngine.cs) is a C# POCO with fixed properties. `window.Kf = value` silently fails.
+`globalThis` is a native NiL.JS ObjectInstance. Always use `globalThis.*` for data injection/reading.
+
+### Critical Decision #4: C#-Only Data Extraction (bypasses NiL.JS JSON.stringify)
+
+`JSON.stringify(722 entries)` inside a SafeEval call triggers the 7-second timeout.
+Solution: Extract data from raw JS literals via C# brace-counting + JS-to-JSON key quoting.
+Stores directly in static `_storedData` dictionary — no NiL.JS dependency.
+
+### Session 6.15 — Card Mode Fixed + Navigation UI
+
+#### What was fixed
+1. **NiL.JS eval context isolation** — `window.*` → `globalThis.*` across 8 sites in JavaScriptEngine.cs
+2. **JSON.stringify timeout** — C#-only extraction via `extractSubArray()` + `quoteJsKeys()` helpers
+3. **Entry image URLs** — pattern is `./images/archive/{file}.jpg` (discovered from JS chunk's `Zf()` function)
+4. **Card navigation UI** — visible ◀ ▶ buttons, counter with filtered/total context, Browse/All toggle
+
+#### Key image URL discovery
+Entry `file` field is a slug (e.g., `"04_morph_wrist_mode"`). Full URL:
+```
+https://nokiadesignarchive.aalto.fi/images/archive/{file}.jpg
+```
+
+#### C# extraction helpers added to JavaScriptEngine.cs
+- `extractSubArray(objLiteral, key)` — finds `key:[...]` in JS object literal via brace-counting
+- `quoteJsKeys(s)` — converts `{id:"x"}` to `{"id":"x"}` for valid JSON
 
 ### Diagnostics Architecture
-- `DevToolsLogger.Log(msg)` → `%LOCALAPPDATA%\Packages\...\LocalState\Logger.txt`
+- `DevToolsLogger.Log(msg)` → `%LOCALAPPDATA%\Packages\MediaExplorerV1p0_5gyrq6psz227t\LocalState\Logger.txt`
 - `Debug.WriteLine(msg)` → VS Output only
 - `__diagLog(msg)` → C# callback, writes both
-- Key prefixes: `[DIAG:TIMELINE-SVG]`, `[DIAG:SVG]`, `[DIAG:DATA]`, `[DIAG:ROUTE]`, `[DIAG:SYS]`, `[DIAG:REPAINT]`
+- Key prefixes: `[DIAG:DATA]`, `[DIAG:SYS]`, `[DIAG:ROUTE]`, `[DIAG:CARD]` — keep
 
 ### Files
-- `Src/MediaExplorer/Engine/JavaScriptEngine.cs` — data extraction ~line 3515, graph SVG ~3560, timeline SVG ~3636, route detection ~line 4092, SafeEval ~line 4364
-- `Src/MediaExplorer/Engine/Core/VirtualizingRenderer.cs` — SVG→XAML mapping (~line 994)
-- `Src/MediaExplorer/Engine/DomBasicRenderer.cs` — checkbox/radio render (~line 3520, 3931, 3942)
-- `Src/MediaExplorer/Engine/CustomHtmlEngine.cs` — ScheduleRepaintFromJs (~line 1138), DispatchRepaintAsync (~line 919)
-- `Src/MediaExplorer/MainPage.xaml` — ScrollViewer CacheMode (line 172)
-- `Src/MediaExplorer/MainPage.xaml.cs` — Engine_RepaintReady (~line 694)
-- `Src/MediaExplorer/Engine/DevToolsLogger.cs` — file logger
-- `Src/MediaExplorer/DeployAndRun.ps1` — deploy script
-- `Src/NilJsTest/tests/main-legacy-CgkFIb-k.js` — archived chunk (589KB)
+- `Src/MediaExplorer/Engine/JavaScriptEngine.cs` — data extraction, `globalThis.*` injection, SafeEval, `__storeData`
+- `Src/MediaExplorer/Engine/BrowserApi.cs` — `ExtractEntriesJson()`, `ExtractCollectionsJson()`, `ExtractStoriesJson()`
+- `Src/MediaExplorer/Engine/DomBasicRenderer.cs` — stable text/image/link renderer — **core**
+- `Src/MediaExplorer/Engine/CustomHtmlEngine.cs` — ScheduleRepaintFromJs, DispatchRepaintAsync
+- `Src/MediaExplorer/MainPage.xaml.cs` — card mode, navigation UI, image URLs, link routing — **core**
+- `Src/MediaExplorer/MainPage.xaml` — ScrollViewer CacheMode
+- `Src/MediaExplorer/Engine/DevToolsLogger.cs` — diagnostic logging
 
-### RnD Plan (Next Steps)
+### Post-v1.0 Roadmap
 
-#### Phase 1 — Stabilise rendering (current)
-1. **Fix circle duplication on scroll** — add guard in `ScheduleRepaintFromJs` (`CustomHtmlEngine.cs:1138`) to not queue `RequestRender()` during active scroll; or deduplicate elements in `VirtualizingRenderer.BuildVisualTree` before appending to Canvas.
-2. **CacheMode={x:Null}** — ✅ DONE (MainPage.xaml:172)
-3. **Checkbox label contrast** — ✅ DONE (DomBasicRenderer.cs — Foreground=#CCC on CheckBox/RadioButton)
-4. **Reduce element count** — ✅ DONE (200-node limit in JavaScriptEngine.cs graph render)
+#### v1.0+ (next iteration)
+1. **After-collection-filter UX** — jump to first entry unique to filtered collection
+2. **Card polish** — entrance/exit transitions, image preloading, smoother swipe
+3. **Search/filter in category index** — text search across entry names/descriptions
+4. **SkiaSharp graph rendering** — `SKXamlCanvas` with `DrawCircle`/`DrawLine` — 60fps on GPU
+5. **Hybrid engine** — EdgeHTML for standard browsing, Custom engine for CSS/JS dev experiments
 
-#### Phase 2 — Smartphone adaptivity
-5. **Viewport-fragmented rendering** — detect narrow viewport (< 600px) and render a "magic slider" (one content card at a time, swipe left/right) instead of full 755-node graph. Research: use `ManipulationMode="TranslateX"` on ContentArea (already set at MainPage.xaml:171) for swipe detection; implement card stack with prev/next navigation.
-6. **Auto-detect smartphone** — check `Windows.System.Profile.AnalyticsInfo.VersionInfo.DeviceFamily` or `ApplicationView.GetForCurrentView().VisibleBounds.Width < 600`.
-
-#### Phase 3 — Interactivity
-7. **Node tap handler** — circles already have `data-id/name/type` attributes + `Tapped` event in VirtualizingRenderer.cs (~line 1064). Wire to `ContentDialog` showing node name + type.
-8. **Timeline re-enable** — restore timeline SVG rendering after graph issues resolved.
+#### v1.1+ (future)
+6. **E-book modes** — Poor (ascii), Rich (text+CSS), Asceti (minimal)
+7. **Performance tuning** — focus on Lumia 640 (1GB) perf, reduce memory
+8. **Orphaned ideas** — Sass preprocessing, markdown-to-html, service-worker-like caching
 
 ### Commands
 ```powershell

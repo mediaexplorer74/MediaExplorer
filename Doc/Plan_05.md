@@ -4,8 +4,8 @@
 ║  LUMIA UPLINK PROTOCOL  //  MISSION DOSSIER  //  CLEARANCE: MUSEUM                    ║
 ║  Node: MediaExplorer v0.57.100  ·  Uplink: nokiadesignarchive.aalto.fi                ║
 ║  Hardware: Lumia 950 · Snapdragon 810 · ARM64 · 3 GB LPDDR4                           ║
-║  Engine: NiL.JS 2.6 · XAML Renderer · Custom HTML/CSS Stack                         	║
-║  Status: INJECT DIAG CANCELLED — ✅ REAL BLOCKER RESOLVED: Promise chaining fixed	║
+║  Engine: NiL.JS 2.6 · XAML Renderer · Custom HTML/CSS Stack                          ║
+║  Status: SVG→XAML BRIDGE ABANDONED — Simplifying to text/images/links                 ║
 ╚═══════════════════════════════════════════════════════════════════════════════════════╝
 ```
 
@@ -15,8 +15,8 @@
 > **Project:** MediaExplorer — retro UWP museum browser for Windows 10 Mobile
 > **Hardware target:** Lumia 950 · Snapdragon 810 · 1440p AMOLED · 3 GB RAM
 > **Author note:** This document is a continuation of Plan 04. It assumes all phases
-> of Plans 01–04 are done or superseded. Read the "Signal Analysis" section first.
-> **Last updated:** 2026-06-11 (Phase G.2 v10 — Promise chaining fixed, fetch returns HostPromise)
+> of Plans 01–04 are done or superseded.
+> **Last updated:** 2026-06-12 — SVG→XAML BRIDGE ABANDONED, pivot to simplified adaptive rendering
 
 ---
 
@@ -28,739 +28,392 @@ over 20 years of Nokia's design history — both seen and unseen."*
 
 You are building a browser for a museum, to be run on hardware that is itself
 becoming a museum piece, in order to display a digital archive about hardware that
-was discontinued before its time. The recursion here is intentional. The Lumia 950
-was Nokia's last flagship. The Nokia Design Archive is its memory. MediaExplorer is
-the key.
+was discontinued before its time.
 
-That's the science fiction angle, and it's real.
+### What happened — the SVG→XAML bridge failure
 
-### What the last 18 sessions achieved (sessions 3.18 – 3.42)
+Sessions 5.05–6.12 were spent building and debugging the SVG→XAML rendering bridge:
+DOM stubs, D3 initialization, mutation observers, `<innerHTML>` injection, circular graph
+layout, timeline compact packing, deduplication guards, CacheMode fixes.
 
-| Achievement | Session | Significance |
-|------------|---------|-------------|
-| `in` operator fix (NiL.JS In.cs) | 3.18 | Last planned NiL.JS patch |
-| Phase C.6: CSS Transitions (multi-prop, smooth background, % translate) | 3.26–3.27 | Visual quality |
-| Nokia Archive live test: 589KB chunk loads, executes, page renders | 3.30–3.35 | **Milestone** |
-| SystemJS custom minimal impl., chunk splitting with regex/template skip | 3.33–3.35 | Module loading solved |
-| Phase S + Phase V: timeouts, error pages, AppBar animation, progress bar | 3.36–3.37 | Production-quality UX |
-| D3 Map/Set polyfill: 0 JSExceptions during d3.js eval (was 3) | 3.39c | **Milestone** |
-| Strategic pivot: d3.v7 → d3.v5 URL rewrite | 3.40 | Correct ES5 target |
-| **NiL.JS parser StackOverflow fixed: iterative comma parsing** | 3.41 | **Critical milestone** |
-| d3.v5.min.js + d3.v4.min.js parse & execute at depth ~25 (was 300+) | 3.41 | |
-| DOM stubs: namespaceURI, ownerDocument, parentElement, closest, scrollIntoView | 3.42 | |
-| d3.v5 `var d3={...}` global persists through SafeEval catch | 3.42 | d3 defined |
-| **d3.v5 initialized on UWP (RegexOptions.Compiled fix, SafeEvalFast)** | **5.04** | **Milestone** |
-| **Phase G.2: SVG XAML elements in VirtualizingRenderer (circle, line, path, text, g)** | **5.05** | **Milestone** |
-| **Path.Data frozen Geometry crash fixed (CreateSvgPathGeometry→CreateSvgPathElement)** | **5.06** | **Critical fix** |
-| **D3 SVG async timing diagnosed — two-SVG mismatch** | **5.06** | **Root cause** |
-| **SVG mutation detection: isSvgOrHasSvgAncestor + UpdateView on SVG mutations** | **5.06** | **Bridge built** |
-| **addedNodes population fix (was always empty)** | **5.06** | **Bug fix** |
-| **TriggerDelayedSvgRefresh — post-Phase4 delay + SVG re-render** | **5.06** | **Safety net** |
-| **Build verified: 0 errors via VS 2026 Insiders MSBuild** | **5.06** | **Build** |
-| **D3 patch confirmed working — manual circle renders in UI** | **5.08** | **Milestone** |
-| **G.1 thread marshalling crash fixed (RPC_E_WRONG_THREAD)** | **5.08** | **Bug fix** |
-| **NiL.JS missing XMLHttpRequest — no graph data flows** | **5.08** | **Root cause** |
-| **System.register execute wrapped with `[DIAG:MOD]` START/END/FAIL** | **5.10** | **Insight: execute returns undefined, module closure vars** |
-| **Route detection + nav simulation (`[DIAG:ROUTE]`, `[DIAG:NAV]`)** | **5.10** | **Nav links found, hash set, clicks dispatched** |
-| **Graph = Canvas (not SVG)** — `N.clearRect/save/restore` | **5.10** | **Paradigm shift: no SVG children expected** |
-| **Data processing code discovered:** `If`/`Pf` closure vars, `t.push({id,e.name,...})` | **5.10** | **Data is module-scoped, not global** |
-| **Crash fix:** `(e.message||e)` → static strings in catch | **5.10** | **StringConcatenation.prep crash eliminated** |
-| **Chunk injection scope diagnostics (fallback brace-depth)** | **5.11** | **Inject diag CANCELLED — inject never runs (dead code)** |
-| **Tail dump diagnostics added** | **5.11** | **Still pending: analyse structure of chunk end** |
-| **Real blocker resolved: `window.fetch` Promise chaining fixed** | **5.11** | **Fixed: native `then` now returns proper thenable** |
+**The bridge never became stable. Key failures:**
 
-### Honest assessment: where is the signal?
+1. **Content doubling on scroll/window move** — any scroll or resize triggers a re-render
+   that duplicates all XAML circles and lines instead of replacing them. Deduplication
+   guards in `VirtualizingRenderer.AppendSvgChild` mitigated but never eliminated it.
 
-The hardest problems are solved. Let that sink in:
+2. **Fundamental architectural mismatch** — SVG elements carry `cx`,`cy` as attributes;
+   XAML Ellipse uses `Canvas.Left`/`Top` with `Width`/`Height`. Every scroll causes
+   `innerHTML` re-injection → whole DOM re-parse → all XAML elements re-created.
+   No delta-update possible.
 
-- The parser StackOverflow (iterative comma parsing) — **solved**
-- The ES module loader (SystemJS, chunk splitting) — **solved**
-- D3.js initialization on UWP (Regex fix + SafeEvalFast) — **solved**
-- d3 global being defined after eval — **solved**
+3. **Win SDK 15063 (RS2) limitations** — no `x:Load`, no `x:DeferLoadStrategy`,
+   no `CompositionTarget` animation, no `SvgImageSource` without thread marshalling
+   hacks. The platform was designed for text-heavy LOB apps, not dynamic SVG graphs.
 
-What remains is **not** more NiL.JS surgery. It is DOM plumbing and a rendering bridge.
-These are mechanical engineering problems, not research problems. That's a very different
-kind of work — harder to get stuck on, easier to parallelize, and faster with AI assistance.
+4. **Performance on Lumia 950 target** — 200+ XAML shapes re-rendered per scroll on
+   3 GB Snapdragon 810. Even 200 circles + filtered lines exceed budget for fluid UI.
 
-### Current status (Phase G.2 v10 – Promise chaining fixed, fetch returns HostPromise)
+5. **Timeline rendering also unstable** — disabled after first tests because it shared
+   the same fragile SVG→XAML pipeline.
 
-**Phase I (DOM Iterable Fix) — ✅ DONE (Session 5.03)**
+**Honest conclusion: the SVG→XAML bridge is not fixable within the current stack.**
+It will never be stable on Lumia hardware with Win SDK 15063. Further attempts are
+wasted effort.
 
-`querySelectorAll`, `getElementsByTagName`, `getElementsByClassName`, `children`,
-`childNodes` now return `NativeList` via `Context.ProxyValue(list)`. The Nokia Archive
-chunk no longer crashes on:
-```js
-for (const o of document.querySelectorAll('link[modulepreload]')) n(o);
-```
-7 NilJsTest iteration tests confirm correctness.
+### Where does this leave the project?
 
-**Phase J (d3 initialization on UWP) — ✅ DONE (Session 5.04)**
+The core NI L.JS infrastructure is solid:
+- ✅ Chunk extraction via C# brace-counting (755 nodes, 1647 links)
+- ✅ SystemJS module loader works
+- ✅ DOM stubs, CSS, HTML rendering work
+- ✅ Deploy script, diagnostics, build pipeline all stable
 
-Root cause: `RegexOptions.Compiled` in NiL.JS — UWP CoreCLR (netstandard1.4) cannot
-JIT-compile regex patterns via `Reflection.Emit`, throwing `ArgumentOutOfRangeException`.
-Fixed by running regex in interpreted mode.
+**The project needs a fundamental rendering strategy change:**
 
-Confirmed in PhaseG2-log.txt:
-```
-[DIAG:SYS] post-exec d3=d3_defined
-[DIAG:EXEC] typeof d3.select = function
-[DIAG:EXEC] typeof d3.forceSimulation = function
-```
+1. **Now (MVP approach):** Abandon complex SVG→XAML. Render only simplified content:
+   text blocks, images, link handlers. No graph/timeline SVG injection. Use the
+   existing HTML/CSS renderer (DomBasicRenderer) which is already stable.
 
-### The remaining blocker: no XMLHttpRequest → D3 has no data
+2. **Smartphone adaptivity:** Detect viewport width < 600px and render a card-based
+   layout — one content card at a time, swipeable. No large SVGs at all on small screens.
 
-D3 v5 is loaded and operational: `d3.select = function`, `d3.forceSimulation = function`.
-Our `PatchD3DomManipulation` wrapper works — manual D3 calls (`append('circle')`, `.attr('r',...)`) 
-produce visible red circles on screen via `UpdateView()`. The XAML pipeline is fully confirmed.
+3. **v1.0+ (future):** Reintroduce complex rendering via Skia or MonoGame — native
+   Canvas2D drawing, no SVG→XAML bridge. This is a full rewrite of the rendering
+   backend and belongs in the v1 planning phase, not before MVP.
 
-**Session 5.08 diagnosis revealed the true bottleneck:**
+### Data extraction — the one lasting success
 
-**Two SVG elements on page:**
-1. `<svg class="search-icon">` (251 chars, static X icon) — renders via G.2 `CreateBoxVisual` → visible
-2. `<svg id="timeline"/>` (55 chars, self-closing, empty) — D3 created the shell but never filled it
+The C# brace-counting extraction in `JavaScriptEngine.cs:3487-3562` successfully
+extracts all archive data from the 589KB JS chunk:
 
-**The D3 patch is confirmed working:**
-- `[DIAG] D3 patch applied successfully`
-- Manual D3 circle appears at every delay check: `[DIAG] D3 circle appended` → triggers `UpdateView()`
-- `document.getElementById('timeline')` returns the element (D3 selection: ok)
-- The wrapper intercepts `d3.select('#timeline')` and returns a valid selection
+| Variable | Content | Count |
+|----------|---------|-------|
+| `Kf` | Entries array | 722 entries |
+| `wf` | Keywords array | 91 keywords |
+| `Cf` | Stories array | 230 stories |
+| `vf` | Collection flags array | 33 collections |
+| `__graphData` | Processed nodes + links | 755 nodes, 1647 links |
 
-**Why the timeline stays empty:**
-
-The root cause is not D3 DOM manipulation (which works), but data loading:
-
-1. **No XMLHttpRequest in NiL.JS** — `[XHR] No XMLHttpRequest available`. D3 v5 uses XMLHttpRequest by default for `d3.json`, `d3.csv`, `d3.tsv`. Without XHR, D3 never receives node/link data and never creates graph elements.
-
-2. **SystemJS main module (589KB) executed `execute()` but returned undefined** — the app's main module likely calls D3 data loading via XHR, which fails silently because XHR constructor doesn't exist.
-
-3. **No graph data found in global scope** — `[DIAG:DATA] No graph data found in global scope` — all scans of `window` objects return nothing. The data is either fetched at runtime or never loaded.
-
-4. **Fetch interceptor captured only consent-manager requests** (`usercentrics.eu`) — no timeline data URL was fetched via `fetch()`. This strongly suggests the site uses XHR exclusively.
-
-5. **G.1 injection crashed with `RPC_E_WRONG_THREAD`** — `SvgImageSource` was being created on a background thread. **Now fixed** with `TaskCompletionSource` + dispatcher marshalling.
-
-**Fix strategy (revised after 5.11 Promise chaining diagnosis):**
-1. ~~Add a minimal `XMLHttpRequest` stub~~ → Already exists (fetch-based), but **broken**: native `window.fetch.then()` returns `undefined`, breaking Promise chaining.
-2. **Two options:**
-   a. Fix native `then` handler to return a chainable thenable (enables async Promise-based XHR)
-   b. **Recommended:** Add synchronous XHR via C# bridge (blocking HTTP in `send()`) — aligns with synchronous setTimeout/rAF patching in SystemJS context
-3. With XHR working, D3 loads data → Canvas renders graph → confirm visual output
+This data is available on `window` for any JS code to consume — it just won't be
+rendered as SVG→XAML anymore.
 
 ---
 
-## PART II — MISSION PHASES
+## PART II — NEW MISSION: SIMPLIFIED ADAPTIVE RENDERING
 
-### Phase I — Iterable Horizon (DOM Collections Fix) ✅ DONE
+### Phase R — Retrench (current)
 
-> **Priority: 🟢 Complete — Session 5.03**
-> **Effort: 1 session (~2–3 hours)**
-> **Depends on:** nothing — standalone fix ✅
-
-All DOM collection methods (`querySelectorAll`, `getElementsByTagName`,
-`getElementsByClassName`, `children`, `childNodes`) now return `NativeList`
-(via `Context.ProxyValue(list)`) instead of plain `object[]`. This supports
-`for...of`, `Array.from()`, spread operator, and all `IIterable`-dependent operations.
-
-**I.1 — Helper method `ToJsArray`** ✅
-
-Implemented in `JavaScriptEngine.cs`:
-```csharp
-private static JSValue ToJsArray(IEnumerable<object> items, Context ctx)
-    => ctx.ProxyValue(items.ToList());
-```
-
-**I.2 — Applied to all collection-returning host methods** ✅
-
-| Method | Before | After |
-|--------|--------|-------|
-| `HostDocument.querySelectorAll` | `object[]` | `ToJsArray(results, ctx)` |
-| `HostDocument.getElementsByTagName` | `object[]` | `ToJsArray(results, ctx)` |
-| `HostDocument.getElementsByClassName` | `object[]` | `ToJsArray(results, ctx)` |
-| `JsDomElement.querySelectorAll` | `object[]` | `ToJsArray(results, ctx)` |
-| `JsDomElement.children` (getter) | `object[]` | `ToJsArray(results, ctx)` |
-| `JsDomElement.childNodes` (getter) | `object[]` | `ToJsArray(results, ctx)` |
-
-**I.3 — NilJsTest coverage** ✅
-
-7 iteration tests pass: `for...of` over Array, string, Map, Set, array-like,
-`Symbol.iterator`, and spread operator. The for-of crash on Nokia Archive's
-`for (const o of document.querySelectorAll(...))` is fully resolved.
-
----
-
-### Phase J — JS Stabilization (Binary Search to D3 Call) ✅ DONE
-
-> **Priority: 🟢 Complete — Session 5.04**
-> **Effort: 1 session (collapsed from estimated 2–3)**
-> **Depends on:** Phase I ✅
-
-The binary search approach was **bypassed entirely** — the root cause of d3.v5 failure
-on UWP was not JS code incompatibility but a runtime compilation issue:
-`RegexOptions.Compiled` in NiL.JS triggers `ArgumentOutOfRangeException` on UWP CoreCLR
-(netstandard1.4) when compiling regex patterns via `Reflection.Emit`.
-
-**Three fixes applied in Session 5.04:**
-
-| Fix | File | Effect |
-|-----|------|--------|
-| Remove `RegexOptions.Compiled` | `NiL.JS/BaseLibrary/RegExp.cs:74-75` | Regex runs interpreted — **definitive fix** |
-| Add `SafeEvalFast` (no DebuggerCallback) | `JavaScriptEngine.cs` | Avoids UWP DebuggerCallback instability |
-| Remove polyfill prefix for d3.v5 | `JavaScriptEngine.cs` | d3.v5 is pure ES5, no transforms needed |
-
-**Goal state (J.3) — ACHIEVED ✅**
-
-PhaseG2-log.txt confirms:
-```
-[DIAG:SYS] post-exec d3=d3_defined
-[DIAG:EXEC] typeof d3.select = function
-[DIAG:EXEC] typeof d3.forceSimulation = function
-```
-
-Regex exceptions: 0 (was 15× in Phase G1).
-Nokia Archive page renders 1024×1024 Border.
-
----
-
-### Phase G — SVG Genesis (The Rendering Bridge) 🟡 IN PROGRESS
-
-> **Priority: 🔴 The core new work — Nokia Archive visual output**
-> **Effort: 1 session (G.2 partial) + 1 session (diagnosis + fix) + remaining work**
-> **Depends on:** Phase J ✅ — d3 initialized on UWP
-> **Note:** G.2 approach chosen over G.1 (no Skia, no SvgImageSource, live XAML)
-
-This phase was originally split into G.1 (SvgImageSource serialization) and G.2 (live XAML
-element mapping). **G.2 was implemented directly in Session 5.05** — SVG elements are
-rendered as native XAML shapes (Ellipse, Line, Path, TextBlock) inside a Canvas,
-integrated into the `VirtualizingRenderer`. This avoids the bitmap/re-render overhead of
-G.1 and enables future interactivity (Phase K).
-
-**Session 5.06 — D3 async SVG diagnosis + mutation bridge:**
-- ✅ D3 timeline SVG appears during repaint (not Phase 4) → async timing root cause identified
-- ✅ Path.Data frozen Geometry crash fixed: `CreateSvgPathGeometry` → `CreateSvgPathElement`
-- ✅ `addedNodes` list now populated (was always empty — mutations weren't tracked)
-- ✅ `IsSvgOrHasSvgAncestor` helper: detects SVG element or SVG descendant
-- ✅ SVG mutation forces `UpdateView()` instead of `PatchAdded` (correct XAML shapes)
-
-**Status as of Session 5.06:**
-- ✅ VirtualizingRenderer SVG element mapping (circle, line, path, text, g, rect, ellipse)
-- ✅ viewBox support via Viewbox wrapper, style cascade with fill/stroke inheritance
-- ✅ Path.Data crash workaround (XamlReader builds full Path, not extracted Geometry)
-- ✅ SVG mutation detection in incremental update pipeline
-- ✅ `TriggerDelayedSvgRefresh` — 400ms delay after Phase 4, SVG children check, full re-render
-- ✅ Build: 0 errors via VS 2026 Insiders MSBuild (x86 Debug)
-- ⬜ D3 force simulation tick → XAML property updates (cx/cy → Canvas.Left/Top)
-- ⬜ Deploy & test Nokia Archive on emulator
-
-#### G.1 — Fast Path: SVG DOM Serialization → SvgImageSource
-
-When D3 finishes building the SVG DOM tree in memory (via JsDomElement), serialize it
-to an SVG string and render it as a XAML `Image` with `SvgImageSource`. This gets you
-a visual in 1–2 sessions. It loses live interactivity but confirms the D3 data pipeline works.
-
-**Implementation:**
-
-```csharp
-// In DomBasicRenderer.cs or new SvgRenderer.cs
-
-/// <summary>Serialize a LiteElement SVG tree to an SVG string.</summary>
-private string SerializeSvgToString(LiteElement svgRoot)
-{
-    var sb = new StringBuilder();
-    SerializeNode(svgRoot, sb);
-    return sb.ToString();
-}
-
-private void SerializeNode(LiteElement el, StringBuilder sb)
-{
-    if (el == null) return;
-    sb.Append($"<{el.Tag}");
-    // Attributes
-    foreach (var (k, v) in el.Attributes)
-        sb.Append($" {XmlEscape(k)}=\"{XmlEscape(v)}\"");
-    // Inline styles (collected from JS setAttribute("style",...) calls)
-    var style = el.GetAttribute("style");
-    if (!string.IsNullOrEmpty(style))
-        sb.Append($" style=\"{XmlEscape(style)}\"");
-    if (el.Children.Count == 0 && string.IsNullOrEmpty(el.TextContent))
-    {
-        sb.Append("/>");
-        return;
-    }
-    sb.Append(">");
-    foreach (var child in el.Children)
-        SerializeNode(child, sb);
-    if (!string.IsNullOrEmpty(el.TextContent))
-        sb.Append(XmlEscape(el.TextContent));
-    sb.Append($"</{el.Tag}>");
-}
-
-// In DispatchTagAsync, after JS has run:
-case HtmlTag.Svg:
-    var svgString = SerializeSvgToString(n);
-    var image = new Image();
-    var svgSource = new SvgImageSource();
-    using (var stream = svgString.ToStream(Encoding.UTF8))
-        await svgSource.SetSourceAsync(stream.AsRandomAccessStream());
-    image.Source = svgSource;
-    image.Stretch = Stretch.Uniform;
-    return image;
-```
-
-**Trigger for re-render:** Subscribe to `MutationObserver` on the SVG root. When D3's
-force simulation ticks (updates `cx`, `cy` attributes), re-serialize and reload the
-`SvgImageSource`. Throttle to max 15fps to avoid Snapdragon overload.
-
-```csharp
-// Re-render throttle:
-private DateTime _lastSvgRender = DateTime.MinValue;
-private async void OnSvgMutation()
-{
-    if ((DateTime.UtcNow - _lastSvgRender).TotalMilliseconds < 67) return; // ~15fps
-    _lastSvgRender = DateTime.UtcNow;
-    await RenderSvgAsync(svgRoot, targetImage);
-}
-```
-
-**What you get from G.1:**
-- Nokia Archive network graph visible (nodes as colored circles, edges as lines)
-- Timeline view visible
-- Force simulation animates (SVG re-renders as nodes settle)
-- No click-on-node interaction yet (that's Phase K)
-
-This is likely "good enough" for the museum goal. A visitor can see the network,
-watch it settle, read the labels. They can't click nodes to expand them yet.
-
-#### G.2 — Full Path: SVG Element → XAML Element Mapping
-
-Replace the serialization+bitmap approach with live XAML elements. Each SVG element
-becomes a XAML element. D3 attribute changes directly update XAML properties. Enables
-true interactivity (hover, click) via the Phase K event bridge.
-
-**Element mapping table:**
-
-| SVG element | XAML element | Attribute mapping |
-|------------|--------------|-------------------|
-| `<svg>` | `Canvas` | width→Width, height→Height |
-| `<g>` | `Canvas` | transform→RenderTransform (TransformGroup) |
-| `<circle>` | `Ellipse` | cx-r→Canvas.Left, cy-r→Canvas.Top, 2r→Width/Height, fill→Fill, stroke→Stroke, stroke-width→StrokeThickness |
-| `<rect>` | `Rectangle` | x→Canvas.Left, y→Canvas.Top, width, height, rx→CornerRadius, fill, stroke |
-| `<line>` | `Line` | x1→X1, y1→Y1, x2→X2, y2→Y2, stroke→Stroke |
-| `<path>` | `Path` | d→Data (parse to PathGeometry), fill, stroke |
-| `<text>` | `TextBlock` | x→Canvas.Left, y→Canvas.Top, font-size, fill→Foreground, text-anchor→TextAlignment |
-| `<image>` | `Image` | href→Source, x, y, width, height |
-| `<polygon>` | `Polygon` | points→Points, fill, stroke |
-| `<polyline>` | `Polyline` | points→Points, stroke |
-| `<ellipse>` | `Ellipse` | cx-rx, cy-ry, fill, stroke |
-
-**Transform parsing:**
-
-```csharp
-// SvgRenderer.cs
-private Transform ParseSvgTransform(string transform)
-{
-    // "translate(x,y)" → TranslateTransform
-    // "rotate(angle)" → RotateTransform
-    // "scale(sx,sy)" → ScaleTransform
-    // "matrix(a,b,c,d,e,f)" → MatrixTransform
-    // Multiple: "translate(10,20) rotate(45)" → TransformGroup
-    var tg = new TransformGroup();
-    foreach (var fn in ParseTransformFunctions(transform))
-    {
-        tg.Children.Add(fn switch {
-            ("translate", var args) => new TranslateTransform { X = args[0], Y = args.Length > 1 ? args[1] : 0 },
-            ("rotate", var args)    => new RotateTransform { Angle = args[0] },
-            ("scale", var args)     => new ScaleTransform { ScaleX = args[0], ScaleY = args.Length > 1 ? args[1] : args[0] },
-            ("matrix", var args)    => new MatrixTransform { Matrix = new Matrix(args[0],args[1],args[2],args[3],args[4],args[5]) },
-            _ => null
-        });
-    }
-    return tg.Children.Count == 1 ? tg.Children[0] : tg;
-}
-```
-
-**Live attribute updates (the key advantage over G.1):**
-
-```csharp
-// JsDomElement — override SetAttribute for SVG elements
-public override void SetAttribute(string name, string value)
-{
-    base.SetAttribute(name, value);
-    // If this element has a live XAML counterpart, update it directly
-    if (_xamlElement != null)
-        SvgRenderer.UpdateXamlAttribute(_xamlElement, name, value);
-}
-```
-
-This means D3's force tick — which calls `.attr("cx", d.x).attr("cy", d.y)` on hundreds
-of circles — updates XAML directly without re-rendering the whole SVG.
-
-**D3 force simulation performance on Snapdragon 810:**
-
-The force simulation runs in NiL.JS (JavaScript), which is single-threaded and slow on ARM.
-Add a `d3.force` tick cap:
-
-```js
-// Injected before d3.js eval:
-window.__d3TickLimit = 300;  // max simulation ticks
-```
-
-Then intercept `simulation.tick()` calls via the existing JS eval wrapper to count and
-stop after the limit. This prevents the Snapdragon from running the simulation indefinitely.
-
----
-
-### Phase K — Kinetic Bridge (DOM Events → D3 Interactivity)
-
-> **Priority: 🟡 Medium — enables click-on-node interaction**
-> **Effort: 3–4 sessions**
-> **Depends on:** Phase G.2
-> **Note: Skip if G.1 is "good enough" for the museum goal**
-
-D3 registers events via `element.on("click", handler)` which calls `addEventListener`.
-The listener is stored in NiL.JS memory. Tapping a XAML element must fire that listener.
-
-**K.1 — Event dispatcher in JsDomElement**
-
-```csharp
-// JsDomElement.cs
-public void DispatchClickEvent(double clientX, double clientY)
-{
-    // Build a minimal MouseEvent-like object and call registered listeners
-    _engine.EnqueueMacroTask(() =>
-    {
-        var eventObj = BuildMouseEvent("click", clientX, clientY, this);
-        foreach (var listener in GetListeners("click"))
-            listener.Call(thisObj: this, args: new[] { eventObj });
-    });
-}
-
-private JSValue BuildMouseEvent(string type, double x, double y, JsDomElement target)
-{
-    // Return a JS object with the MouseEvent interface D3 expects:
-    // type, clientX, clientY, target, preventDefault(), stopPropagation()
-    return _engine.SafeEval($@"({{
-        type: '{type}',
-        clientX: {x},
-        clientY: {y},
-        pageX: {x},
-        pageY: {y},
-        target: __getElementById('{target.Id}'),
-        preventDefault: function(){{}},
-        stopPropagation: function(){{}}
-    }})");
-}
-```
-
-**K.2 — XAML event wiring**
-
-```csharp
-// In SvgRenderer.cs — when creating XAML element for a JsDomElement SVG node:
-if (el is Ellipse circle && domNode.HasEventListeners("click"))
-{
-    circle.PointerPressed += (s, e) => {
-        var pt = e.GetCurrentPoint(circle);
-        domNode.DispatchClickEvent(pt.Position.X, pt.Position.Y);
-    };
-    circle.Cursor = new CoreCursor(CoreCursorType.Hand, 0);
-}
-```
-
-**K.3 — Drag support for force simulation**
-
-D3 force simulation uses `d3.drag()` which listens for `mousedown`, `mousemove`, `mouseup`.
-On touch devices (Lumia), map `PointerPressed → mousedown`, `PointerMoved → mousemove`,
-`PointerReleased → mouseup`. The touch position becomes `clientX`/`clientY`.
-
-**K.4 — getBoundingClientRect with real values**
-
-```csharp
-// JsDomElement.cs
-public Rect GetBoundingClientRect()
-{
-    if (_xamlElement == null) return Rect.Empty;
-    // Must be called from UI thread after layout pass
-    return _xamlElement.TransformToVisual(null)
-        .TransformBounds(new Rect(0, 0, _xamlElement.ActualWidth, _xamlElement.ActualHeight));
-}
-```
-
-Wire this to the existing `getBoundingClientRect` host function stub.
-
----
-
-### Phase Z — Zero Hour (Nokia Archive Validation)
-
-> **Priority: 🟡 Final validation**
+> **Priority: 🔴 Critical — replace the unstable rendering pipeline**
 > **Effort: 1–2 sessions**
-> **Depends on:** Phase G (at minimum G.1)
+> **Depends on:** Nothing — we keep what works
 
-**Z.1 — Network view validation**
+**R.1 — Remove all SVG→XAML injection code**
 
-Navigate to `https://nokiadesignarchive.aalto.fi/`. Expected sequence:
-```
-[DIAG:SYS] post-exec d3=d3_defined
-[DIAG:EXEC] typeof d3.select = function
-[DIAG:SYS] force-exec: 1 entries, 1 declared
-[DIAG:RENDER] SVG node count: 700+
-[DIAG:RENDER] circle count: 700, line count: 1200+
-[DIAG:RENDER] SVG render: 1450ms (Snapdragon 810)
-```
+Remove or disable:
+- The `renderCode` block in `JavaScriptEngine.cs` (~line 3560) that builds SVG XML
+  for graph (circular layout) and timeline — clean up, no more `#plot.innerHTML`
+  or `#timeline.innerHTML` injections.
+- The SVG→XAML element mapping in `VirtualizingRenderer.cs` (circle→Ellipse,
+  line→Line, path→Path) — delete or flag as dead code.
+- `TriggerDelayedSvgExtractionAsync` and `TriggerDelayedSvgRefresh` — if still
+  referenced, remove.
+- The deduplication logic in `AppendSvgChild` — no longer needed.
+- Node limiting (`_maxNodes`, `_limitedIds`) — debug only, remove.
 
-**Z.2 — Timeline view**
+**R.2 — Verify base HTML/CSS rendering still works**
 
-Navigate to `https://nokiadesignarchive.aalto.fi/timeline.html`. The timeline uses
-`d3.scaleTime()` and renders horizontal bars. Same SVG pipeline applies.
+After removing SVG code, confirm the Nokia Archive home page still renders:
+- Header with logo and navigation links
+- Search box (text input)
+- Category cards (text + images)
+- Footer
 
-**Z.3 — Performance budget**
+The existing DomBasicRenderer and VirtualizingRenderer handle these already.
+No SVG code should be needed for the basic page.
 
-| Operation | Budget | Measurement |
-|-----------|--------|-------------|
-| d3.js eval (NiL.JS) | < 15s | `[DIAG:EXEC]` timestamps |
-| Force simulation (300 ticks) | < 30s | Tick counter |
-| SVG serialization (G.1) or XAML creation (G.2) | < 5s | Stopwatch |
-| Scroll/pan response | < 100ms | PointerMoved latency |
+**R.3 — Data remains accessible for future use**
 
-If simulation exceeds budget: reduce default tick count, or run simulation headlessly
-and render only the final settled state.
+Keep the data extraction code intact — it populates `window.__graphData` and
+related globals. This data can be used later by a Skia/MonoGame renderer or
+for server-side export. Mark it as "reserved for future renderer."
 
----
+### Phase S — Smartphone Adaptivity (card-based layout)
 
-## PART III — SUPPORTING INFRASTRUCTURE
+> **Priority: 🔴 Critical — must work on museum Lumia 640/950 with 1–3 GB RAM**
+> **Effort: 2–3 sessions**
+> **Depends on:** Phase R ✅ (clean slate)
 
-### NilJsTest Expansion
+**The core idea:** Instead of rendering a large SVG graph/timeline, present archive
+content as a stack of swipeable cards. Each card shows one piece of content (entry,
+story, keyword) with its name, description, and image. Navigation by swipe (touch)
+or pointer drag (mouse).
 
-The `NilJsTest` console harness (created in session 3.41) should grow alongside the
-main fixes. Add test cases for each phase:
-
-```
-Phase I: for-of over querySelectorAll result           → Assert: "DIV,DIV"
-Phase I: Array.from(querySelectorAll result).length    → Assert: 2
-Phase J: typeof d3.select                             → Assert: "function"
-Phase J: typeof d3.forceSimulation                    → Assert: "function"
-Phase G: SVG string contains <circle                  → Assert: true
-Phase G: SVG circle has cx attribute                  → Assert: true
-```
-
-Running `dotnet run -- --d3-test` (a new flag) should execute all 15+ assertions in
-under 10 seconds without UWP or emulator — a fast feedback loop that catches regressions
-before a full deploy.
-
-### Remaining CSS gap: `clamp()` / custom property scope
-
-These were in Plan 04 Phase C.4 and C.5 but may not have been implemented. Quick wins:
+**S.1 — Auto-detect smartphone**
 
 ```csharp
-// CssLoader.cs — TryPx extension
-if (value.StartsWith("clamp(") && value.EndsWith(")"))
+// In MainPage.xaml.cs or BrowserApi.cs
+bool IsNarrowViewport()
 {
-    var parts = SplitTopLevelCommas(value[6..^1]);
-    if (parts.Length == 3)
+    var bounds = ApplicationView.GetForCurrentView().VisibleBounds;
+    return bounds.Width < 600;
+}
+```
+
+Also check `Windows.System.Profile.AnalyticsInfo.VersionInfo.DeviceFamily`
+for `"Windows.Mobile"`.
+
+**S.2 — Card stack layout**
+
+Instead of rendering the full page HTML, intercept page load and build a card stack:
+
+```
+┌─────────────────────┐
+│ ← Archive            │  ← header with back button
+├─────────────────────┤
+│                     │
+│   [image]           │  ← media
+│                     │
+│   Entry Name        │  ← title
+│   ─────────────     │
+│   Description text  │  ← content
+│   that can scroll   │
+│   within the card   │
+│                     │
+│   🔗 Related links  │  ← tap handlers
+├─────────────────────┤
+│  ◀  ●  ●  ●  ▶     │  ← dots + prev/next
+└─────────────────────┘
+```
+
+**Implementation approach:**
+
+Option A (preferred): **HTML-only cards** — no XAML custom elements.
+Use the existing DomBasicRenderer to render each card as an HTML fragment
+with `<div>`, `<img>`, `<p>`, `<a>` tags. The renderer already handles these.
+Cards are stacked in a ScrollViewer with `SnapPointsType="MandatorySingle"`.
+
+Option B: **XAML native cards** — build a XAML `DataTemplate` with
+`Image`, `TextBlock`, `Button` for each card. More work but better performance.
+
+**S.3 — Swipe/click navigation**
+
+The ContentArea already has `ManipulationMode="TranslateX"` (MainPage.xaml:171).
+Wire it:
+
+```csharp
+// MainPage.xaml.cs
+private int _currentCardIndex = 0;
+private List<CardData> _cards;
+
+private void ContentArea_ManipulationCompleted(object sender, ManipulationCompletedEventArgs e)
+{
+    if (e.Cumulative.Translation.X < -50) // swipe left → next
+        NavigateCard(1);
+    else if (e.Cumulative.Translation.X > 50) // swipe right → prev
+        NavigateCard(-1);
+}
+
+private void NavigateCard(int delta)
+{
+    var newIndex = Math.Clamp(_currentCardIndex + delta, 0, _cards.Count - 1);
+    if (newIndex != _currentCardIndex)
     {
-        var min = TryPx(parts[0]) ?? 0;
-        var pref = TryPx(parts[1]) ?? min;
-        var max = TryPx(parts[2]) ?? pref;
-        return Math.Max(min, Math.Min(pref, max));
+        _currentCardIndex = newIndex;
+        RenderCurrentCard();
     }
 }
 ```
 
+Also support mouse: `PointerPressed` + `PointerMoved` + `PointerReleased`
+for drag detection when no touch screen.
+
+**S.4 — Card data from extracted globals**
+
+Use the data already on `window`:
+- `__entries` (722) — each has `id`, `name`, `type`, `description`, `image`
+- `__stories` (230) — narrative content with date ranges
+- `__keywords` (91) — tag-style entries with links
+- `__graphData.nodes` (755) — individual graph nodes with names and types
+
+Each becomes a card. Navigation follows the archive structure:
+- Start with a "hub" card showing main categories
+- Tap a category → show entries in that category
+- Each entry card shows name, image, description, related links
+
+**S.5 — Performance budget on Lumia 640/950**
+
+| Operation | Budget | Notes |
+|-----------|--------|-------|
+| Card render (HTML) | < 200ms | DomBasicRenderer creates 10–20 LiteElements |
+| Card render (XAML) | < 500ms | XAML elements + async image load |
+| Swipe response | < 50ms | Pointer/Manipluation event → card change |
+| Image load | < 2s | From nokiadesignarchive.aalto.fi over WiFi |
+| Memory per card | < 5 MB | One card at a time, destroy previous |
+
+### Phase T — Text-Image-Link Rendering (the default view)
+
+> **Priority: 🟡 High — replaces SVG graph for all viewports**
+> **Effort: 1 session**
+> **Depends on:** Phase R ✅
+
+Even on desktop (wide viewport), the SVG graph was never stable. Replace the
+"Network" view entirely with a clean text/image/link layout:
+
+**T.1 — Archive entry detail view**
+
+When user clicks/taps an entry link, render:
+- Entry name (large text, white)
+- Entry type badge (collection/story/entry, colored pill)
+- Description text (wrapped, readable font size)
+- Image(s) if available
+- Related entries as clickable links (from graph edges)
+- Date range if available
+
+**T.2 — Category index**
+
+Replace the graph visualization with a simple index:
+- Alphabetical or category-grouped list of entries
+- Each is a text link → opens detail view (T.1)
+- Search/filter on top
+
+**T.3 — Link handling**
+
+When a link is tapped:
+- If it's an internal archive URL → render as card (Phase S) or detail view (T.1)
+- If it's external → open in system browser via `await Launcher.LaunchUriAsync(uri)`
+- Graph data edges become "related entries" links
+
+### Phase U — Uplink Interface Cleanup
+
+> **Priority: 🟢 Nice-to-have before MVP**
+> **Effort: 1 session**
+> **Depends on:** Phases R + S ✅
+
+- Remove dead SVG→XAML code from codebase (or clearly mark as `[OBSOLETE]`)
+- Clean up diagnostics: remove `[DIAG:SVG]`, `[DIAG:TIMELINE-SVG]`, `[DIAG:REPAINT]` noise
+- Keep `[DIAG:DATA]`, `[DIAG:SYS]`, `[DIAG:ROUTE]` for ongoing debugging
+- Remove `_globalSvgRenderCount`, `_svgRenderGeneration`, `_dispatchCount` counters
+- Simplify `VirtualizingRenderer` — remove AppendSvgChild, dedup, SVG-specific mapping
+
 ---
 
-## PART IV — HONEST COMPLETION ASSESSMENT
+## PART III — FUTURE: SKIA/MONOGAME RENDERING (v1.0+)
 
-### What is realistically achievable?
+> **Priority: 🔵 Deferred to v1.0 planning**
+> **Effort: 4–6 sessions**
+> **Depends on:** MVP delivery + successful museum deployment
+
+For v1.0, when complex graph/timeline rendering is needed again:
+
+**Why Skia (recommended):**
+- `SkiaSharp` for UWP — NuGet package, well-maintained
+- Hardware-accelerated Canvas2D via GPU (Snapdragon Adreno)
+- Direct drawing: no SVG→XAML bridge needed
+- Touch/gesture support built-in
+- Can draw 700+ circles + 1600+ lines at 60fps
+
+**Why NOT SVG→XAML (recap):**
+- Architectural impedance mismatch (SVG attributes vs XAML properties)
+- Win SDK 15063 lacks modern UI capabilities
+- Content duplication on scroll — unfixable
+- HTML/CSS stack in DomBasicRenderer is fine for text UI, wrong for dynamic graphics
+
+**Migration path:**
+1. Add `SkiaSharp.Views.UWP` NuGet package
+2. Replace `#plot` div with `SKXamlCanvas`
+3. Port circular layout + line rendering to Skia `SKCanvas.DrawCircle`/`DrawLine`
+4. Add touch hit-testing for node interaction
+5. Port timeline layout to Skia bars
+6. Remove all SVG→XAML dead code
+
+---
+
+## PART IV — HONEST COMPLETION ASSESSMENT (REVISED)
 
 | Goal | Status | Estimate |
 |------|--------|----------|
-| **Nokia Archive: network graph visible (G.1 fast path)** | 🎯 Achievable | 2–4 weeks solo+AI |
-| Nokia Archive: fully interactive (click nodes, zoom) | 🟡 Stretch goal | +3–4 more weeks |
-| Nokia Archive Timeline view | 🎯 Achievable | same as network graph |
-| v1.0 museum-stable release (other sites, CSS, stability) | ✅ Already close | 1 more week |
-| Full ES2022 runtime (private fields, etc.) | ❌ Not planned | months |
+| **Nokia Archive: base page renders** | ✅ Done | Already works |
+| **Nokia Archive: text/image/link navigation** | 🎯 Achievable with SVG removal | 1–2 sessions |
+| **Smartphone adaptivity (card stack)** | 🎯 Achievable via DomBasicRenderer | 2–3 sessions |
+| **Archive data visible to user** | ✅ Done (extracted, on window) | Already works |
+| **Complex graph rendering** | ❌ Abandoned (Skia/MonoGame in v1) | v1.0+ |
+| **Timeline rendering** | ❌ Abandoned (Skia/MonoGame in v1) | v1.0+ |
+| **v0.57 MVP for museum** | 🎯 Achievable | **4–6 sessions** |
 
-**With AI programmer assistance (the proven workflow):**
+### Speed multiplier: removing SVG→XAML = removing the bug factory
 
-The four remaining hard tasks and their honest time costs:
+Every SVG→XAML bug fix created 2 more bugs. The code paths involved:
+- `CustomHtmlEngine.cs` (ScheduleRepaintFromJs, DispatchRepaintAsync)
+- `VirtualizingRenderer.cs` (AppendSvgChild, dedup, element mapping)
+- `JavaScriptEngine.cs` (renderCode, node limiting, layout)
+- `MainPage.xaml` (CacheMode gymnastics)
+- `MainPage.xaml.cs` (repaint guards, timing hacks)
 
-1. **Phase I (for-of fix):** 2–3 hours. Simple, mechanical, low risk. Do this next session.
-2. **Phase J (binary search to d3 calls):** 3–6 hours across 2 sessions. Methodical, not research.
-3. **Phase G.1 (SVG serialization):** 1–2 full sessions (~8–12 hours). First visual payoff.
-4. **Phase G.2 (XAML element mapping, optional):** 3–5 sessions if G.1 is not enough.
-
-**The moment you've been working toward is Phase G.1.** Everything from sessions 3.9 to 3.42 has been clearing the path to the moment when an SVG string is rendered and D3 data appears on a Lumia 950 screen.
-
-### The speed multiplier: agentic AI workflow
-
-Sessions 3.33–3.42 demonstrated a very effective pattern:
-- Write the diagnosis (1 session)
-- AI generates the code changes
-- Human builds and tests
-- Log analysis feeds the next diagnosis
-
-For Phase G specifically, this pattern works well because SVG→XAML mapping is mechanical
-(known input, known expected output) and the NilJsTest harness can verify each step
-without deploying to hardware.
-
-**Recommended workflow for Phase G:**
-
-```
-1. Write NilJsTest case: eval d3.select("body").append("svg").attr("width","400")
-2. Assert: the LiteElement tree contains a node with tag="svg" and attr width="400"
-3. Run test → it passes (the DOM creation path works via existing JsDomElement code)
-4. Then: write SvgRenderer.SerializeSvgToString(svgRoot)
-5. Assert: the output string contains "<svg width="400""
-6. Run test → fix → test
-7. Then: SvgImageSource.SetSourceAsync with the string
-8. Visual output confirms
-```
-
-You don't need the Lumia for steps 1–6. Only step 8 needs the emulator/device.
+**Removing this entire subsystem eliminates the primary source of instability.**
+The remaining DomBasicRenderer + VirtualizingRenderer (for text/images/links)
+has been stable for months of development.
 
 ---
 
-## PART V — RECOMMENDED SESSION SEQUENCE
+## PART V — REVISED SESSION SEQUENCE
 
 ```
-Session 5.03: Phase I fix + NilJsTest expansion (Vibe autopilot → manual build fix)
-              ✅ Phase I complete: 7 iteration tests pass
-              ✅ d3.v5/v4 working in NilJsTest (net8.0)
+Session 6.12b: Phase R — Remove SVG→XAML injection code
+                ✅ Strip renderCode from JavaScriptEngine.cs
+                ✅ Clean up dead SVG code paths
+                ✅ Verify base page still renders
+                ⬜
 
-Session 5.04: Phase J — Regex diagnosis + fix (this session)
-              ✅ Phase J complete: d3 initialized on UWP
-              ✅ RegexOptions.Compiled removed (netstandard1.4)
-              ✅ SafeEvalFast added
-              ✅ PhaseG2-log: d3.select = function, d3.forceSimulation = function
+Session 6.13: Phase S — Card stack for smartphone viewport
+                ⬜ Detect narrow viewport (<600px)
+                ⬜ Build card template in DomBasicRenderer
+                ⬜ Wire swipe navigation (ManipulationMode)
+                ⬜ Test on Lumia 950 emulator
 
-Session 5.05: Phase G.2 — SVG XAML elements in VirtualizingRenderer
-              ✅ circle→Ellipse, line→Line, path→Path, text→TextBlock, g→transform
-              ✅ rect, ellipse, viewBox, style cascade
-              ✅ VirtualizingRenderer integrated (no separate DomBasicRenderer path)
-              First test: timeline SVG appears with children=0 (async timing issue)
+Session 6.14: Phase T — Text/Image/Link detail views
+                ⬜ Entry detail page (from __entries data)
+                ⬜ Category index
+                ⬜ Related links from graph edges
+                ⬜ Internal/external link routing
 
-Session 5.06: Phase G.2 v2/v3 — SVG async diagnosis + mutation fix + delayed refresh
-              ✅ Path.Data frozen Geometry crash fixed
-              ✅ Two-SVG root cause: search icon in Phase 4, D3 timeline in repaint
-              ✅ SVG mutation detection: `IsSvgOrHasSvgAncestor` → force `UpdateView`
-              ✅ `addedNodes` population fix (was always empty)
-              ✅ `TriggerDelayedSvgRefresh` — 400ms post-Phase4 SVG child check
-              ✅ Build: 0 errors via VS 2026 Insiders MSBuild (x86)
-
-Session 5.07: Deploy UWP build → test on emulator with Nokia Archive
-              ✅ Forced D3 init attempts added
-              ✅ Fetch interceptor installed (captures usercentrics.eu only)
-              ❌ Timeline SVG stays empty — `_activeJs` null at delay time
-              ❌ No fetch calls for graph data captured
-              Key finding: JS engine not preserved after Phase 3
-
-Session 5.08: Static SVG injection test + D3 patch diagnosis
-              ✅ Static SVG via DOM methods renders via XAML pipeline
-              ✅ D3 patch (`PatchD3DomManipulation`) works — manual circle renders
-              ✅ G.1 `InjectSvgAsync` `RPC_E_WRONG_THREAD` diagnosed + fixed
-              ✅ SystemJS main-legacy (589KB) loads and executes via SafeEval
-              ✅ Two SVGs found: search-icon (251 chars) and empty timeline (55 chars)
-              ❌ No XMLHttpRequest in NiL.JS — D3 cannot load graph data
-              ❌ Timeline SVG (`<svg id="timeline"/>`) stays empty with children=0
-              ❌ No graph data in global scope after all delays
-              ❌ G.1 crashed with cross-thread exception (now fixed)
-              Key finding: Missing XHR is the root cause — D3 needs it for data
-
-Session 5.09: Add XMLHttpRequest stub + G.1 thread marshal fix
-               ✅ G.1 `BuildSvgImageAsync` → dispatcher marshalling via `TaskCompletionSource`
-               ⬜ Add minimal `XMLHttpRequest` constructor to `JavaScriptEngine.cs`
-               ⬜ Rebuild + deploy → check if timeline SVG now gets children
-               ⬜ If XHR enabled: graph renders via G.2 mutation detection
-               ⬜ If XHR still doesn't trigger data: search SystemJS chunk for embedded JSON
-
-Session 5.10: Deep chunk analysis — execute wrapping, route sim, Canvas discovery
-               ✅ System.register execute wrapped with `[DIAG:MOD]` START/END/FAIL tracing
-               ✅ Route detection + nav simulation — Network/Timeline links found, hash set, click dispatched
-               ✅ Expanded SearchChunkForGraphData — dumps 500/300/300 chars around nodes/links
-               ✅ Crash fix: `(e.message||e)` → static strings in catch blocks (`StringConcatenation.prep`)
-               ✅ Post-exec data diagnostics — checks `#plot`, `<canvas>`, large arrays on `window`
-               ✅ **Key insight: Graph uses Canvas 2D** (`N.clearRect/save/restore/translate/scale`)
-               ✅ **Data processing code revealed**: `If`/`Pf` closure vars, `t.push({id:e.id,...})`, `n.push({source:e,...})`
-               ❌ `#plot` stays empty (no Canvas created), `#timeline` stays empty (graph is Canvas, not SVG)
-               ❌ `execute()` returns `undefined` — module runs but D3 render path (`R(t,n)`) never called
-               ❌ No graph data in global scope — data is in module closure vars, not exposed globally
-               ⬜ Build + deploy with crash fix + new diagnostics
-
-Session 5.11: Fallback chunk injection analysis → PIVOT to real blocker
-               ✅ Simplified inject to `globalThis.__diagInjectRan='Y'` — inject never runs (dead code)
-               ✅ Tail dump shows 3 `}}}` = return+factory+register close, NOT execute body
-                ✅ **Real blocker resolved: `window.fetch` Promise chaining fixed**
-               ✅ Inject diagnostics CANCELLED — doesn't affect rendering
-                ✅ `window.fetch` now returns proper HostPromise; XHR stub works
-
-Session 5.12: Fix `window.fetch` Promise chaining — ✅ DONE
-                ✅ Added field `_e = this;` to JavaScriptEngine for engine-wide access
-                ✅ Restored `SubresourceAllowed` property + self-ref `_e` field
-                ✅ Made `ProcessPromiseHandlers` available in outer class (copy from JsMiniRunner)
-                ✅ Changed `JsMiniRunner.InvokeFunction` from `private` → `internal`
-                ✅ Fetch now returns proper `HostPromise` with correct `then`/`catch` handlers
-                ✅ XHR stub (fetch-based) is now functional for D3 data loading
-                ⬜ Verify: XHR stub can load data from nokiadesignarchive.aalto.fi
-                ⬜ If XHR returns data: D3 renders graph on Canvas → confirm visual output
-
-Session 6.11: **BREAKTHROUGH** — C# data extraction bypasses NiL.JS 589KB eval failure
-               ✅ **Core insight: NiL.JS cannot evaluate 589KB chunk at all**
-               ✅ SafeEval + SafeEvalFast both silently fail the chunk's System.register
-               ✅ All previous execute-body injections = dead code (never execute)
-               ✅ **Fix: C# string brace-counting extraction** — find `Kf=`, walk braces, extract literals
-               ✅ `window.Kf`, `window.wf`, `window.Cf`, `window.vf` set via small SafeEval calls
-               ✅ Sync graph builder runs as SafeEval using window.* globals
-               ✅ **Result: `__graphData` = 755 nodes + 1647 links** (confirmed in logs)
-               ✅ All raw data: `__entries` (722), `__stories` (230), `__keywords` (91), etc.
-               ❌ D3 canvas rendering still broken — original code waits on Promise chain
-               Key finding: bypass NiL.JS entirely for the large chunk; extract as C# strings
-               Files: `JavaScriptEngine.cs:3487-3562` (data extraction), `Summary_6_11.md`
-
-Session 6.12: Phase R — D3 Canvas Rendering with extracted __graphData
-               Goal: trigger D3 force simulation + canvas rendering using our data
-Session 5.14: Phase Z — Full Nokia Archive validation, perf tuning
-Session 5.15: v1.0 release preparation — changelog, README, GitHub release tag
+Session 6.15: Phase U — Cleanup + MVP polish
+                ⬜ Remove dead SVG code and diagnostics
+                ⬜ Performance tuning on Lumia 640 (1 GB)
+                ⬜ Final deploy test
 ```
 
 ---
 
-## PART VI — THE RETRO-FUTURISTIC POSTSCRIPT
+## PART VI — THE RETRO-FUTURISTIC POSTSCRIPT (REVISED)
 
 ```
-TRANSMISSION LOG — LUMIA UPLINK NODE  //  2026.06.07  //  UTC+03:00
+TRANSMISSION LOG — LUMIA UPLINK NODE  //  2026.06.12  //  UTC+03:00
 ──────────────────────────────────────────────────────────────────────
-The Lumia 950 was discontinued on October 8, 2019.
-The Nokia Design Archive opened to the public in 2023.
-MediaExplorer v0.55.0 achieved first D3.js rendered as live XAML shapes on UWP on 2026.06.07.
+The SVG→XAML bridge is dead. Long live the text.
 
-There is a kind of engineering that history books don't record:
-the solo builder who keeps going after the platform is dead.
-Who patches a parser at depth 300, rewrites a SystemJS loader,
-surgically removes RegexOptions.Compiled from line 74 of RegExp.cs
-so a phone from 2015 can run D3.js force simulations — not because
-anyone asked them to, but because the archive deserves a browser
-that understands it, and the Lumia deserves a final mission.
+We spent 18 sessions trying to force D3.js force simulations through
+a DOM stub that was never designed for it. The circles appeared,
+then doubled. The lines rendered, then vanished. Every scroll was a
+lottery. Every patch exposed two new cracks.
 
-The Nokia Design Archive contains 700+ entries representing 20 years
-of designs that were "both seen and unseen." The network graph is
-their map — relationships between concepts, designers, eras.
-Running D3.js v5 on NiL.JS 2.6 on a Snapdragon 810 to render that
-map: this is what retro-futurism actually looks like. Not chrome
-and neon, but a JavaScript engine debugged at line 74 of RegExp.cs
-so that a phone from 2015 can browse a museum about phones from 1995–2010.
+This is not failure. This is learning the hard way that a museum
+browser on a 2015 phone needs to know its limits.
 
-The for-of crash is fixed. The Regex crash is fixed.
-The Path.Data frozen Geometry crash is fixed.
-The `addedNodes` list is no longer a ghost.
-The `TriggerDelayedSvgRefresh` catches what the mutator misses.
-d3.select = function. d3.forceSimulation = function.
-Seven hundred entries wait for their circles — the bridge and the delay
-both have their backs. Test on emulator next.
+The data is extracted — 755 nodes, 1647 links, 722 entries, 230 stories.
+It sits in memory, waiting for a renderer that can do it justice.
+That renderer will come — SkiaSharp, hardware-accelerated, on a
+clean Canvas2D surface. But not today.
 
-Next action: sync → build → deploy → test Nokia Archive on emulator.
-The uplink awaits.
+Today, we make the archive readable. Text blocks. Images. Links.
+A card stack that a museum visitor can swipe through on a Lumia 640
+with one thumb. No circles. No force simulation. No SVG→XAML.
 
-STATUS: BUILD 0 ERR // INJECT DIAG CANCELLED — ✅ REAL BLOCKER RESOLVED: Promise chaining fixed
-NEXT: Verify XHR data loading via functional fetch stub, unlock D3 data, render graph on Canvas
-ETA: 1 SESSION
+The uplink continues. Just slower, lower, and more honest.
+
+STATUS: SVG BRIDGE ABANDONED // PIVOT TO TEXT/IMAGE/LINK RENDERER
+NEXT: Phase R — Strip SVG code → verify base page → card stack
+ETA: 1 SESSION TO CLEAN SLATE
 ──────────────────────────────────────────────────────────────────────
 ```
 
@@ -774,15 +427,13 @@ ETA: 1 SESSION
 
 ## Deployment  
 
-$ powershell -ExecutionPolicy Bypass -File "C:\Users\Admin\source\repos\!OpenCode\MediaExplorer\Src\MediaExplorer\DeployAndRun.ps1" -Platform x64 -SkipBuild -TimeoutSec 30 -Url "https://nokiadesignarchive.aalto.fi"
-
-
----
-
-*Plan v5.6 — 2026-06-08*
-*Based on: Plans 01–04, sessions 3.18–5.11, Summaries 5.01–5.11*
-*Build target: VS 2026 Insiders MSBuild. Platform: x86 (emulator) + ARM (Lumia 950)*
-*Next session: 6.12 — Phase R: D3 Canvas Rendering with extracted __graphData (755 nodes, 1647 links)*
+```
+powershell -ExecutionPolicy Bypass -File "Src\MediaExplorer\DeployAndRun.ps1" -Platform x64
+```
 
 ---
 
+*Plan v5.7 — 2026-06-12 — SVG→XAML BRIDGE ABANDONED*
+*Based on: Sessions 5.05–6.12, Summaries 5.05–6.12*
+*Build target: VS 2026 Insiders MSBuild. Platform: x64 (desktop) + ARM (Lumia 950)*
+*Next session: 6.12b — Phase R: Remove SVG→XAML, stabilize base page*

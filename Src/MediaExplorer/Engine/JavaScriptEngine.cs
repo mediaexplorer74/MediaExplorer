@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -77,6 +77,9 @@ namespace BrowserCore.Engine
         private static int _diagSkippedInlineScripts;
         // Per-hash failure debounce counter: record failures per script hash and only
         // mark as "bad" after reaching BadHashRecordThreshold to avoid false positives.
+        private static readonly Dictionary<string, object> _storedData = new Dictionary<string, object>();
+        public string GetStoredData(string key) { object v; return _storedData.TryGetValue(key, out v) ? v as string : null; }
+        public void ClearStoredData() { _storedData.Clear(); }
         private const int BadHashRecordThreshold = 2;
         // Persist observed bad hashes between runs (теперь json!):
         private const string BadHashStoreFile = "js_bad_hashes.json";
@@ -3368,6 +3371,18 @@ var promise = new JsMiniRunner.HostPromise { E = this, State = 0, Value = JsMini
                 }
                 return JSValue.Undefined;
             })));
+            // __storeData — host function to pass extracted JSON from JS to C# during script execution
+            _storedData.Clear();
+            _nil.DefineVariable("__storeData").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
+            {
+                if (args.Length >= 2 && args[0] != null && args[1] != null)
+                {
+                    var key = args[0].ToString();
+                    var val = args[1].ToString();
+                    try { _storedData[key] = val; } catch { }
+                }
+                return JSValue.Undefined;
+            })));
             _nil.DefineVariable("__sysImport").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
             {
                 if (args.Length == 0) return JSValue.Undefined;
@@ -3473,14 +3488,17 @@ globalThis.System = __sys;
                         // Leak inline data from the chunk to window.* BEFORE splitting, so
                         // that even if the SafeEvalFast fails, the data can be extracted post-hoc.
                         // Note: chunk uses bare `Kf={entries:[...]}` without `var` (minifier chain).
+                        // FIX: Use globalThis.* instead of window.* — HostWindow is a C# wrapper
+                        // that silently drops dynamic property assignments. globalThis is a native
+                        // NiL.JS object that supports arbitrary property storage.
                         try {
                             if (txt.Contains("Kf={entries:[") && txt.Contains("wf={collections:[")) {
-                                System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Leaking chunk data vars to window.* (sysImport path)");
-                                txt = txt.Replace("Kf={entries:[", "window.Kf={entries:[");
-                                txt = txt.Replace("wf={collections:[", "window.wf={collections:[");
-                                txt = txt.Replace("Cf={stories:[", "window.Cf={stories:[");
+                                System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Leaking chunk data vars to globalThis.* (sysImport path)");
+                                txt = txt.Replace("Kf={entries:[", "globalThis.Kf={entries:[");
+                                txt = txt.Replace("wf={collections:[", "globalThis.wf={collections:[");
+                                txt = txt.Replace("Cf={stories:[", "globalThis.Cf={stories:[");
                                 int vfIdx2 = txt.IndexOf("vf=[", StringComparison.Ordinal);
-                                if (vfIdx2 >= 0) { txt = txt.Substring(0, vfIdx2) + "window.vf=" + txt.Substring(vfIdx2 + 3); }
+                                if (vfIdx2 >= 0) { txt = txt.Substring(0, vfIdx2) + "globalThis.vf=" + txt.Substring(vfIdx2 + 3); }
                                 System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Data leak complete (sysImport path)");
                             }
                         } catch (Exception leakEx) { try { System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Data leak error: " + leakEx.GetType().Name + " - " + leakEx.Message); } catch { } }
@@ -3492,15 +3510,22 @@ globalThis.System = __sys;
                         // ---------------------------------------------------------------
                         try {
                             System.Diagnostics.Debug.WriteLine("[DIAG:DATA] Starting extraction from chunk text...");
-                            // Inline JS value extractor: finds prefix="varName=" or "window.varName="
-                            // and walks braces/brackets to the matching closer, skipping strings.
+                            // Inline JS value extractor: finds prefix="globalThis.varName=",
+                            // "window.varName=", or bare "varName=" and walks braces/brackets
+                            // to the matching closer, skipping strings.
                             Func<string, string, string> extractValue = (text, varName) => {
-                                bool hasWindow = false;
-                                int idx = text.IndexOf("window." + varName + "=");
-                                if (idx >= 0) { hasWindow = true; }
-                                else { idx = text.IndexOf(varName + "="); }
-                                if (idx < 0) return null;
-                                int start = hasWindow ? idx + varName.Length + 8 : idx + varName.Length + 1;
+                                int idx = text.IndexOf("globalThis." + varName + "=");
+                                int start;
+                                if (idx >= 0) { start = idx + varName.Length + 12; }
+                                else {
+                                    idx = text.IndexOf("window." + varName + "=");
+                                    if (idx >= 0) { start = idx + varName.Length + 8; }
+                                    else {
+                                        idx = text.IndexOf(varName + "=");
+                                        if (idx < 0) return null;
+                                        start = idx + varName.Length + 1;
+                                    }
+                                }
                                 if (start >= text.Length) return null;
                                 char first = text[start];
                                 if (first != '{' && first != '[') return null;
@@ -3523,16 +3548,17 @@ globalThis.System = __sys;
                                 " wf=" + (wfRaw != null ? (wfRaw.Length + "B") : "MISS") +
                                 " Cf=" + (cfRaw != null ? (cfRaw.Length + "B") : "MISS") +
                                 " vf=" + (vfRaw != null ? (vfRaw.Length + "B") : "MISS"));
-                            // Inject data into NiL.JS via SafeEval
-                            if (kfRaw != null) { sysEngine.SafeEval("window.Kf=" + kfRaw + ";"); System.Diagnostics.Debug.WriteLine("[DIAG:DATA] Kf injected"); }
-                            if (wfRaw != null) { sysEngine.SafeEval("window.wf=" + wfRaw + ";"); System.Diagnostics.Debug.WriteLine("[DIAG:DATA] wf injected"); }
-                            if (cfRaw != null) { sysEngine.SafeEval("window.Cf=" + cfRaw + ";"); System.Diagnostics.Debug.WriteLine("[DIAG:DATA] Cf injected"); }
-                            if (vfRaw != null) { sysEngine.SafeEval("window.vf=" + vfRaw + ";"); System.Diagnostics.Debug.WriteLine("[DIAG:DATA] vf injected"); }
+                            // Inject data into NiL.JS via SafeEval using globalThis (native JS object)
+                            // instead of window (C# HostWindow wrapper that drops dynamic props).
+                            if (kfRaw != null) { sysEngine.SafeEval("globalThis.Kf=" + kfRaw + ";"); System.Diagnostics.Debug.WriteLine("[DIAG:DATA] Kf injected"); }
+                            if (wfRaw != null) { sysEngine.SafeEval("globalThis.wf=" + wfRaw + ";"); System.Diagnostics.Debug.WriteLine("[DIAG:DATA] wf injected"); }
+                            if (cfRaw != null) { sysEngine.SafeEval("globalThis.Cf=" + cfRaw + ";"); System.Diagnostics.Debug.WriteLine("[DIAG:DATA] Cf injected"); }
+                            if (vfRaw != null) { sysEngine.SafeEval("globalThis.vf=" + vfRaw + ";"); System.Diagnostics.Debug.WriteLine("[DIAG:DATA] vf injected"); }
                             // Run sync graph builder once data is in NiL.JS
                             if (kfRaw != null && wfRaw != null) {
                                 string graphCode =
-                                "try{(function(){var __f=window.Kf.entries;if(!__f)return;" +
-                                "var __xf=window.wf.collections.map(function(c){return{id:c.id,name:c.title,description:c.blurb,theme:c.grouping,keywords:c.keywords}});" +
+                                "try{(function(){var __f=globalThis.Kf.entries;if(!__f)return;" +
+                                "var __xf=globalThis.wf.collections.map(function(c){return{id:c.id,name:c.title,description:c.blurb,theme:c.grouping,keywords:c.keywords}});" +
                                 "var __Pf={};__xf.forEach(function(c){__Pf[c.id]=c});" +
                                 "var __nodes=[],__links=[],__conns={};" +
                                 "__f.forEach(function(e){__nodes.push({id:e.id,name:e.title,start:e.start,file:e.file,type:'entry'});" +
@@ -3540,152 +3566,106 @@ globalThis.System = __sys;
                                 "__links.push({source:e,target:__Pf[cId]});if(!__conns[e.id])__conns[e.id]=[];__conns[e.id].push(cId);" +
                                 "if(!__conns[cId])__conns[cId]=[];__conns[cId].push(e.id)}})});" +
                                 "__xf.forEach(function(e){__nodes.push({id:e.id,name:e.title,theme:e.theme,type:'collection'})});" +
-                                "window.__graphData={nodes:__nodes,links:__links,nodeConnections:__conns};" +
-                                "if(typeof globalThis!=='undefined'&&globalThis.System)globalThis.System.__graphData=window.__graphData;" +
-                                "window.__entries=__f;window.__collections=window.wf.collections;window.__xf=__xf;window.__Pf=__Pf;" +
-                                "if(typeof window.Cf!=='undefined'){window.__stories=window.Cf.stories;window.__entriesWithDates=__f.filter(function(e){return e.start&&e.start.length>=5})}" +
-                                "if(typeof window.vf!=='undefined')window.__keywords=window.vf;" +
+                                "globalThis.__graphData={nodes:__nodes,links:__links,nodeConnections:__conns};" +
+                                "if(typeof globalThis!=='undefined'&&globalThis.System)globalThis.System.__graphData=globalThis.__graphData;" +
+                                "globalThis.__entries=__f;globalThis.__collections=globalThis.wf.collections;globalThis.__xf=__xf;globalThis.__Pf=__Pf;" +
+                                "if(typeof globalThis.Cf!=='undefined'){globalThis.__stories=globalThis.Cf.stories;globalThis.__entriesWithDates=__f.filter(function(e){return e.start&&e.start.length>=5})}" +
+                                "if(typeof globalThis.vf!=='undefined')globalThis.__keywords=globalThis.vf;" +
                                 "if(typeof __diagLog==='function')__diagLog('[DIAG:DATA] graphBuilder done nodes='+__nodes.length+' links='+__links.length);" +
                                 "})();}catch(e){try{if(typeof __diagLog==='function')__diagLog('[DIAG:DATA] graphErr '+(e.message||e))}catch(ee){}}";
                                 sysEngine.SafeEval(graphCode);
                                 System.Diagnostics.Debug.WriteLine("[DIAG:DATA] Graph builder executed");
                             }
+                            // C#-only data storage: Extract entries/collections/stories from the
+                            // raw JS literals and store directly in _storedData. This bypasses
+                            // NiL.JS JSON.stringify which times out on large arrays (722 entries).
+                            try {
+                                Func<string, string, string> extractSubArray = (objLiteral, key) => {
+                                    var keyStr = key + ":[";
+                                    int idx = objLiteral.IndexOf(keyStr);
+                                    if (idx < 0) return null;
+                                    int start = idx + keyStr.Length - 1;
+                                    int depth = 1, pos = start + 1;
+                                    while (pos < objLiteral.Length && depth > 0) {
+                                        char c = objLiteral[pos];
+                                        if (c == '"') { pos++; while (pos < objLiteral.Length && objLiteral[pos] != '"') { if (objLiteral[pos] == '\\') pos++; pos++; } if (pos < objLiteral.Length) pos++; continue; }
+                                        if (c == '\'') { pos++; while (pos < objLiteral.Length && objLiteral[pos] != '\'') { if (objLiteral[pos] == '\\') pos++; pos++; } if (pos < objLiteral.Length) pos++; continue; }
+                                        if (c == '{' || c == '[') depth++;
+                                        else if (c == '}' || c == ']') { depth--; if (depth == 0) return objLiteral.Substring(start, pos - start + 1); }
+                                        pos++;
+                                    }
+                                    return null;
+                                };
+                                // Quote unquoted JS keys: turns {id:"x"} into {"id":"x"}
+                                Func<string, string> quoteJsKeys = (s) => {
+                                    if (string.IsNullOrEmpty(s)) return s;
+                                    var sb = new System.Text.StringBuilder(s.Length + s.Length / 4);
+                                    bool inStr = false; char strCh = '\0';
+                                    for (int i = 0; i < s.Length; i++) {
+                                        char c = s[i];
+                                        if (inStr) {
+                                            sb.Append(c);
+                                            if (c == '\\') { i++; if (i < s.Length) sb.Append(s[i]); }
+                                            else if (c == strCh) inStr = false;
+                                            continue;
+                                        }
+                                        if (c == '"' || c == '\'') { inStr = true; strCh = c; sb.Append('"'); continue; }
+                                        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '$') {
+                                            int start = i;
+                                            while (i < s.Length && ((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= '0' && s[i] <= '9') || s[i] == '_' || s[i] == '$')) i++;
+                                            int end = i; int j = end;
+                                            while (j < s.Length && s[j] == ' ') j++;
+                                            if (j < s.Length && s[j] == ':') { sb.Append('"'); sb.Append(s, start, end - start); sb.Append('"'); }
+                                            else { sb.Append(s, start, end - start); }
+                                            i = end - 1; continue;
+                                        }
+                                        sb.Append(c);
+                                    }
+                                    return sb.ToString();
+                                };
+                                if (kfRaw != null) {
+                                    string entriesArr = extractSubArray(kfRaw, "entries");
+                                    if (entriesArr != null) {
+                                        _storedData["__entries"] = quoteJsKeys(entriesArr);
+                                        System.Diagnostics.Debug.WriteLine("[DIAG:DATA] _storedData[__entries] set via C# extraction (" + entriesArr.Length + "B)");
+                                        DevToolsLogger.Log("[DIAG:DATA] _storedData[__entries] set via C# extraction (" + entriesArr.Length + "B)");
+                                    }
+                                }
+                                if (wfRaw != null) {
+                                    string colsArr = extractSubArray(wfRaw, "collections");
+                                    if (colsArr != null) {
+                                        _storedData["__collections"] = quoteJsKeys(colsArr);
+                                        System.Diagnostics.Debug.WriteLine("[DIAG:DATA] _storedData[__collections] set via C# extraction (" + colsArr.Length + "B)");
+                                        DevToolsLogger.Log("[DIAG:DATA] _storedData[__collections] set via C# extraction (" + colsArr.Length + "B)");
+                                    }
+                                }
+                                if (cfRaw != null) {
+                                    string storiesArr = extractSubArray(cfRaw, "stories");
+                                    if (storiesArr != null) {
+                                        _storedData["__stories"] = quoteJsKeys(storiesArr);
+                                        System.Diagnostics.Debug.WriteLine("[DIAG:DATA] _storedData[__stories] set via C# extraction (" + storiesArr.Length + "B)");
+                                        DevToolsLogger.Log("[DIAG:DATA] _storedData[__stories] set via C# extraction (" + storiesArr.Length + "B)");
+                                    }
+                                }
+                            } catch (Exception csEx) {
+                                System.Diagnostics.Debug.WriteLine("[DIAG:DATA] C# extraction error: " + csEx.GetType().Name + " - " + csEx.Message);
+                                DevToolsLogger.Log("[DIAG:DATA] C# extraction error: " + csEx.GetType().Name);
+                            }
                             // Verify
                             try {
-                                var gd = sysEngine.SafeEval("typeof window.__graphData !== 'undefined' ? ('nodes='+window.__graphData.nodes.length+' links='+window.__graphData.links.length) : 'missing'");
+                                var gd = sysEngine.SafeEval("typeof globalThis.__graphData !== 'undefined' ? ('nodes='+globalThis.__graphData.nodes.length+' links='+globalThis.__graphData.links.length) : 'missing'");
                                 System.Diagnostics.Debug.WriteLine("[DIAG:DATA] __graphData = " + (gd?.ToString() ?? "null"));
                                 DevToolsLogger.Log("[DIAG:DATA] __graphData=" + (gd?.ToString() ?? "null"));
                             } catch { }
-                            // SVG rendering: manual force-directed layout + SVG via innerHTML
+                            // SVG rendering: ABANDONED — SVG→XAML bridge was unstable
+                            // (content doubling on scroll, architectural mismatch, Win SDK 15063 limits).
+                            // Data is available for future Skia renderer at v1.0+.
                             try {
-                                string renderCode = @"
-try {
-    var gd = window.__graphData;
-    if (!gd || !gd.nodes || !gd.links) { __diagLog('[DIAG:SVG] no data'); }
-    else {
-        __diagLog('[DIAG:SVG] render ' + gd.nodes.length + 'n ' + gd.links.length + 'l');
-        // Build a node map by id
-        var _nodeMap = {};
-        for (var _i = 0; _i < gd.nodes.length; _i++) { _nodeMap[gd.nodes[_i].id] = gd.nodes[_i]; }
-        // Resolve link source/target to actual node objects (handles both object refs and string IDs)
-        if (gd.links.length > 0) {
-            var _l0raw = gd.links[0];
-            __diagLog('[DIAG:SVG] raw link[0] srcType=' + (typeof _l0raw.source) + ' tgtType=' + (typeof _l0raw.target) + ' srcVal=' + (typeof _l0raw.source === 'object' ? (_l0raw.source ? _l0raw.source.id : 'nullObj') : String(_l0raw.source)) + ' tgtVal=' + (typeof _l0raw.target === 'object' ? (_l0raw.target ? _l0raw.target.id : 'nullObj') : String(_l0raw.target)));
-        }
-        for (var _i = 0; _i < gd.links.length; _i++) {
-            var _l = gd.links[_i];
-            var _src = (typeof _l.source === 'object' && _l.source) ? _l.source.id : _l.source;
-            var _tgt = (typeof _l.target === 'object' && _l.target) ? _l.target.id : _l.target;
-            _l.source = _nodeMap[_src] || (typeof _l.source === 'object' ? _l.source : null);
-            _l.target = _nodeMap[_tgt] || (typeof _l.target === 'object' ? _l.target : null);
-        }
-        __diagLog('[DIAG:SVG] links resolved');
-        if (gd.links.length > 0) {
-            var _l0 = gd.links[0];
-            __diagLog('[DIAG:SVG] resolved link[0] srcType=' + (typeof _l0.source) + ' tgtType=' + (typeof _l0.target) + ' srcId=' + (_l0.source ? _l0.source.id : 'null') + ' tgtId=' + (_l0.target ? _l0.target.id : 'null'));
-        }
-        // Select top 200 nodes by degree centrality
-        var _degree = {};
-        for (var _d = 0; _d < gd.links.length; _d++) {
-            var _l = gd.links[_d];
-            var _sid = (typeof _l.source === 'object' && _l.source) ? _l.source.id : _l.source;
-            var _tid = (typeof _l.target === 'object' && _l.target) ? _l.target.id : _l.target;
-            _degree[_sid] = (_degree[_sid] || 0) + 1;
-            _degree[_tid] = (_degree[_tid] || 0) + 1;
-        }
-        gd.nodes.sort(function(_a,_b) { return (_degree[_b.id] || 0) - (_degree[_a.id] || 0); });
-        __diagLog('[DIAG:SVG] top degree node=' + gd.nodes[0].id + ' deg=' + (_degree[gd.nodes[0].id] || 0));
-        var _maxNodes = Math.min(gd.nodes.length, 200);
-        var _limitedIds = {};
-        for (var _li = 0; _li < _maxNodes; _li++) { _limitedIds[gd.nodes[_li].id] = true; }
-        __diagLog('[DIAG:SVG] limited to ' + _maxNodes + ' nodes');
-        // Circular layout: place LIMITED nodes on a full circle
-        var _cx = 400, _cy = 300, _radius = 250;
-        for (var _i = 0; _i < _maxNodes; _i++) {
-            var _angle = (_i / _maxNodes) * 2 * Math.PI;
-            gd.nodes[_i].x = _cx + _radius * Math.cos(_angle);
-            gd.nodes[_i].y = _cy + _radius * Math.sin(_angle);
-        }
-        __diagLog('[DIAG:SVG] layout done on ' + _maxNodes + ' nodes');
-        // Check node positions
-        var _validNodes = 0, _nanNodes = 0;
-        for (var _i2 = 0; _i2 < _maxNodes; _i2++) {
-            var _n = gd.nodes[_i2];
-            if (typeof _n.x === 'number' && isFinite(_n.x) && typeof _n.y === 'number' && isFinite(_n.y)) _validNodes++;
-            else _nanNodes++;
-        }
-        __diagLog('[DIAG:SVG] validNodes=' + _validNodes + ' nanNodes=' + _nanNodes);
-        if (_maxNodes > 0) {
-            var _n0 = gd.nodes[0];
-            __diagLog('[DIAG:SVG] node[0] id=' + _n0.id + ' x=' + _n0.x + ' y=' + _n0.y + ' type=' + (_n0.type || '?'));
-        }
-        // Rebuild _nodeMap after sort so link resolution still works
-        var _nodeMap = {};
-        for (var _i = 0; _i < gd.nodes.length; _i++) { _nodeMap[gd.nodes[_i].id] = gd.nodes[_i]; }
-        // Re-resolve links with updated _nodeMap
-        for (var _i = 0; _i < gd.links.length; _i++) {
-            var _l = gd.links[_i];
-            var _src2 = (typeof _l.source === 'object' && _l.source) ? _l.source.id : _l.source;
-            var _tgt2 = (typeof _l.target === 'object' && _l.target) ? _l.target.id : _l.target;
-            _l.source = _nodeMap[_src2] || null;
-            _l.target = _nodeMap[_tgt2] || null;
-        }
-        __diagLog('[DIAG:SVG] re-resolved ' + gd.links.length + ' links');
-// Build SVG XML string
-         function svgNum(v) { return (typeof v === 'number' && isFinite(v)) ? Math.round(v * 10) / 10 : 0; }
-         var xml = '<svg xmlns=""http://www.w3.org/2000/svg"" width=""800"" height=""600"" viewBox=""0 0 800 600"">';
-         // Dark background for visibility
-         xml += '<rect width=""800"" height=""600"" fill=""#1a1a2e""/>';
-         // Links as lines (only if both ends in limited set)
-        xml += '<g stroke=""rgba(150,150,150,0.3)"" stroke-width=""1"">';
-        var _linkCount = 0, _linkBothIn = 0, _linkWithPos = 0;
-        for (var i = 0; i < gd.links.length; i++) {
-            var s = gd.links[i].source, t = gd.links[i].target;
-            if (typeof s === 'string') s = _nodeMap[s];
-            if (typeof t === 'string') t = _nodeMap[t];
-            _linkCount++;
-            if (s && t && _limitedIds[s.id] && _limitedIds[t.id]) _linkBothIn++;
-            if (s && t && typeof s.x === 'number' && typeof t.x === 'number' && _limitedIds[s.id] && _limitedIds[t.id]) {
-                _linkWithPos++;
-                xml += '<line x1=""' + svgNum(s.x) + '"" y1=""' + svgNum(s.y) + '"" x2=""' + svgNum(t.x) + '"" y2=""' + svgNum(t.y) + '""/>';
-            }
-        }
-        __diagLog('[DIAG:SVG] links total=' + _linkCount + ' bothIn=' + _linkBothIn + ' withPos=' + _linkWithPos);
-        if (_linkCount > 0 && _linkWithPos === 0) {
-            var _l0 = gd.links[0];
-            __diagLog('[DIAG:SVG] sample link source=' + (typeof _l0.source) + ' t=' + (typeof _l0.target) + ' sId=' + (_l0.source ? _l0.source.id : 'null') + ' tId=' + (_l0.target ? _l0.target.id : 'null') + ' sIn=' + (_l0.source && _limitedIds[_l0.source.id]) + ' tIn=' + (_l0.target && _limitedIds[_l0.target.id]) + ' sHasX=' + (typeof (_l0.source && _l0.source.x)));
-        }
-        xml += '</g>';
-        // Nodes as circles (limited set)
-        xml += '<g>';
-        for (var i = 0; i < _maxNodes; i++) {
-            var n = gd.nodes[i];
-            var color = n.type === 'collection' ? '#ff6b6b' : '#4ecdc4';
-            var r = n.type === 'collection' ? 6 : 4;
-            var _nm = (n.name || '').replace(/""/g, '&quot;');
-            xml += '<circle cx=""' + svgNum(n.x) + '"" cy=""' + svgNum(n.y) + '"" r=""' + r + '"" fill=""' + color + '"" stroke=""#fff"" stroke-width=""1"" data-id=""' + n.id + '"" data-name=""' + _nm + '"" data-type=""' + (n.type || '') + '""/>';
-        }
-        xml += '</g></svg>';
-        __diagLog('[DIAG:SVG] xml len=' + xml.length);
-        __diagLog('[DIAG:SVG] xml start: ' + xml.substring(0,200));
-        // Inject via innerHTML
-        var plot = document.getElementById('plot');
-        if (plot) {
-            plot.innerHTML = xml;
-            __diagLog('[DIAG:SVG] innerHTML injected');
-        } else {
-            __diagLog('[DIAG:SVG] no plot');
-        }
-    }
-} catch(_e) {
-    __diagLog('[DIAG:SVG] err ' + (typeof _e === 'object' ? (String(_e) || typeof _e) : String(_e)));
-}";
-sysEngine.SafeEval(renderCode);
-                             } catch (Exception renderEx) {
-                                 DevToolsLogger.Log("[DIAG:SVG] Injection error: " + renderEx.GetType().Name + " - " + (renderEx.Message ?? ""));
-                             }
-                             // Timeline SVG rendering: DISABLED for debugging
-                             try { System.Diagnostics.Debug.WriteLine("[DIAG:TIMELINE-SVG] skipped (disabled for debug)"); } catch { }
+                                string diagCode = "if(typeof __diagLog==='function'){var _gd=globalThis.__graphData;__diagLog('[DIAG:CARD] graphData available nodes='+(_gd?_gd.nodes.length:'no')+' links='+(_gd?_gd.links.length:'no'));var _en=globalThis.__entries;__diagLog('[DIAG:CARD] entries='+(_en?_en.length:'no')+' stories='+(globalThis.__stories?globalThis.__stories.length:'no'));}";
+                                sysEngine.SafeEval(diagCode);
+                            } catch (Exception diagEx) {
+                                DevToolsLogger.Log("[DIAG:CARD] Diag error: " + diagEx.GetType().Name);
+                            }
                          } catch (Exception dataEx) {
                             System.Diagnostics.Debug.WriteLine("[DIAG:DATA] Extraction error: " + dataEx.GetType().Name + " - " + (dataEx.Message ?? ""));
                             DevToolsLogger.Log("[DIAG:DATA] Extraction error: " + dataEx.GetType().Name + " - " + (dataEx.Message ?? ""));
@@ -3856,7 +3836,7 @@ sysEngine.SafeEval(renderCode);
                                         System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] call Contains execute:function but IndexOf returned -1!");
                                     }
                                 }
-                                string injectCode = ";try{globalThis.__diagInjectRan=true;var __dl=typeof __diagLog==='function'?__diagLog:function(){};var wKf=window.Kf,wWf=window.wf,wCf=window.Cf,wVf=window.vf;if(typeof wKf!=='undefined'&&typeof wWf!=='undefined'){var __f=wKf.entries;var __xf=wWf.collections.map(function(c){return{id:c.id,name:c.title,description:c.blurb,theme:c.grouping,keywords:c.keywords}});var __Pf={};__xf.forEach(function(c){__Pf[c.id]=c});var __nodes=[],__links=[],__conns={};__f.forEach(function(e){__nodes.push({id:e.id,name:e.title,start:e.start,file:e.file,type:'entry'});(e.collections||[]).forEach(function(cId){if(cId!=='C0030'&&cId[0]!=='K'&&__Pf[cId]){__links.push({source:e,target:__Pf[cId]});if(!__conns[e.id])__conns[e.id]=[];__conns[e.id].push(cId);if(!__conns[cId])__conns[cId]=[];__conns[cId].push(e.id)}})});__xf.forEach(function(e){__nodes.push({id:e.id,name:e.title,theme:e.theme,type:'collection'})});window.__graphData={nodes:__nodes,links:__links,nodeConnections:__conns};if(typeof globalThis!=='undefined'&&globalThis.System)globalThis.System.__graphData=window.__graphData;window.__entries=__f;window.__collections=wWf.collections;window.__xf=__xf;window.__Pf=__Pf;if(typeof wCf!=='undefined'){window.__stories=wCf.stories;window.__entriesWithDates=__f.filter(function(e){return e.start&&e.start.length>=5})}if(typeof wVf!=='undefined')window.__keywords=wVf;__dl('INJECT_RAN nodes='+__nodes.length+' links='+__links.length+' entries='+__f.length)}else{__dl('INJECT_RAN no Kf/wf')}}catch(e){try{var __dl2=typeof __diagLog==='function'?__diagLog:function(){};__dl2('INJECT_ERR '+(e&&e.message||e))}catch(ee){}}";
+                                string injectCode = ";try{globalThis.__diagInjectRan=true;var __dl=typeof __diagLog==='function'?__diagLog:function(){};var wKf=globalThis.Kf,wWf=globalThis.wf,wCf=globalThis.Cf,wVf=globalThis.vf;if(typeof wKf!=='undefined'&&typeof wWf!=='undefined'){var __f=wKf.entries;var __xf=wWf.collections.map(function(c){return{id:c.id,name:c.title,description:c.blurb,theme:c.grouping,keywords:c.keywords}});var __Pf={};__xf.forEach(function(c){__Pf[c.id]=c});var __nodes=[],__links=[],__conns={};__f.forEach(function(e){__nodes.push({id:e.id,name:e.title,start:e.start,file:e.file,type:'entry'});(e.collections||[]).forEach(function(cId){if(cId!=='C0030'&&cId[0]!=='K'&&__Pf[cId]){__links.push({source:e,target:__Pf[cId]});if(!__conns[e.id])__conns[e.id]=[];__conns[e.id].push(cId);if(!__conns[cId])__conns[cId]=[];__conns[cId].push(e.id)}})});__xf.forEach(function(e){__nodes.push({id:e.id,name:e.title,theme:e.theme,type:'collection'})});globalThis.__graphData={nodes:__nodes,links:__links,nodeConnections:__conns};if(typeof globalThis!=='undefined'&&globalThis.System)globalThis.System.__graphData=globalThis.__graphData;globalThis.__entries=__f;globalThis.__collections=wWf.collections;globalThis.__xf=__xf;globalThis.__Pf=__Pf;if(typeof wCf!=='undefined'){globalThis.__stories=wCf.stories;globalThis.__entriesWithDates=__f.filter(function(e){return e.start&&e.start.length>=5})}if(typeof wVf!=='undefined')globalThis.__keywords=wVf;try{if(typeof __storeData==='function'){}}catch(_sd){}__dl('INJECT_RAN nodes='+__nodes.length+' links='+__links.length+' entries='+__f.length)}else{__dl('INJECT_RAN no Kf/wf')}}catch(e){try{var __dl2=typeof __diagLog==='function'?__diagLog:function(){};__dl2('INJECT_ERR '+(e&&e.message||e))}catch(ee){}}";
                                 bool injected = false;
                                 if (execStart >= 0) {
                                     try { sysEngine.SafeEval("__diagLog('[DIAG:INJECT] Found exec prefix at " + execStart + " call#" + sysCallIdx + "')"); } catch { }
@@ -4011,19 +3991,19 @@ sysEngine.SafeEval(renderCode);
                         try { var rAF = sysEngine.SafeEval("typeof requestAnimationFrame"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] typeof requestAnimationFrame=" + (rAF?.ToString() ?? "null")); } catch { }
                         try { var cIC = sysEngine.SafeEval("typeof setInterval"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] typeof setInterval=" + (cIC?.ToString() ?? "null")); } catch { }
                         // Test if setTimeout actually fires: schedule a timer, flush microtasks, check flag
-                        try { sysEngine.SafeEval("window.__timerFlag=false;setTimeout(function(){window.__timerFlag=true},1)"); } catch { }
+                        try { sysEngine.SafeEval("globalThis.__timerFlag=false;setTimeout(function(){globalThis.__timerFlag=true},1)"); } catch { }
                         try { sysEngine.FlushMicrotasks(); } catch { }
-                        try { var stResult = sysEngine.SafeEval("window.__timerFlag ? 'fired' : 'pending'"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] setTimeout fired=" + (stResult?.ToString() ?? "null")); } catch { }
+                        try { var stResult = sysEngine.SafeEval("globalThis.__timerFlag ? 'fired' : 'pending'"); System.Diagnostics.Debug.WriteLine("[DIAG:JS] setTimeout fired=" + (stResult?.ToString() ?? "null")); } catch { }
                         // Check System.__graphData set by injected code
                         try { var gd = sysEngine.SafeEval("(function(){var g=globalThis.System&&globalThis.System.__graphData;if(!g)return'no_graphData';return'graphData nodes='+(g.nodes?g.nodes.length:0)+' links='+(g.links?g.links.length:0);})()"); DevToolsLogger.Log("[DIAG:DATA] System.__graphData=" + (gd?.ToString() ?? "null")); } catch { }
-                        // Also check window.__graphData
-                        try { var wgd = sysEngine.SafeEval("typeof window.__graphData !== 'undefined' ? 'window.__graphData='+(window.__graphData.nodes?window.__graphData.nodes.length:0)+'/'+(window.__graphData.links?window.__graphData.links.length:0) : 'undefined'"); DevToolsLogger.Log("[DIAG:DATA] " + (wgd?.ToString() ?? "null")); } catch { }
+                        // Also check globalThis.__graphData
+                        try { var wgd = sysEngine.SafeEval("typeof globalThis.__graphData !== 'undefined' ? 'globalThis.__graphData='+(globalThis.__graphData.nodes?globalThis.__graphData.nodes.length:0)+'/'+(globalThis.__graphData.links?globalThis.__graphData.links.length:0) : 'undefined'"); DevToolsLogger.Log("[DIAG:DATA] " + (wgd?.ToString() ?? "null")); } catch { }
                         // Check raw data fields set by sync graph builder
-                        try { var ent = sysEngine.SafeEval("typeof window.__entries !== 'undefined' ? '__entries='+window.__entries.length : 'no_entries'"); DevToolsLogger.Log("[DIAG:DATA] " + (ent?.ToString() ?? "null")); } catch { }
-                        try { var ewd = sysEngine.SafeEval("typeof window.__entriesWithDates !== 'undefined' ? '__entriesWithDates='+window.__entriesWithDates.length : 'no_ewd'"); DevToolsLogger.Log("[DIAG:DATA] " + (ewd?.ToString() ?? "null")); } catch { }
-                        try { var st = sysEngine.SafeEval("typeof window.__stories !== 'undefined' ? '__stories='+window.__stories.length : 'no_stories'"); DevToolsLogger.Log("[DIAG:DATA] " + (st?.ToString() ?? "null")); } catch { }
-                        try { var kw = sysEngine.SafeEval("typeof window.__keywords !== 'undefined' ? '__keywords='+window.__keywords.length : 'no_keywords'"); DevToolsLogger.Log("[DIAG:DATA] " + (kw?.ToString() ?? "null")); } catch { }
-                        try { var pf = sysEngine.SafeEval("typeof window.__Pf !== 'undefined' ? '__Pf='+Object.keys(window.__Pf).length : 'no_Pf'"); DevToolsLogger.Log("[DIAG:DATA] " + (pf?.ToString() ?? "null")); } catch { }
+                        try { var ent = sysEngine.SafeEval("typeof globalThis.__entries !== 'undefined' ? '__entries='+globalThis.__entries.length : 'no_entries'"); DevToolsLogger.Log("[DIAG:DATA] " + (ent?.ToString() ?? "null")); } catch { }
+                        try { var ewd = sysEngine.SafeEval("typeof globalThis.__entriesWithDates !== 'undefined' ? '__entriesWithDates='+globalThis.__entriesWithDates.length : 'no_ewd'"); DevToolsLogger.Log("[DIAG:DATA] " + (ewd?.ToString() ?? "null")); } catch { }
+                        try { var st = sysEngine.SafeEval("typeof globalThis.__stories !== 'undefined' ? '__stories='+globalThis.__stories.length : 'no_stories'"); DevToolsLogger.Log("[DIAG:DATA] " + (st?.ToString() ?? "null")); } catch { }
+                        try { var kw = sysEngine.SafeEval("typeof globalThis.__keywords !== 'undefined' ? '__keywords='+globalThis.__keywords.length : 'no_keywords'"); DevToolsLogger.Log("[DIAG:DATA] " + (kw?.ToString() ?? "null")); } catch { }
+                        try { var pf = sysEngine.SafeEval("typeof globalThis.__Pf !== 'undefined' ? '__Pf='+Object.keys(globalThis.__Pf).length : 'no_Pf'"); DevToolsLogger.Log("[DIAG:DATA] " + (pf?.ToString() ?? "null")); } catch { }
                         // Also check for post-exec module-scope vars leaked by chunk injection
                         try { var diagInject = sysEngine.SafeEval("typeof globalThis.__diagInjectRan !== 'undefined' ? globalThis.__diagInjectRan : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagInjectRan=" + (diagInject?.ToString() ?? "null")); try { DevToolsLogger.Log("[DIAG:MOD] __diagInjectRan=" + (diagInject?.ToString() ?? "null")); } catch { } } catch { }
                         try { var diagMf = sysEngine.SafeEval("typeof globalThis.__diagMf !== 'undefined' ? (typeof globalThis.__diagMf) : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagMf=" + (diagMf?.ToString() ?? "null")); } catch { }
@@ -5132,7 +5112,7 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
             {
                 RunInline(@"
                     (function() {
-                        if (window.__fetchIntercepted) return;
+                        if (globalThis.__fetchIntercepted) return;
                         var originalFetch = window.fetch;
                         window.fetch = function(url, options) {
                             console.log('[FETCH] intercepted: ' + url);
@@ -5140,17 +5120,17 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
                                 var cloned = response.clone();
                                 cloned.text().then(function(text) {
                                     console.log('[FETCH] response from ' + url + ' (first 200 chars): ' + text.substring(0, 200));
-                                    try {
-                                        var data = JSON.parse(text);
-                                        window.__graphData = data;
-                                        if (typeof System !== 'undefined') System.__graphData = data;
+                                        try {
+                                            var data = JSON.parse(text);
+                                            globalThis.__graphData = data;
+                                            if (typeof System !== 'undefined') System.__graphData = data;
                                         console.log('[DIAG] Graph data captured, nodes=' + (data.nodes ? data.nodes.length : 0));
                                     } catch(_) {}
                                 });
                                 return response;
                             });
                         };
-                        window.__fetchIntercepted = true;
+                        globalThis.__fetchIntercepted = true;
                         console.log('[DIAG] Fetch interceptor installed');
                     })();
                 ");
@@ -5167,7 +5147,7 @@ if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;r
             {
                 RunInline(@"
                     (function() {
-                        if (window.__xhrIntercepted) return;
+                        if (globalThis.__xhrIntercepted) return;
 
                         // If XMLHttpRequest doesn't exist in NiL.JS, create one using fetch
                         var NativeXHR = null;
@@ -5238,7 +5218,7 @@ var self = this;
 
                                         try {
                                             var data = JSON.parse(text);
-                                            window.__graphData = data;
+                                            globalThis.__graphData = data;
                                             if (typeof System !== 'undefined') System.__graphData = data;
                                             console.log('[DIAG] Graph data captured via XHR, nodes=' + (data.nodes ? data.nodes.length : 0));
                                         } catch(_) {}
@@ -5304,7 +5284,7 @@ var self = this;
                             };
                             return xhr;
                         };
-                        window.__xhrIntercepted = true;
+                        globalThis.__xhrIntercepted = true;
                         console.log('[DIAG] XHR interceptor installed');
                     })();
                 ");
@@ -5508,130 +5488,6 @@ var self = this;
                 int midDumpLen = Math.Min(400, chunk.Length - midRegion);
                 System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Dump at offset " + midRegion + ": "
                     + chunk.Substring(midRegion, midDumpLen).Replace("\r", "").Replace("\n", "\\n"));
-            }
-        }
-
-        // ─────────────────────────────────────────────────────────────
-        //  SVG DOM EXTRACTION  (Phase G.1 — Session 5.07, per architect)
-        // ─────────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Walk the LiteElement DOM tree and collect all &lt;svg&gt; root elements.
-        /// Call this AFTER RunScriptsAsync() returns and AFTER any D3 patches execute.
-        /// </summary>
-        public List<LiteElement> GetDocumentSvgRoots()
-        {
-            var result = new List<LiteElement>();
-            if (_domRoot == null)
-            {
-                System.Diagnostics.Debug.WriteLine("[SVG] _domRoot is null — cannot collect SVG roots");
-                return result;
-            }
-            CollectSvgRoots(_domRoot, result);
-            System.Diagnostics.Debug.WriteLine("[SVG] GetDocumentSvgRoots → found " + result.Count + " <svg> element(s)");
-            return result;
-        }
-
-        private static void CollectSvgRoots(LiteElement node, List<LiteElement> found)
-        {
-            if (node == null || node.Children == null) return;
-            for (int i = 0; i < node.Children.Count; i++)
-            {
-                var child = node.Children[i];
-                if (child == null) continue;
-                if (string.Equals(child.Tag, "svg", StringComparison.OrdinalIgnoreCase))
-                    found.Add(child);
-                else
-                    CollectSvgRoots(child, found);
-            }
-        }
-
-        /// <summary>
-        /// Serialize a LiteElement SVG subtree to a well-formed SVG string.
-        /// Pass isRoot=true only for the &lt;svg&gt; element itself.
-        /// </summary>
-        public static string SerializeSvgNode(LiteElement node, bool isRoot = true)
-        {
-            if (node == null) return string.Empty;
-            var sb = new System.Text.StringBuilder(512);
-            var tag = (node.Tag ?? "g").ToLowerInvariant();
-
-            sb.Append('<').Append(tag);
-
-            // Root <svg> needs the XML namespace or SvgImageSource rejects it
-            bool hasXmlns = false;
-            if (isRoot && tag == "svg")
-            {
-                sb.Append(" xmlns=\"http://www.w3.org/2000/svg\"");
-                hasXmlns = true;
-            }
-
-            // Attributes (cx, cy, r, fill, stroke, transform, d, …)
-            if (node.Attr != null)
-            {
-                foreach (var kv in node.Attr)
-                {
-                    if (kv.Key.StartsWith("__", StringComparison.Ordinal))
-                        continue;
-                    if (hasXmlns && kv.Key == "xmlns")
-                        continue; // already added above
-                    var val = (kv.Value ?? string.Empty)
-                        .Replace("&", "&amp;")
-                        .Replace("\"", "&quot;");
-                    sb.Append(' ').Append(kv.Key).Append("=\"").Append(val).Append('"');
-                }
-            }
-
-            // D3 often sets styles via element.style.fill, but our LiteElement stores
-            // them as "style" attribute already — so it's covered above.
-
-            bool hasChildren = node.Children != null && node.Children.Count > 0;
-            bool hasText = !string.IsNullOrWhiteSpace(node.Text);
-
-            if (!hasChildren && !hasText)
-            {
-                sb.Append("/>");
-                return sb.ToString();
-            }
-
-            sb.Append('>');
-            if (hasText)
-                sb.Append(System.Net.WebUtility.HtmlEncode(node.Text ?? ""));
-            if (hasChildren)
-            {
-                for (int i = 0; i < node.Children.Count; i++)
-                {
-                    var child = node.Children[i];
-                    if (child == null) continue;
-                    // Serialize text children inline, element children recursively
-                    if (child.IsText)
-                        sb.Append(System.Net.WebUtility.HtmlEncode(child.Text ?? ""));
-                    else
-                        sb.Append(SerializeSvgNode(child, isRoot: false));
-                }
-            }
-            sb.Append("</").Append(tag).Append('>');
-            return sb.ToString();
-        }
-
-        /// <summary>
-        /// Diagnostic dump — call from anywhere to see what D3 actually built.
-        /// Logs to Debug output.
-        /// </summary>
-        public void DumpSvgDom()
-        {
-            var roots = GetDocumentSvgRoots();
-            if (roots.Count == 0)
-            {
-                System.Diagnostics.Debug.WriteLine("[SVG-DUMP] No SVG elements in LiteElement DOM. "
-                    + "Check: (1) D3 ran, (2) appendChild wired, (3) body identity.");
-                return;
-            }
-            foreach (var r in roots)
-            {
-                var s = SerializeSvgNode(r);
-                System.Diagnostics.Debug.WriteLine("[SVG-DUMP] " + s.Length + " chars · first 300: "
-                    + s.Substring(0, Math.Min(300, s.Length)));
             }
         }
 
@@ -6330,16 +6186,18 @@ var self = this;
                         // to avoid any interference with NiL.JS evaluation.
                         try { System.Diagnostics.Debug.WriteLine("[DIAG:EXEC] d3js.org script (no polyfill prefix — using v5)"); } catch { }
                     }
-                    // Leak inline data from the Nokia Design Archive chunk to window.*
+                    // Leak inline data from the Nokia Design Archive chunk to globalThis.*
+                    // FIX: Use globalThis.* instead of window.* — HostWindow is a C# wrapper
+                    // that silently drops dynamic property assignments.
                     if (content.Contains("var Kf={entries:[") && content.Contains("var wf={collections:["))
                     {
-                        try { System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Leaking chunk data vars to window.*"); } catch { }
-                        content = content.Replace("var Kf={entries:[", "window.Kf={entries:[");
-                        content = content.Replace("var wf={collections:[", "window.wf={collections:[");
-                        content = content.Replace("var Cf={stories:[", "window.Cf={stories:[");
-                        // vf is a flat array: var vf=[...] — replace with window.vf=
+                        try { System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Leaking chunk data vars to globalThis.*"); } catch { }
+                        content = content.Replace("var Kf={entries:[", "globalThis.Kf={entries:[");
+                        content = content.Replace("var wf={collections:[", "globalThis.wf={collections:[");
+                        content = content.Replace("var Cf={stories:[", "globalThis.Cf={stories:[");
+                        // vf is a flat array: var vf=[...] — replace with globalThis.vf=
                         int vfIdx = content.IndexOf("var vf=", StringComparison.Ordinal);
-                        if (vfIdx >= 0) { content = content.Substring(0, vfIdx) + "window.vf=" + content.Substring(vfIdx + 7); }
+                        if (vfIdx >= 0) { content = content.Substring(0, vfIdx) + "globalThis.vf=" + content.Substring(vfIdx + 7); }
                         try { System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Data leak complete"); } catch { }
                         // Inject sync graph builder into execute function body
                         try { System.Diagnostics.Debug.WriteLine("[DIAG:CHUNK] Injecting sync graph builder into execute"); } catch { }
@@ -6357,7 +6215,7 @@ var self = this;
                                 if (c == '`') { gPos++; while (gPos < content.Length && content[gPos] != '`') { if (content[gPos] == '\\') gPos += 2; else if (content[gPos] == '$' && gPos + 1 < content.Length && content[gPos + 1] == '{') { gPos += 2; int ed = 1; while (gPos < content.Length && ed > 0) { if (content[gPos] == '{') ed++; else if (content[gPos] == '}') ed--; gPos++; } } else gPos++; } if (gPos < content.Length) gPos++; continue; }
                                 if (c == '/' && gPos + 1 < content.Length) { if (content[gPos + 1] == '/') { gPos += 2; while (gPos < content.Length && content[gPos] != '\n') gPos++; continue; } if (content[gPos + 1] == '*') { gPos += 2; while (gPos + 1 < content.Length && !(content[gPos] == '*' && content[gPos + 1] == '/')) gPos++; if (gPos + 1 < content.Length) gPos += 2; continue; } }
                                 if (c == '{') gDepth++;
-                                else if (c == '}') { gDepth--; if (gDepth == 0) { content = content.Substring(0, gPos) + ";try{globalThis.__diagInjectRan=true;var __dl=typeof __diagLog==='function'?__diagLog:function(){};var wKf=window.Kf,wWf=window.wf,wCf=window.Cf,wVf=window.vf;if(typeof wKf!=='undefined'&&typeof wWf!=='undefined'){var __f=wKf.entries;var __xf=wWf.collections.map(function(c){return{id:c.id,name:c.title,description:c.blurb,theme:c.grouping,keywords:c.keywords}});var __Pf={};__xf.forEach(function(c){__Pf[c.id]=c});var __nodes=[],__links=[],__conns={};__f.forEach(function(e){__nodes.push({id:e.id,name:e.title,start:e.start,file:e.file,type:'entry'});(e.collections||[]).forEach(function(cId){if(cId!=='C0030'&&cId[0]!=='K'&&__Pf[cId]){__links.push({source:e,target:__Pf[cId]});if(!__conns[e.id])__conns[e.id]=[];__conns[e.id].push(cId);if(!__conns[cId])__conns[cId]=[];__conns[cId].push(e.id)}})});__xf.forEach(function(e){__nodes.push({id:e.id,name:e.title,theme:e.theme,type:'collection'})});window.__graphData={nodes:__nodes,links:__links,nodeConnections:__conns};if(typeof globalThis!=='undefined'&&globalThis.System)globalThis.System.__graphData=window.__graphData;window.__entries=__f;window.__collections=wWf.collections;window.__xf=__xf;window.__Pf=__Pf;if(typeof wCf!=='undefined'){window.__stories=wCf.stories;window.__entriesWithDates=__f.filter(function(e){return e.start&&e.start.length>=5})}if(typeof wVf!=='undefined')window.__keywords=wVf;__dl('INJECT_RAN nodes='+__nodes.length+' links='+__links.length+' entries='+__f.length)}else{__dl('INJECT_RAN no Kf/wf')}}catch(e){try{var __dl2=typeof __diagLog==='function'?__diagLog:function(){};__dl2('INJECT_ERR '+(e&&e.message||e))}catch(ee){}}" + content.Substring(gPos); break; } }
+                                else if (c == '}') { gDepth--; if (gDepth == 0) { content = content.Substring(0, gPos) + ";try{globalThis.__diagInjectRan=true;var __dl=typeof __diagLog==='function'?__diagLog:function(){};var wKf=globalThis.Kf,wWf=globalThis.wf,wCf=globalThis.Cf,wVf=globalThis.vf;if(typeof wKf!=='undefined'&&typeof wWf!=='undefined'){var __f=wKf.entries;var __xf=wWf.collections.map(function(c){return{id:c.id,name:c.title,description:c.blurb,theme:c.grouping,keywords:c.keywords}});var __Pf={};__xf.forEach(function(c){__Pf[c.id]=c});var __nodes=[],__links=[],__conns={};__f.forEach(function(e){__nodes.push({id:e.id,name:e.title,start:e.start,file:e.file,type:'entry'});(e.collections||[]).forEach(function(cId){if(cId!=='C0030'&&cId[0]!=='K'&&__Pf[cId]){__links.push({source:e,target:__Pf[cId]});if(!__conns[e.id])__conns[e.id]=[];__conns[e.id].push(cId);if(!__conns[cId])__conns[cId]=[];__conns[cId].push(e.id)}})});__xf.forEach(function(e){__nodes.push({id:e.id,name:e.title,theme:e.theme,type:'collection'})});globalThis.__graphData={nodes:__nodes,links:__links,nodeConnections:__conns};if(typeof globalThis!=='undefined'&&globalThis.System)globalThis.System.__graphData=globalThis.__graphData;globalThis.__entries=__f;globalThis.__collections=wWf.collections;globalThis.__xf=__xf;globalThis.__Pf=__Pf;if(typeof wCf!=='undefined'){globalThis.__stories=wCf.stories;globalThis.__entriesWithDates=__f.filter(function(e){return e.start&&e.start.length>=5})}if(typeof wVf!=='undefined')globalThis.__keywords=wVf;try{if(typeof __storeData==='function'){}}catch(_sd){}__dl('INJECT_RAN nodes='+__nodes.length+' links='+__links.length+' entries='+__f.length)}else{__dl('INJECT_RAN no Kf/wf')}}catch(e){try{var __dl2=typeof __diagLog==='function'?__diagLog:function(){};__dl2('INJECT_ERR '+(e&&e.message||e))}catch(ee){}}" + content.Substring(gPos); break; } }
                                 gPos++;
                             }
                         }
