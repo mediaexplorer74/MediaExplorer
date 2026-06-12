@@ -3519,12 +3519,12 @@ namespace BrowserCore.Engine
             }
             else if (type == "checkbox")
             {
-                var cb = new CheckBox { Content = val, IsChecked = n.Attr != null && n.Attr.ContainsKey("checked") };
+                var cb = new CheckBox { Content = val, IsChecked = n.Attr != null && n.Attr.ContainsKey("checked"), Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 204, 204, 204)) };
                 return cb;
             }
             else if (type == "radio")
             {
-                var rb = new RadioButton { Content = val, IsChecked = n.Attr != null && n.Attr.ContainsKey("checked") };
+                var rb = new RadioButton { Content = val, IsChecked = n.Attr != null && n.Attr.ContainsKey("checked"), Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 204, 204, 204)) };
                 if (n.Attr != null && n.Attr.ContainsKey("name")) rb.GroupName = n.Attr["name"];
                 return rb;
             }
@@ -3930,7 +3930,7 @@ namespace BrowserCore.Engine
 
                     if (type == "checkbox")
                     {
-                        var cb = new CheckBox { Margin = new Thickness(0, 4, 0, 4) };
+                        var cb = new CheckBox { Margin = new Thickness(0, 4, 0, 4), Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 204, 204, 204)) };
                         string v; child.Attr.TryGetValue("value", out v);
                         cb.Content = CollapseWs(DictGet(child.Attr, "label") ?? child.Text ?? name);
                         panel.Children.Add(cb);
@@ -3941,7 +3941,7 @@ namespace BrowserCore.Engine
 
                     if (type == "radio")
                     {
-                        var rb = new RadioButton { Margin = new Thickness(0, 4, 0, 4), GroupName = name };
+                        var rb = new RadioButton { Margin = new Thickness(0, 4, 0, 4), GroupName = name, Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 204, 204, 204)) };
                         string v; child.Attr.TryGetValue("value", out v);
                         rb.Content = CollapseWs(DictGet(child.Attr, "label") ?? child.Text ?? (v ?? name));
                         panel.Children.Add(rb);

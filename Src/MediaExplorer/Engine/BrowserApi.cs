@@ -82,6 +82,8 @@ namespace BrowserCore.Api
         public event EventHandler<bool> LoadingChanged;
         public event EventHandler<FrameworkElement> RepaintReady;
 
+        public event Action<string, string, string> NodeTapped; // id, name, type
+
         public string RenderMode
         {
             get => _engine.RenderModeString;
@@ -134,6 +136,7 @@ namespace BrowserCore.Api
                 var handler = LoadingChanged;
                 if (handler != null) handler(this, isLoading);
             };
+            _engine.NodeTapped += (id, name, type) => NodeTapped?.Invoke(id, name, type);
 
             InstallMessagingShim();
         }
@@ -413,10 +416,12 @@ namespace BrowserCore.Api
 
                 await RaiseRepaintAsync(element2);
                 System.Diagnostics.Debug.WriteLine("[DIAG] BrowserHost RaiseRepaintAsync DONE navId=" + currentNavId);
+                DevToolsLogger.Log("[DIAG:NAV] Repaint done navId=" + currentNavId);
 
                 if (addToHistory) AddHistory(uri);
                 UpdateState(uri);
                 RaiseStatus("Loaded.");
+                DevToolsLogger.Log("[DIAG:NAV] Loaded navId=" + currentNavId);
                 return true;
             }
             catch (Exception ex)

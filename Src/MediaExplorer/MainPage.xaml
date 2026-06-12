@@ -169,7 +169,7 @@
 
         <!-- ===== Content Area ===== -->
         <Grid Grid.Row="1" x:Name="ContentArea" Background="White" ManipulationMode="TranslateX">
-            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" CacheMode="BitmapCache">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" CacheMode="{x:Null}">
                 <StackPanel x:Name="ContentHost"/>
             </ScrollViewer>
         </Grid>

@@ -1,92 +1,98 @@
 # MediaExplorer — AI Context
 
-## Workflow (semi-automatic)
+## Automation Loop (June 12 — Fully Automated)
 
-1. **Build**: `msbuild "Src\MediaExplorer\MediaExplorer.csproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /v:m`
-2. **Deploy**: `DeployAndRun.ps1` — регистрирует пакет и запускает приложение. `-Build` для сборки перед деплоем, `-NoLaunch` без запуска.
-3. **Manual launch**: Пользователь сам запускает `MediaExplorerV0p57` из меню Пуск.
-4. **User signal**: Пользователь говорит "готово" — AI читает логи.
-5. **AI reads logs**: `%LOCALAPPDATA%\Packages\MediaExplorerV0p57_5gyrq6psz227t\LocalState\Logger.txt`
-6. **AI analyzes & fixes** → rebuild → goto 1.
+```powershell
+# Step 1 — Build
+msbuild "Src\MediaExplorer\MediaExplorer.csproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /v:m
 
-## Current State (June 11, 2026)
+# Step 2 — Deploy + launch
+powershell -ExecutionPolicy Bypass -File "Src\MediaExplorer\DeployAndRun.ps1" -Platform x64
 
-**Version**: 0.57.0.0, AUMID `MediaExplorerV0p57!App`, PackageFamilyName `MediaExplorerV0p57_5gyrq6psz227t`
+# Step 3 — Wait 120s for app to render, then auto-close
+Start-Sleep -Seconds 120
+Get-Process -Name "MediaExplorer" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Write-Host "MediaExplorer closed after 120s wait"
 
-### BREAKTHROUGH: Data Extraction Works (June 11)
+# Step 4 — Read diagnostics log
+Get-Content "$env:LOCALAPPDATA\Packages\MediaExplorerV0p57_5gyrq6psz227t\LocalState\Logger.txt" -Tail 80
+```
 
-**NiL.JS CANNOT evaluate the 589KB chunk** — both SafeEval (7s timeout) and SafeEvalFast fail silently. The `System.register(...)` inside the chunk never fires. All previous execute-body injections + var→window leaks were **dead code**.
+**Loop**: Build → Deploy+Launch → wait 120s → Kill → Read log → Analyze → Fix → Rebuild → repeat.
 
-**Fix**: Extract data from the C# string using character-level brace-counting, bypassing NiL.JS entirely:
+**One-liner** (AI executes all steps in sequence):
+```powershell
+msbuild "Src\MediaExplorer\MediaExplorer.csproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /v:m; if ($?) { powershell -ExecutionPolicy Bypass -File "Src\MediaExplorer\DeployAndRun.ps1" -Platform x64; Start-Sleep -Seconds 120; Get-Process -Name "MediaExplorer" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Get-Content "$env:LOCALAPPDATA\Packages\MediaExplorerV0p57_5gyrq6psz227t\LocalState\Logger.txt" -Tail 80 }
+```
 
-1. Find `Kf=` in the raw chunk text via `txt.IndexOf("Kf=")`
-2. Walk forward char-by-char, counting `{`/`[` (+1) and `}`/`]` (-1), skipping strings
-3. Extract the JS literal for Kf, wf, Cf, vf
-4. Inject each via `sysEngine.SafeEval("window.Kf=" + val + ";")`
-5. Run sync graph builder as SafeEval
+## Current State (June 12, 2026)
 
-**Result**: `window.__graphData` = 755 nodes + 1647 links on all 4+ page loads.
-All raw data also available: `__entries` (722), `__stories` (230), `__keywords` (91), etc.
+**Version**: 0.57.100.0, AUMID `MediaExplorerV0p57!App`, PackageFamilyName `MediaExplorerV0p57_5gyrq6psz227t`
 
-### Key Discoveries
+### Done
 
-#### Graph data is embedded in the JS chunk
-- `Kf` — `Kf = { entries: [...] }` (200+ records, inline data in the chunk, **NO `var`** prefix — bare `Kf=`)
-- `wf` — `wf = { collections: [...] }` (~15 collections)
-- `Cf` — `Cf = { stories: [...] }` (stories data for Timeline mode)
-- `vf` — `vf = [...]` (keywords)
-- **No `graph.json` or similar fetch** — graph data is inline in the chunk
-- **D3 rendering still broken** because it waits on Promise chain (`Tf`/`Mf`) that never fires
+#### Session 1 (June 11–12 morning) — Core rendering & overlay fixes
+- **Data extraction** from 589KB JS chunk via brace-counting: extracts `Kf`, `wf`, `Cf`, `vf` → `__graphData` (755 nodes, 1647 links)
+- **Graph rendering** via circular layout (O(n) cos/sin) → SVG XML → `#plot.innerHTML` → XAML Ellipse/Line
+- **Timeline rendering** via compact greedy-packing layout → SVG XML → `#timeline.innerHTML` → XAML Line/Circle
+  - 230 stories packed into 140 rows at 3px/row, total SVG height 490px (31KB)
+  - Year axis with tick marks, story bars (teal), secondary date ranges (red), entry scatter at bottom
+- **Route detection** — log-only (hash set + nav link click disabled to prevent re-render cycle)
+- **No second render cycle** — app runs single pass, clean exit
+- **DeployAndRun.ps1** — `-Build` flag, `-NoLaunch` flag, platform support
+- **Pure circular layout** — stable, no NaN nodes, all 755 nodes valid
+- **SVG coordinate rounding** (1dp) reduces XML size ~40%
+- **Timeline height explosion**: 140 rows × 3px (was 16px/row); labels removed → height 490px vs 2340px
+- **Double render loop**: removed `window.location.hash = '#/network'` and `navLink.click()` from route detection
+- **"Inception" visual bug (nested windows)**: disabled redundant `TriggerDelayedSvgExtractionAsync` and `TriggerDelayedSvgRefresh` in `CustomHtmlEngine.cs`
+- **Overlay race — overrideStartup:true for "Loaded."**
+- **NavigationCacheMode=Required** on MainPage
+- **RunNilJsStartupTest checks _welcomeShown**
+- **OnNavigatedTo guard with _welcomeShown**
+- **_navigationComplete guard in LoadingChanged handler**
+- **Dark background rect added to graph SVG** (`<rect fill="#1a1a2e"/>`)
+- **Timeline rendering DISABLED** (try-catch skip) for isolating Network rendering issues
 
-#### Why injectCode (execute body) never worked
-- The chunk's `System.register(...)` never fires because NiL.JS silently fails on 589KB evaluation
-- Without module registration, force-exec has nothing to execute
-- The sync graph builder injected into execute() body is **dead code**
-- The `__diagInjectRan` check returns `undefined` confirming the inject never ran
+#### Session 2 (June 12 afternoon) — CacheMode fix, node limiting, label contrast
+- **CacheMode="{x:Null}"** on ScrollViewer (MainPage.xaml:172) — removes BitmapCache that caused "mirror world" / garbage from other windows when app was covered/uncovered
+- **Graph node limiting** (first 200 nodes) — `_maxNodes` + `_limitedIds` set filter links + circles in JavaScriptEngine.cs for debug
+- **Checkbox/Radio label contrast** — `Foreground = #CCC` on all CheckBox & RadioButton controls in DomBasicRenderer.cs (both standalone and form-group variants)
+- **Fixed XamlParseException crash** — `CacheMode="None"` is invalid in UWP; replaced with `CacheMode="{x:Null}"`
 
-#### Why data extraction works
-- NiL.JS CAN evaluate small SafeEval calls (20-50KB each)
-- The brace-counting extractor handles minified code correctly (skips strings)
-- Works regardless of `var`/bare assignment because it finds `Kf=` directly
-
-### Still works (previous changes)
-- `SafeEval` chunk evaluation (fallback to `callWrapped`)
-- `force-exec` loop that iterates `System.registry._entries` and calls `m.declare(...)` + `declared.execute()`
-- `FlushMicrotasks()` after force-exec
-- `SubresourceAllowed = (u, kind) => true` in `CustomHtmlEngine.cs`
-
-### Diagnostics architecture
-- `DevToolsLogger.Log(msg)` → пишет в `%LOCALAPPDATA%\Packages\...\LocalState\Logger.txt`
-- `Debug.WriteLine(msg)` → только в VS Output, НЕ в Logger.txt
-- `__diagLog(msg)` → C# callback на `_nil`, вызывает `DevToolsLogger.Log` + `Debug.WriteLine`
-- `[DIAG:INJECT]`, `[DIAG:SYS]`, `[DIAG:DATA]`, `[DIAG:MOD]` — ключевые префиксы
-
-### Current Approach: Pure-JS Force Layout (June 11-12)
-- D3 `forceSimulation` + `forceLink` breaks in NiL.JS — all node positions become NaN after `sim.tick(100)` because link source/target objects have different references than node objects in `gd.nodes`, and D3's `.id()` resolution fails silently.
-- **Fix**: Replace D3 force with a manual ~50-line force-directed layout:
-  1. Build `nodeMap` by `id`
-  2. Resolve links: convert link source/target to actual node objects from `nodeMap`
-  3. Random initial positions (deterministic via index)
-  4. 120 iterations: repulsion (all pairs), spring attraction (links), center gravity
-  5. Velocity damping (`cooling=0.98`, `dt=0.4`)
-- SVG XML build + `innerHTML` injection unchanged.
-- **Timeline mode** will use same technique for story/entry nodes.
-
-### Next Steps
-1. **Test pure-JS force layout**: rebuild & run — check `[DIAG:SVG] validNodes=755 nanNodes=0`
-2. If SVG renders visible graph: refine styling (colors, sizes, label overlay)
-3. **Timeline mode**: port same layout to timeline page
+### Diagnostics Architecture
+- `DevToolsLogger.Log(msg)` → `%LOCALAPPDATA%\Packages\...\LocalState\Logger.txt`
+- `Debug.WriteLine(msg)` → VS Output only
+- `__diagLog(msg)` → C# callback, writes both
+- Key prefixes: `[DIAG:TIMELINE-SVG]`, `[DIAG:SVG]`, `[DIAG:DATA]`, `[DIAG:ROUTE]`, `[DIAG:SYS]`, `[DIAG:REPAINT]`
 
 ### Files
-- `Src/MediaExplorer/Engine/JavaScriptEngine.cs` — основной движок (~11310 строк), data extraction ~lines 3487-3562, injection ~lines 3632-3728, SafeEval ~line 4197
-- `Src/MediaExplorer/Engine/DevToolsLogger.cs` — логгер
-- `Src/MediaExplorer/DeployAndRun.ps1` — скрипт деплоя
-- `Src/NilJsTest/tests/main-legacy-CgkFIb-k.js` — архивная копия чанка 589 КБ
-- `Doc/Summary_6_11.md` — последний summary (June 11 — data extraction breakthrough)
-- `Doc/Summary_6_10.md` — предыдущий summary (superseded)
-- `Doc/Plan_05.md` — генеральный план
+- `Src/MediaExplorer/Engine/JavaScriptEngine.cs` — data extraction ~line 3515, graph SVG ~3560, timeline SVG ~3636, route detection ~line 4092, SafeEval ~line 4364
+- `Src/MediaExplorer/Engine/Core/VirtualizingRenderer.cs` — SVG→XAML mapping (~line 994)
+- `Src/MediaExplorer/Engine/DomBasicRenderer.cs` — checkbox/radio render (~line 3520, 3931, 3942)
+- `Src/MediaExplorer/Engine/CustomHtmlEngine.cs` — ScheduleRepaintFromJs (~line 1138), DispatchRepaintAsync (~line 919)
+- `Src/MediaExplorer/MainPage.xaml` — ScrollViewer CacheMode (line 172)
+- `Src/MediaExplorer/MainPage.xaml.cs` — Engine_RepaintReady (~line 694)
+- `Src/MediaExplorer/Engine/DevToolsLogger.cs` — file logger
+- `Src/MediaExplorer/DeployAndRun.ps1` — deploy script
+- `Src/NilJsTest/tests/main-legacy-CgkFIb-k.js` — archived chunk (589KB)
 
-### Build Commands
+### RnD Plan (Next Steps)
+
+#### Phase 1 — Stabilise rendering (current)
+1. **Fix circle duplication on scroll** — add guard in `ScheduleRepaintFromJs` (`CustomHtmlEngine.cs:1138`) to not queue `RequestRender()` during active scroll; or deduplicate elements in `VirtualizingRenderer.BuildVisualTree` before appending to Canvas.
+2. **CacheMode={x:Null}** — ✅ DONE (MainPage.xaml:172)
+3. **Checkbox label contrast** — ✅ DONE (DomBasicRenderer.cs — Foreground=#CCC on CheckBox/RadioButton)
+4. **Reduce element count** — ✅ DONE (200-node limit in JavaScriptEngine.cs graph render)
+
+#### Phase 2 — Smartphone adaptivity
+5. **Viewport-fragmented rendering** — detect narrow viewport (< 600px) and render a "magic slider" (one content card at a time, swipe left/right) instead of full 755-node graph. Research: use `ManipulationMode="TranslateX"` on ContentArea (already set at MainPage.xaml:171) for swipe detection; implement card stack with prev/next navigation.
+6. **Auto-detect smartphone** — check `Windows.System.Profile.AnalyticsInfo.VersionInfo.DeviceFamily` or `ApplicationView.GetForCurrentView().VisibleBounds.Width < 600`.
+
+#### Phase 3 — Interactivity
+7. **Node tap handler** — circles already have `data-id/name/type` attributes + `Tapped` event in VirtualizingRenderer.cs (~line 1064). Wire to `ContentDialog` showing node name + type.
+8. **Timeline re-enable** — restore timeline SVG rendering after graph issues resolved.
+
+### Commands
 ```powershell
 msbuild "Src\MediaExplorer\MediaExplorer.csproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /v:m
 powershell -ExecutionPolicy Bypass -File "Src\MediaExplorer\DeployAndRun.ps1" -Platform x64

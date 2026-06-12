@@ -76,6 +76,7 @@ namespace WEBVIEW
         private string _lastFailedAddress;
         private string _pageTitle;
         private bool _loadProgressActive = false;
+        private bool _navigationComplete;
         public MainPage()
         {
             InitializeComponent();
@@ -209,9 +210,28 @@ namespace WEBVIEW
             _browser = new BrowserHost();
             _browser.Navigated += (s, uri) => Ui(() => { UpdateCurrentLocation(uri); UpdateNavButtons(); });
             _browser.NavigationFailed += (s, msg) => Ui(() => ShowGlobalError(msg));
-            _browser.StatusMessage += (s, msg) => UpdateStatusMessage(msg);
+            _browser.StatusMessage += (s, msg) =>
+            {
+                System.Diagnostics.Debug.WriteLine("[DIAG:OVL] StatusMessage msg=" + (msg ?? "null") + " pinned=" + _startupStatusPinned);
+                if (msg == "Loaded.")
+                {
+                    UpdateStatusMessage("Loaded.", overrideStartup: true);
+                    Ui(() =>
+                    {
+                        System.Diagnostics.Debug.WriteLine("[DIAG:OVL] Hiding overlay");
+                        if (LoadingRing != null) LoadingRing.IsActive = false;
+                        if (LoadingOverlay != null) LoadingOverlay.Visibility = Visibility.Collapsed;
+                    });
+                }
+                else
+                {
+                    UpdateStatusMessage(msg);
+                }
+            };
             _browser.LoadingChanged += (s, loading) => Ui(() =>
             {
+                if (loading && _navigationComplete) return;
+                _navigationComplete = !loading;
                 if (LoadingRing != null) LoadingRing.IsActive = loading;
                 if (LoadingOverlay != null) LoadingOverlay.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
                 if (loading)
@@ -230,6 +250,17 @@ namespace WEBVIEW
                 }
             });
             _browser.RepaintReady += (s, element) => Engine_RepaintReady(element);
+            _browser.NodeTapped += (id, name, type) => Ui(async () =>
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = name ?? id,
+                    Content = $"Type: {type}\nID: {id}",
+                    CloseButtonText = "OK"
+                };
+                System.Diagnostics.Debug.WriteLine("[DIAG:NODE] dialog id=" + id + " name=" + name + " type=" + type);
+                await dialog.ShowAsync();
+            });
 
             SizeChanged += MainPage_SizeChanged;
 
@@ -240,6 +271,7 @@ namespace WEBVIEW
             try { ApplyStatusBar(); } catch { }
 
             Task.Run(() => RunNilJsStartupTest());
+            try { this.NavigationCacheMode = NavigationCacheMode.Required; } catch { }
         }
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -266,10 +298,10 @@ namespace WEBVIEW
                 var _ = NavigateAsync(launchUrl);
                 return;
             }
-                if (!_startupStatusPinned)
-                UpdateStatusMessage("Enter a URL and press Go.");
             if (!_welcomeShown)
             {
+                if (!_startupStatusPinned)
+                    UpdateStatusMessage("Enter a URL and press Go.");
                 _welcomeShown = true;
                 var homePage = LoadHomePage();
                 if (!string.IsNullOrWhiteSpace(homePage))
@@ -457,6 +489,7 @@ namespace WEBVIEW
 
         private void SetStartupStatus(string message)
         {
+            System.Diagnostics.Debug.WriteLine("[DIAG:OVL] SetStartupStatus msg=" + (message ?? "null") + " pinned=true");
             _startupStatusMessage = message ?? string.Empty;
             _startupStatusPinned = true;
             Ui(() =>
@@ -477,7 +510,7 @@ namespace WEBVIEW
 
         public void UpdateStatusMessage(string message, bool overrideStartup = false)
         {
-            if (!overrideStartup && _startupStatusPinned) return;
+            if (!overrideStartup && _startupStatusPinned) { System.Diagnostics.Debug.WriteLine("[DIAG:OVL] UpdateStatusMessage BLOCKED pinned=true msg=" + (message ?? "null")); return; }
             Ui(() =>
             {
                 try
@@ -761,7 +794,10 @@ namespace WEBVIEW
             }
             catch (TypeLoadException tex) { status = "NiL.JS unsupported: " + tex.Message; }
             catch (Exception ex) { status = "NiL.JS startup failed: " + ex.GetType().Name + ": " + ex.Message; }
-            SetStartupStatus(status);
+            if (_welcomeShown)
+                UpdateStatusMessage(status);
+            else
+                SetStartupStatus(status);
         }
 
         private static async Task<string> LoadTextFromAppxAsync(Uri uri)
@@ -1502,8 +1538,10 @@ namespace WEBVIEW
 
         private void ClearStartupStatus()
         {
+            System.Diagnostics.Debug.WriteLine("[DIAG:OVL] ClearStartupStatus");
             _startupStatusPinned = false;
             _startupStatusMessage = null;
+            _navigationComplete = false;
         }
 
         // --- Swipe navigation ---

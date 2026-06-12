@@ -24,6 +24,8 @@ namespace BrowserCore.Engine.Core
         private readonly Action<Uri> _onNavigate;
         private readonly Uri _baseUri;
 
+        public event Action<string, string, string> NodeTapped; // id, name, type
+
         // Active elements currently on canvas (RenderObject → UIElement)
         private readonly Dictionary<RenderObject, UIElement> _activeElements = new Dictionary<RenderObject, UIElement>();
 
@@ -35,6 +37,10 @@ namespace BrowserCore.Engine.Core
 
         // Track elements that already have a Tapped link handler (to avoid duplicates from pool reuse)
         private readonly HashSet<UIElement> _linkHandledElements = new HashSet<UIElement>();
+
+        // SVG rendering diagnostic counter
+        private static volatile int _globalSvgRenderCount;
+        private int _svgRenderGeneration;
 
         // Store handler references for cleanup on pool return
         private readonly Dictionary<UIElement, object> _linkHandlerRefs = new Dictionary<UIElement, object>();
@@ -926,8 +932,10 @@ namespace BrowserCore.Engine.Core
         private UIElement RenderSvgElement(LiteElement svg)
         {
             if (svg == null) return null;
+            int gen = System.Threading.Interlocked.Increment(ref _globalSvgRenderCount);
+            _svgRenderGeneration = gen;
             string svgW = GetAttr(svg, "width"), svgH = GetAttr(svg, "height"), svgVb = GetAttr(svg, "viewBox");
-            try { System.Diagnostics.Debug.WriteLine("[SVG:G.2] RenderSvgElement tag=" + (svg.Tag ?? "null") + " children=" + (svg.Children != null ? svg.Children.Count.ToString() : "0") + " width=" + (svgW ?? "null") + " height=" + (svgH ?? "null") + " viewBox=" + (svgVb ?? "null")); } catch { }
+            try { System.Diagnostics.Debug.WriteLine("[SVG:G.2] RenderSvgElement gen=" + gen + " tag=" + (svg.Tag ?? "null") + " children=" + (svg.Children != null ? svg.Children.Count.ToString() : "0") + " width=" + (svgW ?? "null") + " height=" + (svgH ?? "null") + " viewBox=" + (svgVb ?? "null")); } catch { }
 
             double width = ParseSvgLength(GetAttr(svg, "width"));
             double height = ParseSvgLength(GetAttr(svg, "height"));
@@ -1055,6 +1063,34 @@ namespace BrowserCore.Engine.Core
                     };
                     Canvas.SetLeft(ellipse, cx - r);
                     Canvas.SetTop(ellipse, cy - r);
+
+                    string nodeId = GetAttr(node, "data-id");
+                    string nodeName = GetAttr(node, "data-name");
+                    string nodeType = GetAttr(node, "data-type");
+                    if (!string.IsNullOrEmpty(nodeId))
+                    {
+                        var capturedId = nodeId;
+                        var capturedName = nodeName ?? "";
+                        var capturedType = nodeType ?? "";
+                        ellipse.Tapped += (s, e) =>
+                        {
+                            e.Handled = true;
+                            System.Diagnostics.Debug.WriteLine("[DIAG:NODE] tapped id=" + capturedId);
+                            NodeTapped?.Invoke(capturedId, capturedName, capturedType);
+                        };
+                    }
+
+                    // Dedup: remove existing ellipse at same position before adding
+                    double left = cx - r, top = cy - r;
+                    for (int ci = parent.Children.Count - 1; ci >= 0; ci--)
+                    {
+                        if (parent.Children[ci] is Ellipse existing &&
+                            Math.Abs(Canvas.GetLeft(existing) - left) < 0.5 &&
+                            Math.Abs(Canvas.GetTop(existing) - top) < 0.5)
+                        {
+                            parent.Children.RemoveAt(ci);
+                        }
+                    }
                     parent.Children.Add(ellipse);
                     break;
                 }
@@ -1076,6 +1112,16 @@ namespace BrowserCore.Engine.Core
                         StrokeEndLineCap = PenLineCap.Round,
                         Opacity = Clamp(state.Opacity, 0, 1),
                     };
+                    // Dedup: remove existing line with same endpoints
+                    for (int li = parent.Children.Count - 1; li >= 0; li--)
+                    {
+                        if (parent.Children[li] is Line existing &&
+                            Math.Abs(existing.X1 - x1) < 0.5 && Math.Abs(existing.Y1 - y1) < 0.5 &&
+                            Math.Abs(existing.X2 - x2) < 0.5 && Math.Abs(existing.Y2 - y2) < 0.5)
+                        {
+                            parent.Children.RemoveAt(li);
+                        }
+                    }
                     parent.Children.Add(line);
                     break;
                 }

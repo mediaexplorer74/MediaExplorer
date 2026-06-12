@@ -92,6 +92,8 @@ namespace BrowserCore.Engine
 
         public event Action<FrameworkElement> RepaintReady;
 
+        public event Action<string, string, string> NodeTapped; // id, name, type
+
         // Incremental render state
         private RenderObject _currentRenderTree;
         private VirtualizingRenderer _currentRenderer;
@@ -111,6 +113,8 @@ namespace BrowserCore.Engine
         private readonly System.Threading.SemaphoreSlim _repaintGate = new System.Threading.SemaphoreSlim(1, 1);
         private int _repaintScheduled;
         private int _svgRefreshPending;
+        private int _buildVisualTreeCount;
+        private int _dispatchCount;
         private readonly CoreDispatcher _uiDispatcher;
         private volatile int _isRendering;
 
@@ -582,7 +586,8 @@ namespace BrowserCore.Engine
             ConfigureMedia(viewportWidth);
 
             var cssFetcher = fetchExternalCssAsync ?? (async _ => string.Empty);
-            System.Diagnostics.Debug.WriteLine("[DIAG] BuildVisualTree CssLoader.ComputeAsync start");
+            int bvtCount = System.Threading.Interlocked.Increment(ref _buildVisualTreeCount);
+            System.Diagnostics.Debug.WriteLine("[DIAG] BuildVisualTree CssLoader.ComputeAsync start #" + bvtCount);
             var computed = await CssLoader.ComputeAsync(dom, baseUri, cssFetcher, viewportWidth, null);
             System.Diagnostics.Debug.WriteLine("[DIAG] BuildVisualTree CssLoader.ComputeAsync DONE nodes=" + (computed != null ? computed.Count.ToString() : "null"));
 
@@ -727,6 +732,7 @@ namespace BrowserCore.Engine
                         {
                             System.Diagnostics.Debug.WriteLine("[DIAG] BuildVisualTree Step3 Paint start");
                             var vRenderer = new VirtualizingRenderer(renderRoot, baseUri, onNavigate);
+                            vRenderer.NodeTapped += (id, name, type) => NodeTapped?.Invoke(id, name, type);
                             _currentRenderTree = renderRoot;
                             _currentRenderer = vRenderer;
                             _currentStyles = computed;
@@ -916,6 +922,9 @@ namespace BrowserCore.Engine
             if (element == null) return;
             var handler = RepaintReady;
             if (handler == null) return;
+            int dc = System.Threading.Interlocked.Increment(ref _dispatchCount);
+            System.Diagnostics.Debug.WriteLine("[DIAG:REPAINT] DispatchRepaintAsync #" + dc + " bvt=" + _buildVisualTreeCount);
+            DevToolsLogger.Log("[DIAG:REPAINT] DispatchRepaintAsync #" + dc + " bvt=" + _buildVisualTreeCount);
 
             try
             {
@@ -1132,11 +1141,14 @@ namespace BrowserCore.Engine
         {
             if (!EnableJavaScript) return;
             if (_activeDom == null) return;
-            if (_isRendering != 0) return;
+            if (_isRendering != 0) { System.Diagnostics.Debug.WriteLine("[DIAG:REPAINT] ScheduleRepaintFromJs BLOCKED _isRendering=" + _isRendering); DevToolsLogger.Log("[DIAG:REPAINT] Blocked _isRendering=" + _isRendering); return; }
+            int bvtNow = _buildVisualTreeCount;
 
             if (System.Threading.Interlocked.Exchange(ref _repaintScheduled, 1) == 1)
-                return;
+            { System.Diagnostics.Debug.WriteLine("[DIAG:REPAINT] ScheduleRepaintFromJs SKIP already scheduled bvt=" + bvtNow); return; }
 
+            System.Diagnostics.Debug.WriteLine("[DIAG:REPAINT] ScheduleRepaintFromJs DISPATCHING bvt=" + bvtNow);
+            DevToolsLogger.Log("[DIAG:REPAINT] Dispatching full repaint bvt=" + bvtNow);
             _ = Task.Run(async () =>
             {
                 try
@@ -1545,10 +1557,10 @@ namespace BrowserCore.Engine
                                 try { js?.InterceptXhr(); } catch (Exception xhrEx) { System.Diagnostics.Debug.WriteLine("[DIAG] XHR interceptor error: " + xhrEx.Message); }
                                 // Search for global data objects
                                 try { js?.SearchGlobalData(); } catch (Exception dataEx) { System.Diagnostics.Debug.WriteLine("[DIAG] Global data search error: " + dataEx.Message); }
-                                // Kick off G.1 SVG extraction (fire-and-forget) — Phase G.1 fast path
-#pragma warning disable CS4014
-                                try { TriggerDelayedSvgExtractionAsync(); } catch { }
-#pragma warning restore CS4014
+                                // SVG is already rendered by D3 innerHTML → repaint cycle.
+                                // Delayed SVG extraction (Phase G.1) is redundant and causes
+                                // RPC_E_WRONG_THREAD + second full BuildVisualTree. Disabled.
+                                //try { TriggerDelayedSvgExtractionAsync(); } catch { }
                             }
                             catch (Exception ex) { var m3 = "[DIAG] RenderAsync Phase3 JS EXC " + ex.Message; System.Diagnostics.Debug.WriteLine(m3); DevToolsLogger.Log(m3); }
                         }
@@ -1601,7 +1613,8 @@ namespace BrowserCore.Engine
                 }
 
                 try { System.Diagnostics.Debug.WriteLine("[RENDER] Final element null=" + (element == null) + " empty=" + (element != null && IsEffectivelyEmpty(element))); } catch { /* swallow */ }
-                TriggerDelayedSvgRefresh();
+                // Disabled: SVG is already rendered via D3 innerHTML → repaint cycle
+                // TriggerDelayedSvgRefresh();
                 return element;
             }
             finally

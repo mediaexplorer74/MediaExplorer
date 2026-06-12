@@ -3567,52 +3567,103 @@ try {
         // Build a node map by id
         var _nodeMap = {};
         for (var _i = 0; _i < gd.nodes.length; _i++) { _nodeMap[gd.nodes[_i].id] = gd.nodes[_i]; }
-        // Resolve link source/target to actual node objects
+        // Resolve link source/target to actual node objects (handles both object refs and string IDs)
+        if (gd.links.length > 0) {
+            var _l0raw = gd.links[0];
+            __diagLog('[DIAG:SVG] raw link[0] srcType=' + (typeof _l0raw.source) + ' tgtType=' + (typeof _l0raw.target) + ' srcVal=' + (typeof _l0raw.source === 'object' ? (_l0raw.source ? _l0raw.source.id : 'nullObj') : String(_l0raw.source)) + ' tgtVal=' + (typeof _l0raw.target === 'object' ? (_l0raw.target ? _l0raw.target.id : 'nullObj') : String(_l0raw.target)));
+        }
         for (var _i = 0; _i < gd.links.length; _i++) {
             var _l = gd.links[_i];
-            if (typeof _l.source === 'object' && _l.source) { _l.source = _nodeMap[_l.source.id] || _l.source; }
-            if (typeof _l.target === 'object' && _l.target) { _l.target = _nodeMap[_l.target.id] || _l.target; }
+            var _src = (typeof _l.source === 'object' && _l.source) ? _l.source.id : _l.source;
+            var _tgt = (typeof _l.target === 'object' && _l.target) ? _l.target.id : _l.target;
+            _l.source = _nodeMap[_src] || (typeof _l.source === 'object' ? _l.source : null);
+            _l.target = _nodeMap[_tgt] || (typeof _l.target === 'object' ? _l.target : null);
         }
         __diagLog('[DIAG:SVG] links resolved');
-        // Circular layout: place nodes on a circle (fast, no D3 dependency)
+        if (gd.links.length > 0) {
+            var _l0 = gd.links[0];
+            __diagLog('[DIAG:SVG] resolved link[0] srcType=' + (typeof _l0.source) + ' tgtType=' + (typeof _l0.target) + ' srcId=' + (_l0.source ? _l0.source.id : 'null') + ' tgtId=' + (_l0.target ? _l0.target.id : 'null'));
+        }
+        // Select top 200 nodes by degree centrality
+        var _degree = {};
+        for (var _d = 0; _d < gd.links.length; _d++) {
+            var _l = gd.links[_d];
+            var _sid = (typeof _l.source === 'object' && _l.source) ? _l.source.id : _l.source;
+            var _tid = (typeof _l.target === 'object' && _l.target) ? _l.target.id : _l.target;
+            _degree[_sid] = (_degree[_sid] || 0) + 1;
+            _degree[_tid] = (_degree[_tid] || 0) + 1;
+        }
+        gd.nodes.sort(function(_a,_b) { return (_degree[_b.id] || 0) - (_degree[_a.id] || 0); });
+        __diagLog('[DIAG:SVG] top degree node=' + gd.nodes[0].id + ' deg=' + (_degree[gd.nodes[0].id] || 0));
+        var _maxNodes = Math.min(gd.nodes.length, 200);
+        var _limitedIds = {};
+        for (var _li = 0; _li < _maxNodes; _li++) { _limitedIds[gd.nodes[_li].id] = true; }
+        __diagLog('[DIAG:SVG] limited to ' + _maxNodes + ' nodes');
+        // Circular layout: place LIMITED nodes on a full circle
         var _cx = 400, _cy = 300, _radius = 250;
-        for (var _i = 0; _i < gd.nodes.length; _i++) {
-            var _angle = (_i / gd.nodes.length) * 2 * Math.PI;
+        for (var _i = 0; _i < _maxNodes; _i++) {
+            var _angle = (_i / _maxNodes) * 2 * Math.PI;
             gd.nodes[_i].x = _cx + _radius * Math.cos(_angle);
             gd.nodes[_i].y = _cy + _radius * Math.sin(_angle);
         }
-        __diagLog('[DIAG:SVG] layout done');
+        __diagLog('[DIAG:SVG] layout done on ' + _maxNodes + ' nodes');
         // Check node positions
         var _validNodes = 0, _nanNodes = 0;
-        for (var _i2 = 0; _i2 < gd.nodes.length; _i2++) {
+        for (var _i2 = 0; _i2 < _maxNodes; _i2++) {
             var _n = gd.nodes[_i2];
             if (typeof _n.x === 'number' && isFinite(_n.x) && typeof _n.y === 'number' && isFinite(_n.y)) _validNodes++;
             else _nanNodes++;
         }
         __diagLog('[DIAG:SVG] validNodes=' + _validNodes + ' nanNodes=' + _nanNodes);
-        if (gd.nodes.length > 0) {
+        if (_maxNodes > 0) {
             var _n0 = gd.nodes[0];
-            __diagLog('[DIAG:SVG] node[0] x=' + _n0.x + ' y=' + _n0.y + ' type=' + (_n0.type || '?'));
+            __diagLog('[DIAG:SVG] node[0] id=' + _n0.id + ' x=' + _n0.x + ' y=' + _n0.y + ' type=' + (_n0.type || '?'));
         }
-        // Build SVG XML string
-        function svgNum(v) { return (typeof v === 'number' && isFinite(v)) ? Math.round(v * 10) / 10 : 0; }
-        var xml = '<svg xmlns=""http://www.w3.org/2000/svg"" width=""800"" height=""600"" viewBox=""0 0 800 600"">';
-        // Links as lines
+        // Rebuild _nodeMap after sort so link resolution still works
+        var _nodeMap = {};
+        for (var _i = 0; _i < gd.nodes.length; _i++) { _nodeMap[gd.nodes[_i].id] = gd.nodes[_i]; }
+        // Re-resolve links with updated _nodeMap
+        for (var _i = 0; _i < gd.links.length; _i++) {
+            var _l = gd.links[_i];
+            var _src2 = (typeof _l.source === 'object' && _l.source) ? _l.source.id : _l.source;
+            var _tgt2 = (typeof _l.target === 'object' && _l.target) ? _l.target.id : _l.target;
+            _l.source = _nodeMap[_src2] || null;
+            _l.target = _nodeMap[_tgt2] || null;
+        }
+        __diagLog('[DIAG:SVG] re-resolved ' + gd.links.length + ' links');
+// Build SVG XML string
+         function svgNum(v) { return (typeof v === 'number' && isFinite(v)) ? Math.round(v * 10) / 10 : 0; }
+         var xml = '<svg xmlns=""http://www.w3.org/2000/svg"" width=""800"" height=""600"" viewBox=""0 0 800 600"">';
+         // Dark background for visibility
+         xml += '<rect width=""800"" height=""600"" fill=""#1a1a2e""/>';
+         // Links as lines (only if both ends in limited set)
         xml += '<g stroke=""rgba(150,150,150,0.3)"" stroke-width=""1"">';
+        var _linkCount = 0, _linkBothIn = 0, _linkWithPos = 0;
         for (var i = 0; i < gd.links.length; i++) {
             var s = gd.links[i].source, t = gd.links[i].target;
-            if (typeof s === 'object' && s && typeof t === 'object' && t) {
+            if (typeof s === 'string') s = _nodeMap[s];
+            if (typeof t === 'string') t = _nodeMap[t];
+            _linkCount++;
+            if (s && t && _limitedIds[s.id] && _limitedIds[t.id]) _linkBothIn++;
+            if (s && t && typeof s.x === 'number' && typeof t.x === 'number' && _limitedIds[s.id] && _limitedIds[t.id]) {
+                _linkWithPos++;
                 xml += '<line x1=""' + svgNum(s.x) + '"" y1=""' + svgNum(s.y) + '"" x2=""' + svgNum(t.x) + '"" y2=""' + svgNum(t.y) + '""/>';
             }
         }
+        __diagLog('[DIAG:SVG] links total=' + _linkCount + ' bothIn=' + _linkBothIn + ' withPos=' + _linkWithPos);
+        if (_linkCount > 0 && _linkWithPos === 0) {
+            var _l0 = gd.links[0];
+            __diagLog('[DIAG:SVG] sample link source=' + (typeof _l0.source) + ' t=' + (typeof _l0.target) + ' sId=' + (_l0.source ? _l0.source.id : 'null') + ' tId=' + (_l0.target ? _l0.target.id : 'null') + ' sIn=' + (_l0.source && _limitedIds[_l0.source.id]) + ' tIn=' + (_l0.target && _limitedIds[_l0.target.id]) + ' sHasX=' + (typeof (_l0.source && _l0.source.x)));
+        }
         xml += '</g>';
-        // Nodes as circles
+        // Nodes as circles (limited set)
         xml += '<g>';
-        for (var i = 0; i < gd.nodes.length; i++) {
+        for (var i = 0; i < _maxNodes; i++) {
             var n = gd.nodes[i];
             var color = n.type === 'collection' ? '#ff6b6b' : '#4ecdc4';
             var r = n.type === 'collection' ? 6 : 4;
-            xml += '<circle cx=""' + svgNum(n.x) + '"" cy=""' + svgNum(n.y) + '"" r=""' + r + '"" fill=""' + color + '"" stroke=""#fff"" stroke-width=""1""/>';
+            var _nm = (n.name || '').replace(/""/g, '&quot;');
+            xml += '<circle cx=""' + svgNum(n.x) + '"" cy=""' + svgNum(n.y) + '"" r=""' + r + '"" fill=""' + color + '"" stroke=""#fff"" stroke-width=""1"" data-id=""' + n.id + '"" data-name=""' + _nm + '"" data-type=""' + (n.type || '') + '""/>';
         }
         xml += '</g></svg>';
         __diagLog('[DIAG:SVG] xml len=' + xml.length);
@@ -3629,11 +3680,13 @@ try {
 } catch(_e) {
     __diagLog('[DIAG:SVG] err ' + (typeof _e === 'object' ? (String(_e) || typeof _e) : String(_e)));
 }";
-                                sysEngine.SafeEval(renderCode);
-                            } catch (Exception renderEx) {
-                                DevToolsLogger.Log("[DIAG:SVG] Injection error: " + renderEx.GetType().Name + " - " + (renderEx.Message ?? ""));
-                            }
-                        } catch (Exception dataEx) {
+sysEngine.SafeEval(renderCode);
+                             } catch (Exception renderEx) {
+                                 DevToolsLogger.Log("[DIAG:SVG] Injection error: " + renderEx.GetType().Name + " - " + (renderEx.Message ?? ""));
+                             }
+                             // Timeline SVG rendering: DISABLED for debugging
+                             try { System.Diagnostics.Debug.WriteLine("[DIAG:TIMELINE-SVG] skipped (disabled for debug)"); } catch { }
+                         } catch (Exception dataEx) {
                             System.Diagnostics.Debug.WriteLine("[DIAG:DATA] Extraction error: " + dataEx.GetType().Name + " - " + (dataEx.Message ?? ""));
                             DevToolsLogger.Log("[DIAG:DATA] Extraction error: " + dataEx.GetType().Name + " - " + (dataEx.Message ?? ""));
                         }
@@ -3977,12 +4030,11 @@ try {
                         try { var diagS = sysEngine.SafeEval("typeof globalThis.__diagS !== 'undefined' ? (globalThis.__diagS.tagName||typeof globalThis.__diagS) : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagS=" + (diagS?.ToString() ?? "null")); } catch { }
                         try { var diagIf = sysEngine.SafeEval("typeof globalThis.__diagIf !== 'undefined' ? (Array.isArray(globalThis.__diagIf)?'array['+globalThis.__diagIf.length+']':typeof globalThis.__diagIf) : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagIf=" + (diagIf?.ToString() ?? "null")); } catch { }
                         try { var diagR = sysEngine.SafeEval("typeof globalThis.__diagR !== 'undefined' ? 'function' : 'undefined'"); System.Diagnostics.Debug.WriteLine("[DIAG:MOD] __diagR=" + (diagR?.ToString() ?? "null")); } catch { }
-                        // Route detection and navigation simulation
+                        // Route detection — log only, no navigation (disabled to prevent double render)
                         try { sysEngine.SafeEval(@"
 (function(){
     try {
         __diagLog('[DIAG:ROUTE] location=' + (window.location.href || 'none') + ' hash=' + (window.location.hash || 'none') + ' path=' + (window.location.pathname || 'none'));
-        // Find navigation links related to network/timeline/graph
         var links = document.querySelectorAll('a');
         var navLink = null;
         for (var i = 0; i < links.length; i++) {
@@ -3998,14 +4050,7 @@ try {
             }
         }
         if (!navLink) { __diagLog('[DIAG:ROUTE] No network/timeline/graph nav link found'); }
-        // Try to navigate by setting hash
-        if (window.location) {
-            try { window.location.hash = '#/network'; __diagLog('[DIAG:ROUTE] Set hash to #/network'); } catch(e) { __diagLog('[DIAG:ROUTE] hash set error'); }
-        }
-        // Try clicking nav link if found
-        if (navLink && typeof navLink.click === 'function') {
-            try { navLink.click(); __diagLog('[DIAG:ROUTE] Clicked nav link'); } catch(e) { __diagLog('[DIAG:ROUTE] Click error'); }
-        }
+        // Navigation disabled — hash set and nav click removed to prevent re-render cycle
     } catch(e) { __diagLog('[DIAG:ROUTE] Route error'); }
 })();
 "); } catch { }
