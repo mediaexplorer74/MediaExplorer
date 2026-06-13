@@ -10,7 +10,7 @@
   <Identity
     Name="MediaExplorerV1p0"
     Publisher="CN=Admin"
-    Version="1.0.0.0" />
+    Version="1.0.10.0" />
 
   <mp:PhoneIdentity PhoneProductId="d98c852a-79c9-49c9-b630-fdeea9ec3335" PhonePublisherId="00000000-8375-8396-0050-000000007529"/>
 

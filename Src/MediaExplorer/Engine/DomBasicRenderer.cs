@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -51,6 +51,7 @@ namespace BrowserCore.Engine
 
         private async Task<FrameworkElement> DispatchTagAsync(LiteElement n, Uri baseUri, Action<Uri> onNavigate, JavaScriptEngine js, CancellationToken ct)
         {
+            DevToolsLogger.Log("[DIAG:DISPATCH] tag=" + n.Tag + " tagId=" + n.TagId);
             // Check CSS display value for Grid/Flex containers
             var css = TryGetCss(n);
             if (css != null)
@@ -91,9 +92,12 @@ namespace BrowserCore.Engine
                 case HtmlTag.Header: case HtmlTag.Footer: case HtmlTag.Main:
                 case HtmlTag.Aside: case HtmlTag.Figure: case HtmlTag.Figcaption:
                 case HtmlTag.Blockquote: case HtmlTag.Pre: case HtmlTag.Address:
-                case HtmlTag.Center: case HtmlTag.Form: case HtmlTag.Dialog:
+                case HtmlTag.Form: case HtmlTag.Dialog:
                 case HtmlTag.Details: case HtmlTag.Summary:
                     return await RenderBlockAsync(n, baseUri, onNavigate, js, ct);
+
+                case HtmlTag.Center:
+                    return await RenderCenterAsync(n, baseUri, onNavigate, js, ct);
 
                 case HtmlTag.Table:
                     return await RenderTableAsync(n, baseUri, onNavigate, js, ct);
@@ -125,6 +129,14 @@ namespace BrowserCore.Engine
                 case HtmlTag.Meta: case HtmlTag.Link:
                 case HtmlTag.Noscript:
                     return null;
+
+                case HtmlTag.Span:
+                case HtmlTag.B: case HtmlTag.Strong:
+                case HtmlTag.I: case HtmlTag.Em:
+                case HtmlTag.U: case HtmlTag.S: case HtmlTag.Del:
+                case HtmlTag.Code: case HtmlTag.Tt:
+                case HtmlTag.Small: case HtmlTag.Big:
+                    return await RenderInlineAsync(n, baseUri, onNavigate, js, ct);
 
                 default:
                     return await RenderGenericContainerAsync(n, baseUri, onNavigate, js, ct);
@@ -3042,6 +3054,59 @@ namespace BrowserCore.Engine
         private async Task<FrameworkElement> RenderBlockAsync(LiteElement n, Uri baseUri, Action<Uri> onNavigate, JavaScriptEngine js, CancellationToken ct)
         {
             return await RenderGenericContainerAsync(n, baseUri, onNavigate, js, ct);
+        }
+
+        private async Task<FrameworkElement> RenderCenterAsync(LiteElement n, Uri baseUri, Action<Uri> onNavigate, JavaScriptEngine js, CancellationToken ct)
+        {
+            var panel = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            try { ApplyComputedStyles(panel, n); } catch { }
+            try { ApplyInlineStyles(panel, n); } catch { }
+            if (n.Children != null)
+            {
+                foreach (var child in n.Children)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var elt = await RenderNodeAsync(child, baseUri, onNavigate, js, ct);
+                    if (elt != null) panel.Children.Add(elt);
+                }
+            }
+            return Finish(panel, n);
+        }
+
+        private async Task<FrameworkElement> RenderInlineAsync(LiteElement n, Uri baseUri, Action<Uri> onNavigate, JavaScriptEngine js, CancellationToken ct)
+        {
+            DevToolsLogger.Log("[DIAG:INLINE] tag=" + n.Tag + " class=" + (n.Attr != null && n.Attr.ContainsKey("class") ? n.Attr["class"] : "") + " children=" + (n.Children != null ? n.Children.Count : 0));
+            var panel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal
+            };
+            try { ApplyComputedStyles(panel, n); } catch { }
+            try { ApplyInlineStyles(panel, n); } catch { }
+            if (n.Children != null && n.Children.Count > 0)
+            {
+                foreach (var child in n.Children)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var elt = await RenderNodeAsync(child, baseUri, onNavigate, js, ct);
+                    if (elt != null) panel.Children.Add(elt);
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(n.Text))
+            {
+                var tb = new TextBlock
+                {
+                    Text = CollapseWs(n.Text),
+                    TextWrapping = TextWrapping.NoWrap,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                try { ApplyComputedStyles(tb, n); } catch { }
+                panel.Children.Add(tb);
+            }
+            return Finish(panel, n);
         }
 
         private async Task<FrameworkElement> RenderGenericContainerAsync(LiteElement n, Uri baseUri, Action<Uri> onNavigate, JavaScriptEngine js, CancellationToken ct)

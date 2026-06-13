@@ -155,6 +155,7 @@ namespace BrowserCore.Engine.Core
                 }
                 else if (tag == "TABLE") { box.Style.Display = "flex"; box.Style.FlexDirection = "column"; }
                 else if (tag == "TR") { box.Style.Display = "flex"; box.Style.FlexDirection = "row"; }
+                else if (tag == "CENTER") { box.Style.Display = "block"; }
                 else if (tag == "INPUT" || tag == "BUTTON" || tag == "SELECT" || tag == "IMG" || tag == "TEXTAREA")
                     box.Style.Display = "inline-block";
                 else if (tag == "A" || tag == "SPAN" || tag == "B" || tag == "I" || tag == "STRONG" || tag == "EM" || tag == "LABEL" || tag == "CODE" || tag == "TH" || tag == "TD")
@@ -164,7 +165,6 @@ namespace BrowserCore.Engine.Core
                         box.Style.Display = "block";
                         if (IsZero(box.Style.Padding)) box.Style.Padding = new Windows.UI.Xaml.Thickness(4);
                         if (!box.Style.FlexGrow.HasValue) box.Style.FlexGrow = 1;
-                        if (!box.Style.Width.HasValue && !box.Style.WidthPercent.HasValue) box.Style.Width = 0;
                     }
                     else
                         box.Style.Display = "inline";

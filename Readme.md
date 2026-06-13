@@ -1,4 +1,4 @@
-# MediaExplorer 1.0.0 — museum browser for Windows 10 Mobile
+# MediaExplorer 1.0.10 — museum browser for Windows 10 Mobile
 
 ![](/Images/logo.png)
 

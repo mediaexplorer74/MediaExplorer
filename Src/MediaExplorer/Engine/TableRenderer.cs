@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -268,6 +268,34 @@ namespace BrowserCore.Engine
             }
 
             var root = new Grid();
+
+            // Apply table width attribute (e.g., width="85%")
+            try
+            {
+                if (table.Attr != null)
+                {
+                    string tw;
+                    if (table.Attr.TryGetValue("width", out tw) && !string.IsNullOrWhiteSpace(tw))
+                    {
+                        tw = tw.Trim();
+                        if (tw.EndsWith("%"))
+                        {
+                            double pct;
+                            if (double.TryParse(tw.TrimEnd('%'), out pct))
+                                root.Width = (pct / 100.0) * 960;
+                        }
+                        else
+                        {
+                            double px;
+                            if (double.TryParse(tw.Replace("px", ""), out px))
+                                root.Width = px;
+                        }
+                        root.HorizontalAlignment = HorizontalAlignment.Center;
+                    }
+                }
+            }
+            catch { /* swallow */ }
+
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             Grid.SetRow(headerGrid, 0);

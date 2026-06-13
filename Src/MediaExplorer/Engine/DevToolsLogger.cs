@@ -11,6 +11,7 @@ namespace BrowserCore.Engine
 
         private static string _logPath = null;
         private static readonly object _logLock = new object();
+        private static bool _firstWrite = true;
 
         private static string GetLogPath()
         {
@@ -34,7 +35,16 @@ namespace BrowserCore.Engine
             {
                 try
                 {
-                    System.IO.File.AppendAllText(GetLogPath(), message + "\r\n");
+                    var path = GetLogPath();
+                    if (_firstWrite)
+                    {
+                        _firstWrite = false;
+                        System.IO.File.WriteAllText(path, "[Session started " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "]\r\n" + message + "\r\n");
+                    }
+                    else
+                    {
+                        System.IO.File.AppendAllText(path, message + "\r\n");
+                    }
                 }
                 catch { }
             }

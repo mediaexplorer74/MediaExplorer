@@ -1,4 +1,4 @@
-# MediaExplorer 1.0.0 — 博物馆级浏览器 for Windows 10 Mobile
+# MediaExplorer 1.0.10 — 博物馆级浏览器 for Windows 10 Mobile
 
 ![](/Images/logo.png)
 

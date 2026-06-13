@@ -103,6 +103,26 @@ RenderModeCombo.SelectionChanged += (s, e) =>
                 }
                 catch { }
             };
+
+            ShowSnapshotToggle.Toggled += (s, e) =>
+            {
+                try
+                {
+                    SaveShowSnapshot(ShowSnapshotToggle.IsOn);
+                    if (MainPage.Current != null) MainPage.Current.ApplyButtonVisibility();
+                }
+                catch { }
+            };
+
+            ShowCopyToggle.Toggled += (s, e) =>
+            {
+                try
+                {
+                    SaveShowCopy(ShowCopyToggle.IsOn);
+                    if (MainPage.Current != null) MainPage.Current.ApplyButtonVisibility();
+                }
+                catch { }
+            };
         }
 
         private void LoadSettings()
@@ -146,6 +166,12 @@ RenderModeCombo.SelectionChanged += (s, e) =>
                 // Status Bar
                 if (StatusBarToggle != null)
                     StatusBarToggle.IsOn = LoadStatusBarVisible();
+
+                // Button visibility
+                if (ShowSnapshotToggle != null)
+                    ShowSnapshotToggle.IsOn = LoadShowSnapshot();
+                if (ShowCopyToggle != null)
+                    ShowCopyToggle.IsOn = LoadShowCopy();
             }
             catch { }
         }
@@ -280,6 +306,48 @@ RenderModeCombo.SelectionChanged += (s, e) =>
             try
             {
                 Windows.Storage.ApplicationData.Current.LocalSettings.Values["StatusBarVisible"] = visible;
+            }
+            catch { }
+        }
+
+        private static bool LoadShowSnapshot()
+        {
+            try
+            {
+                var s = Windows.Storage.ApplicationData.Current.LocalSettings;
+                if (s.Values.TryGetValue("ShowSnapshot", out var v) && v is bool b)
+                    return b;
+            }
+            catch { }
+            return true;
+        }
+
+        private static void SaveShowSnapshot(bool show)
+        {
+            try
+            {
+                Windows.Storage.ApplicationData.Current.LocalSettings.Values["ShowSnapshot"] = show;
+            }
+            catch { }
+        }
+
+        private static bool LoadShowCopy()
+        {
+            try
+            {
+                var s = Windows.Storage.ApplicationData.Current.LocalSettings;
+                if (s.Values.TryGetValue("ShowCopy", out var v) && v is bool b)
+                    return b;
+            }
+            catch { }
+            return true;
+        }
+
+        private static void SaveShowCopy(bool show)
+        {
+            try
+            {
+                Windows.Storage.ApplicationData.Current.LocalSettings.Values["ShowCopy"] = show;
             }
             catch { }
         }

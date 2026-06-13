@@ -39,6 +39,17 @@ namespace WEBVIEW
         private bool _barExpanded = false;
         private string _appBarMode = "Semi"; // "Full", "Semi", "Hided"
 
+        // ═══ TEST URL ═══ Change this to test different sites ═══
+        // Set to null/empty to use saved Home Page from Settings.
+        // Examples:
+        //   "https://news.ycombinator.com"     — Hacker News (simple)
+        //   "https://en.m.wikipedia.org"        — Wikipedia mobile (tables)
+        //   "https://developer.mozilla.org"     — MDN (flexbox-heavy)
+        //   "https://getbootstrap.com"          — Bootstrap docs
+        //   "https://github.com"                — GitHub (complex)
+        private const string TEST_URL = "https://news.ycombinator.com";
+        // ═════════════════════════════════════════════════════════
+
         // Card mode (Phase S/T) — narrow viewport card stack
         private bool _cardMode;
         private bool _showCategoryIndex;
@@ -292,7 +303,7 @@ namespace WEBVIEW
 
             SizeChanged += MainPage_SizeChanged;
 
-            Loaded += (s, e) => { try { ApplyAppBarMode(); ApplyRenderMode(); ApplyDevTools(); ApplyStatusBar(); } catch { } };
+            Loaded += (s, e) => { try { ApplyAppBarMode(); ApplyRenderMode(); ApplyDevTools(); ApplyStatusBar(); ApplyButtonVisibility(); } catch { } };
             try { ApplyAppBarMode(); } catch { }
             try { ApplyRenderMode(); } catch { }
             try { ApplyDevTools(); } catch { }
@@ -315,7 +326,13 @@ namespace WEBVIEW
                 System.Diagnostics.Debug.WriteLine("NAVTEST FAIL: " + ex.Message);
             }
 
-            // Priority: launch args > env var > default
+            // Priority: TEST_URL constant > launch args > env var > saved home page
+            if (!string.IsNullOrWhiteSpace(TEST_URL))
+            {
+                var _ = NavigateAsync(TEST_URL);
+                return;
+            }
+
             var launchUrl = e.Parameter as string;
             if (string.IsNullOrWhiteSpace(launchUrl))
             {
@@ -1166,9 +1183,9 @@ namespace WEBVIEW
             var firstBtn = new TextBlock
             {
                 Text = "\u00AB",
-                FontSize = 18,
+                FontSize = 20,
                 Foreground = new SolidColorBrush(_currentCardIndex > 0 ? Color.FromArgb(220, 100, 180, 255) : Color.FromArgb(100, 100, 100, 100)),
-                Margin = new Thickness(12, 4, 0, 12),
+                Margin = new Thickness(12, 4, 6, 12),
                 VerticalAlignment = VerticalAlignment.Center
             };
             firstBtn.Tapped += (s, e) => { e.Handled = true; NavCardTo(0); };
@@ -1178,9 +1195,9 @@ namespace WEBVIEW
             var prevBtn = new TextBlock
             {
                 Text = "\u2039",
-                FontSize = 22,
+                FontSize = 24,
                 Foreground = new SolidColorBrush(_currentCardIndex > 0 ? Color.FromArgb(220, 100, 180, 255) : Color.FromArgb(100, 100, 100, 100)),
-                Margin = new Thickness(4, 4, 0, 12),
+                Margin = new Thickness(6, 4, 12, 12),
                 VerticalAlignment = VerticalAlignment.Center
             };
             prevBtn.Tapped += (s, e) => { e.Handled = true; NavCard(-1); };
@@ -1204,9 +1221,9 @@ namespace WEBVIEW
             var nextBtn = new TextBlock
             {
                 Text = "\u203A",
-                FontSize = 22,
+                FontSize = 24,
                 Foreground = new SolidColorBrush(_currentCardIndex < total - 1 ? Color.FromArgb(220, 100, 180, 255) : Color.FromArgb(100, 100, 100, 100)),
-                Margin = new Thickness(0, 4, 0, 12),
+                Margin = new Thickness(12, 4, 6, 12),
                 VerticalAlignment = VerticalAlignment.Center
             };
             nextBtn.Tapped += (s, e) => { e.Handled = true; NavCard(1); };
@@ -1216,9 +1233,9 @@ namespace WEBVIEW
             var lastBtn = new TextBlock
             {
                 Text = "\u00BB",
-                FontSize = 18,
+                FontSize = 20,
                 Foreground = new SolidColorBrush(_currentCardIndex < total - 1 ? Color.FromArgb(220, 100, 180, 255) : Color.FromArgb(100, 100, 100, 100)),
-                Margin = new Thickness(0, 4, 12, 12),
+                Margin = new Thickness(6, 4, 12, 12),
                 VerticalAlignment = VerticalAlignment.Center
             };
             lastBtn.Tapped += (s, e) => { e.Handled = true; NavCardTo(total - 1); };
@@ -1938,6 +1955,25 @@ namespace WEBVIEW
             catch { }
         }
 
+        public void ApplyButtonVisibility()
+        {
+            try
+            {
+                var s = Windows.Storage.ApplicationData.Current.LocalSettings;
+                bool showSnapshot = true;
+                bool showCopy = true;
+                if (s.Values.TryGetValue("ShowSnapshot", out var v1) && v1 is bool b1)
+                    showSnapshot = b1;
+                if (s.Values.TryGetValue("ShowCopy", out var v2) && v2 is bool b2)
+                    showCopy = b2;
+                if (SnapshotButton != null)
+                    SnapshotButton.Visibility = showSnapshot ? Visibility.Visible : Visibility.Collapsed;
+                if (CopyButton != null)
+                    CopyButton.Visibility = showCopy ? Visibility.Visible : Visibility.Collapsed;
+            }
+            catch { }
+        }
+
         public void ApplyAppBarMode()
         {
             _appBarMode = LoadAppBarMode();
@@ -2582,11 +2618,6 @@ namespace WEBVIEW
                 ExpandBar();
 
                 var key = LoadAiKey();
-                if (string.IsNullOrWhiteSpace(key))
-                {
-                    ShowAiResult("No API key configured. Open Settings and enter your OpenRouter API key.", false);
-                    return;
-                }
 
                 string pageText;
                 try
@@ -2607,7 +2638,18 @@ namespace WEBVIEW
                     return;
                 }
 
-                // Truncate to ~4000 tokens (~16000 chars)
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                    pkg.SetText(pageText);
+                    Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
+
+                    SnapshotButton_Click(null, null);
+
+                    ShowAiResult("No API key set — copied page text to clipboard and saved screenshot.\n\nOpen Settings → Advanced → OpenRouter API Key for AI summaries.", false);
+                    return;
+                }
+
                 if (pageText.Length > 16000)
                     pageText = pageText.Substring(0, 16000) + "\n[truncated]";
 

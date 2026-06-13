@@ -2,11 +2,10 @@ using System;
 using Windows.Foundation;
 using Windows.UI.Xaml;
 
+using BrowserCore.Engine;
+
 namespace BrowserCore.Engine.Core
 {
-    /// <summary>
-    /// Represents a visual rectangle (div, p, img, etc.).
-    /// </summary>
     public class RenderBox : RenderObject
     {
         public override void Layout(Size availableSize)
@@ -59,6 +58,7 @@ namespace BrowserCore.Engine.Core
                 if (!isBorderBox) targetWidth += padding.Left + padding.Right + border.Left + border.Right;
             }
             else if (Style.WidthPercent.HasValue) targetWidth = availableSize.Width * (Style.WidthPercent.Value / 100.0) - margin.Left - margin.Right;
+            else if (Style.Display == "inline") targetWidth = double.PositiveInfinity;
             else targetWidth = availableSize.Width - margin.Left - margin.Right;
             
             bool isBlock = Style.Display == "block" || Style.Display == null; 
@@ -100,12 +100,16 @@ namespace BrowserCore.Engine.Core
 
             if (isFlex)
             {
+                var diagTag2 = Node?.Tag ?? "?";
+                DevToolsLogger.Log($"[DIAG:LAYOUT:FLEX] tag={diagTag2} dir={Style.FlexDirection} children={Children.Count} contentWidth={contentWidth:F0}");
                 contentHeight = LayoutFlexChildren(contentWidth);
             }
             else
             {
                 // Heuristic: If we have children and the first one is inline, we try inline layout.
                 bool isInlineFormattingContext = HasInlineChildren();
+                var diagTag3 = Node?.Tag ?? "?";
+                DevToolsLogger.Log($"[DIAG:LAYOUT:DECIDE] tag={diagTag3} display={Style?.Display} isInline={isInlineFormattingContext} childCount={Children.Count}");
 
                 if (isInlineFormattingContext)
                 {
@@ -209,6 +213,8 @@ namespace BrowserCore.Engine.Core
 
         private double LayoutBlockChildren(double contentWidth)
         {
+            var diagTag = Node?.Tag ?? "?";
+            DevToolsLogger.Log($"[DIAG:LAYOUT:BLOCK] tag={diagTag} children={Children.Count} contentWidth={contentWidth:F0}");
             double currentY = Style.Padding.Top + Style.BorderThickness.Top;
             foreach (var child in Children)
             {
@@ -231,6 +237,9 @@ namespace BrowserCore.Engine.Core
 
         private double LayoutInlineChildren(double contentWidth)
         {
+            var diagTag = Node?.Tag ?? "?";
+            var diagDisp = Style?.Display ?? "null";
+            DevToolsLogger.Log($"[DIAG:LAYOUT:INLINE] tag={diagTag} display={diagDisp} children={Children.Count} contentWidth={contentWidth:F0}");
             double startX = Style.Padding.Left + Style.BorderThickness.Left;
             double startY = Style.Padding.Top + Style.BorderThickness.Top;
             
@@ -263,6 +272,8 @@ namespace BrowserCore.Engine.Core
                 childBounds.X = currentX + childMargin.Left;
                 childBounds.Y = currentY + childMargin.Top;
                 child.Bounds = childBounds;
+
+                DevToolsLogger.Log($"[DIAG:POS] parent={Node?.Tag} child={child.Node?.Tag ?? "txt"} x={childBounds.X:F0} y={childBounds.Y:F0} w={child.Bounds.Width:F0} h={child.Bounds.Height:F0}");
 
                 // Advance
                 currentX += childTotalWidth;
