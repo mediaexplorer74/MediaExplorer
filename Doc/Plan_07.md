@@ -473,4 +473,102 @@ If NiL.JS v2.6 proves too limiting (missing critical ES6 features, no path forwa
 
 ---
 
+## Session 9 Progress (June 13, 2026)
+
+### Phase 1 Completion — Links + Layout Fixes
+
+**What was done:**
+1. **Flex-shrink for flex-row** (`RenderBox.cs:310`) — when flex-row children overflow the container, they proportionally shrink. Uses `FlexShrink` style property (default 1). Re-measures children with constrained width.
+2. **Removed `flex-grow:1` from all `<td>`** (`RenderTreeBuilder.cs:181-186`) — previously ALL `<td>` got `flex-grow:1`, causing rank/vote/title columns to expand equally in flex-row, creating huge spacing gaps.
+3. **Conditional flex-grow for `<td>` with bgcolor** (`RenderTreeBuilder.cs:265-270`) — only `<td>` elements with `bgcolor` attribute get `flex-grow:1`. This restores the full-width orange header bar while keeping news rows compact.
+4. **`<A>` tag visual type key** (`VirtualizingRenderer.cs:265`) — `GetVisualTypeKey` now returns `typeof(Border)` for `<A>` tags, enabling proper element pool reuse.
+5. **Link tap diagnostics** — `[DIAG:LINK] Attached handler` for every `<A>` tag with href; `[DIAG:LINK] Tapped` on click. All ~150+ links on HN receive handlers and navigation works.
+
+**What works now:**
+- ✅ All links clickable — `AttachLinkHandler` walks up RenderObject tree to find `<A>` with `href`, attaches `Tapped` handler
+- ✅ HN layout compact — rank, vote, title, domain all properly spaced
+- ✅ Orange header full-width
+- ✅ Content fits viewport (no right-side overflow)
+
+**Remaining from Phase 1:**
+- Search form input visibility (footer `<center>` overflows)
+
+**Files modified this session:**
+- `Engine/Core/RenderBox.cs` — flex-shrink implementation
+- `Engine/Core/RenderTreeBuilder.cs` — conditional `<td>` flex-grow
+- `Engine/Core/VirtualizingRenderer.cs` — `<A>` visual type key, link diagnostics
+
+---
+
+## Session 10 Progress (June 13, 2026)
+
+### Phase 2 Start — CSS Grid + Overflow
+
+**What was done:**
+1. **CSS Grid Layout Engine** (`RenderBox.cs:557-825`) — Full `LayoutGridChildren` method:
+   - Parses `grid-template-columns`/`grid-template-rows` with `fr` units, `repeat()`, `px`, `%`
+   - Resolves tracks proportionally using free space distribution
+   - Handles `gap`/`row-gap`/`column-gap` between tracks
+   - Supports `grid-column`/`grid-row`/`grid-area` item placement with spans
+   - Auto-placement for items without explicit placement
+   - Expanded `ExpandRepeat()`, `FindMatchingParen()`, `ParseGridLine()` helpers
+   - No regression on HN (no grid sites tested yet)
+
+2. **Overflow Clipping** (`VirtualizingRenderer.cs:195-244`) — `CollectVisible` now clips children to parent bounds:
+   - `overflow: hidden` / `overflow: clip` — children outside parent rect are not collected
+   - `overflow: auto` / `overflow: scroll` — same clipping (visual scroll needs nested ScrollViewer)
+   - Replaced old `HasOverflowVisible` logic with proper clipping rects
+
+**Verified working:**
+- ✅ HN full page — all 30 items, footer, search input, links all functional
+- ✅ No regression from grid/overflow changes
+
+**Next (Session 11):**
+- Position: sticky (T1.3)
+- Test grid on real sites (example.com → Wikipedia)
+- Overflow auto/scroll with nested ScrollViewer
+
+**Files modified this session:**
+- `Engine/Core/RenderBox.cs` — CSS Grid layout engine (`LayoutGridChildren`, `ResolveGridTracks`, `ExpandRepeat`, `ParseGridItemPlacement`, etc.)
+- `Engine/Core/VirtualizingRenderer.cs` — overflow clipping in `CollectVisible`
+
+---
+
+## Session 11 Progress (June 13, 2026)
+
+### Phase 2 Completion — Position: Sticky
+
+**What was done:**
+1. **Position: sticky** (`VirtualizingRenderer.cs`) — elements with `position: sticky` stick to the viewport top when scrolled past:
+   - `_stickyElements` HashSet tracks sticky nodes
+   - `_stickyOriginalY` stores natural Y position before sticky clamping
+   - `_stickyTop` stores the `top` offset (e.g., `top: 0` means stick to very top)
+   - `PlaceVisualOnCanvas` detects `position: sticky` and registers elements
+   - `UpdateView` repositions sticky elements on every scroll: `targetY = max(origY, scrollOffset + top)`
+   - Removes from `_stickyElements` on `ReturnToPool`
+
+**Phase 2 Final Status:**
+| Feature | Status | Notes |
+|---------|--------|-------|
+| CSS Grid Level 1 | ✅ Done | `fr`, `repeat()`, `gap`, `grid-column/row/area` |
+| Overflow hidden/clip | ✅ Done | Children clipped to parent bounds |
+| Position: sticky | ✅ Done | Re-positioned on scroll |
+| CSS Shorthand | ✅ Already done | margin/padding/border/background |
+| Overflow auto/scroll | 🔜 Deferred | Needs nested ScrollViewer |
+
+**Files modified this session:**
+- `Engine/Core/VirtualizingRenderer.cs` — sticky tracking + repositioning
+
+---
+
+### Session 12 — Phase 3 Start Preview
+
+**Next priorities:**
+1. Test CSS Grid on real sites (Wikipedia, MDN)
+2. Overflow auto/scroll with nested ScrollViewer
+3. More CSS features: `text-overflow: ellipsis`, `white-space`, `line-height`
+4. Test on more sites from Phase 5 matrix
+
+---
+
 *End of Plan_07 — June 13, 2026*

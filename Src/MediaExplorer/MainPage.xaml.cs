@@ -47,7 +47,7 @@ namespace WEBVIEW
         //   "https://developer.mozilla.org"     — MDN (flexbox-heavy)
         //   "https://getbootstrap.com"          — Bootstrap docs
         //   "https://github.com"                — GitHub (complex)
-        private const string TEST_URL = "https://news.ycombinator.com";
+        private const string TEST_URL = "https://en.m.wikipedia.org/wiki/Main_Page";
         // ═════════════════════════════════════════════════════════
 
         // Card mode (Phase S/T) — narrow viewport card stack

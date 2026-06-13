@@ -182,7 +182,6 @@ namespace BrowserCore.Engine.Core
                     {
                         box.Style.Display = "block";
                         if (IsZero(box.Style.Padding)) box.Style.Padding = new Windows.UI.Xaml.Thickness(4);
-                        if (!box.Style.FlexGrow.HasValue) box.Style.FlexGrow = 1;
                     }
                     else
                         box.Style.Display = "inline";
@@ -268,6 +267,8 @@ namespace BrowserCore.Engine.Core
                 var parsed = TryParseHtmlColor(bgColor);
                 if (parsed.HasValue && !box.Style.BackgroundColor.HasValue)
                     box.Style.BackgroundColor = parsed.Value;
+                if ((tag == "TD" || tag == "TH") && !box.Style.FlexGrow.HasValue)
+                    box.Style.FlexGrow = 1;
             }
 
             string color;

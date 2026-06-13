@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Windows.Foundation;
 using Windows.UI.Xaml;
 
@@ -95,10 +96,15 @@ namespace BrowserCore.Engine.Core
             double contentHeight = 0;
 
             // 4. Layout Children
-            // Check if we should do Inline Layout, Block Layout, or Flex Layout
+            // Check if we should do Inline Layout, Block Layout, Flex Layout, or Grid Layout
             bool isFlex = Style.Display == "flex" || Style.Display == "inline-flex";
+            bool isGrid = Style.Display == "grid" || Style.Display == "inline-grid";
 
-            if (isFlex)
+            if (isGrid)
+            {
+                contentHeight = LayoutGridChildren(contentWidth);
+            }
+            else if (isFlex)
             {
                 var diagTag2 = Node?.Tag ?? "?";
                 DevToolsLogger.Log($"[DIAG:LAYOUT:FLEX] tag={diagTag2} dir={Style.FlexDirection} children={Children.Count} contentWidth={contentWidth:F0}");
@@ -307,14 +313,11 @@ namespace BrowserCore.Engine.Core
             double crossAxisCurrent = isRow ? startY : startX;
             double crossAxisMax = 0; // Max size in cross axis for current line
 
-            // 1. Measure all children first
+            // 1. Measure all children first (intrinsic sizes)
             foreach (var child in Children)
             {
                 if (child.Style != null && (child.Style.Position == "absolute" || child.Style.Position == "fixed")) continue;
 
-                // For flex items, we might need to constrain them differently, but for now, let them size naturally
-                // If row, height is infinite. If column, width is contentWidth (maybe?)
-                // Simplified: Measure with available space
                 child.Layout(new Size(isRow ? double.PositiveInfinity : contentWidth, double.PositiveInfinity));
             }
 
@@ -378,6 +381,56 @@ namespace BrowserCore.Engine.Core
                 // Only apply if we have a finite constraint on the main axis
                 double constraint = isRow ? contentWidth : double.PositiveInfinity; // TODO: Pass contentHeight for column
                 double freeSpace = constraint - lineMainSize;
+
+                // 2a. Apply Flex Shrink when overflowing
+                if (freeSpace < 0 && !double.IsInfinity(freeSpace))
+                {
+                    double overflow = -freeSpace;
+                    double totalShrink = 0;
+                    foreach (var child in line)
+                    {
+                        double shrink = child.Style?.FlexShrink ?? 1;
+                        double childMain = isRow
+                            ? child.Bounds.Width + (child.Style?.Margin ?? new Thickness(0)).Left + (child.Style?.Margin ?? new Thickness(0)).Right
+                            : child.Bounds.Height + (child.Style?.Margin ?? new Thickness(0)).Top + (child.Style?.Margin ?? new Thickness(0)).Bottom;
+                        totalShrink += shrink * childMain;
+                    }
+
+                    if (totalShrink > 0)
+                    {
+                        double shrinkRemaining = overflow;
+                        foreach (var child in line)
+                        {
+                            double shrink = child.Style?.FlexShrink ?? 1;
+                            var childMargin = child.Style?.Margin ?? new Thickness(0);
+                            double childMain = isRow
+                                ? child.Bounds.Width + childMargin.Left + childMargin.Right
+                                : child.Bounds.Height + childMargin.Top + childMargin.Bottom;
+                            double shrinkAmount = (shrink * childMain / totalShrink) * overflow;
+                            shrinkAmount = Math.Min(shrinkAmount, shrinkRemaining);
+
+                            if (isRow)
+                            {
+                                double newWidth = Math.Max(0, child.Bounds.Width - shrinkAmount);
+                                var oldWidth = child.Style.Width;
+                                child.Style.Width = newWidth;
+                                child.Layout(new Size(newWidth, double.PositiveInfinity));
+                                child.Style.Width = oldWidth;
+                                shrinkRemaining -= (childMain - (child.Bounds.Width + childMargin.Left + childMargin.Right));
+                            }
+                        }
+                        // Recalculate lineMainSize after shrinking
+                        lineMainSize = 0;
+                        foreach (var child in line)
+                        {
+                            var m = child.Style?.Margin ?? new Thickness(0);
+                            lineMainSize += isRow
+                                ? child.Bounds.Width + m.Left + m.Right
+                                : child.Bounds.Height + m.Top + m.Bottom;
+                        }
+                        freeSpace = constraint - lineMainSize;
+                    }
+                }
 
                 if (freeSpace > 0 && totalGrow > 0 && !double.IsInfinity(freeSpace))
                 {
@@ -499,6 +552,345 @@ namespace BrowserCore.Engine.Core
                 return totalCrossSize;
             else
                 return totalMainSize;
+        }
+
+        private double LayoutGridChildren(double contentWidth)
+        {
+            var diagTag = Node?.Tag ?? "?";
+            var cols = Style?.GridTemplateColumns;
+            var rows = Style?.GridTemplateRows;
+            var gap = Style?.Gap ?? Style?.ColumnGap ?? 0;
+            var rowGap = Style?.Gap ?? Style?.RowGap ?? 0;
+
+            DevToolsLogger.Log($"[DIAG:LAYOUT:GRID] tag={diagTag} cols='{cols}' rows='{rows}' gap={gap} children={Children.Count} contentWidth={contentWidth:F0}");
+
+            if (string.IsNullOrWhiteSpace(cols) && string.IsNullOrWhiteSpace(rows))
+            {
+                cols = $"repeat({Children.Count}, 1fr)";
+            }
+
+            int numCols = ParseGridTrackCount(cols);
+            int numRows = ParseGridTrackCount(rows);
+            if (numCols == 0) numCols = Math.Max(1, Children.Count);
+            if (numRows == 0) numRows = 1;
+
+            double[] colSizes = ResolveGridTracks(cols, numCols, contentWidth, gap);
+            double[] rowSizes = ResolveGridTracks(rows, numRows, double.PositiveInfinity, rowGap);
+
+            int autoRowIdx = 0;
+            for (int i = 0; i < Children.Count; i++)
+            {
+                var child = Children[i];
+                if (child.Style != null && (child.Style.Position == "absolute" || child.Style.Position == "fixed")) continue;
+
+                int col = 0, row = 0, colSpan = 1, rowSpan = 1;
+                ParseGridItemPlacement(child, numCols, numRows, i, out col, out row, out colSpan, out rowSpan);
+
+                if (row >= numRows)
+                {
+                    var newRowSizes = new double[row + 1];
+                    Array.Copy(rowSizes, newRowSizes, rowSizes.Length);
+                    for (int r = rowSizes.Length; r <= row; r++)
+                        newRowSizes[r] = 0;
+                    rowSizes = newRowSizes;
+                    numRows = rowSizes.Length;
+                }
+
+                double cellX = 0;
+                for (int c = 0; c < col; c++) cellX += colSizes[c] + (c < numCols - 1 ? gap : 0);
+                double cellY = 0;
+                for (int r = 0; r < row; r++) cellY += rowSizes[r] + (r < numRows - 1 ? rowGap : 0);
+
+                double cellW = 0;
+                for (int c = col; c < Math.Min(col + colSpan, numCols); c++)
+                    cellW += colSizes[c] + (c > col ? gap : 0);
+                double cellH = 0;
+                for (int r = row; r < Math.Min(row + rowSpan, numRows); r++)
+                    cellH += rowSizes[r] + (r > row ? rowGap : 0);
+
+                if (colSpan == 1 && colSizes[col] == 0) cellW = contentWidth;
+                if (rowSpan == 1 && rowSizes.Length > row && rowSizes[row] == 0)
+                {
+                    child.Layout(new Size(cellW, double.PositiveInfinity));
+                    rowSizes[row] = Math.Max(rowSizes[row], child.Bounds.Height);
+                    cellH = rowSizes[row];
+                }
+                else
+                {
+                    child.Layout(new Size(cellW, cellH > 0 ? cellH : double.PositiveInfinity));
+                    if (row < rowSizes.Length && rowSizes[row] == 0)
+                        rowSizes[row] = child.Bounds.Height;
+                }
+
+                var childMargin = child.Style?.Margin ?? new Thickness(0);
+                var bounds = child.Bounds;
+                bounds.X = cellX + childMargin.Left;
+                bounds.Y = cellY + childMargin.Top;
+                child.Bounds = bounds;
+            }
+
+            double totalHeight = 0;
+            for (int r = 0; r < rowSizes.Length; r++)
+                totalHeight += rowSizes[r] + (r < rowSizes.Length - 1 ? rowGap : 0);
+            return totalHeight;
+        }
+
+        private int ParseGridTrackCount(string template)
+        {
+            if (string.IsNullOrWhiteSpace(template)) return 0;
+            if (template.Trim() == "none") return 0;
+            int count = 0;
+            bool inRepeat = false;
+            int repeatCount = 0;
+            var parts = template.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var p in parts)
+            {
+                var pt = p.Trim().ToLowerInvariant();
+                if (pt.StartsWith("repeat("))
+                {
+                    inRepeat = true;
+                    var inner = pt.Substring(7).TrimEnd(')');
+                    var commaIdx = inner.IndexOf(',');
+                    if (commaIdx > 0)
+                    {
+                        var countStr = inner.Substring(0, commaIdx).Trim();
+                        if (int.TryParse(countStr, out repeatCount))
+                        {
+                            var trackDef = inner.Substring(commaIdx + 1).Trim();
+                            int tracksInRepeat = trackDef.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Length;
+                            count += repeatCount * tracksInRepeat;
+                        }
+                    }
+                    inRepeat = false;
+                }
+                else if (pt == ",") { }
+                else count++;
+            }
+            return Math.Max(1, count);
+        }
+
+        private double[] ResolveGridTracks(string template, int trackCount, double availableSize, double gap)
+        {
+            var result = new double[trackCount];
+            if (string.IsNullOrWhiteSpace(template) || template.Trim() == "none")
+            {
+                double autoSize = trackCount > 0 ? (availableSize - gap * (trackCount - 1)) / trackCount : 0;
+                for (int i = 0; i < trackCount; i++) result[i] = Math.Max(0, autoSize);
+                return result;
+            }
+
+            var tokens = ExpandRepeat(template, trackCount);
+            double totalFr = 0;
+            int autoCount = 0;
+
+            for (int i = 0; i < Math.Min(tokens.Count, trackCount); i++)
+            {
+                var t = tokens[i].Trim().ToLowerInvariant();
+                if (t.EndsWith("fr"))
+                {
+                    double fr;
+                    if (double.TryParse(t.Substring(0, t.Length - 2), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out fr))
+                        totalFr += fr;
+                }
+                else if (t == "auto" || t == "minmax" || t.StartsWith("minmax"))
+                {
+                    autoCount++;
+                }
+                else
+                {
+                    double px;
+                    if (TryParseGridLength(t, out px))
+                        result[i] = px;
+                    else
+                        autoCount++;
+                }
+            }
+
+            double totalGap = gap * Math.Max(0, trackCount - 1);
+            double usedSpace = totalGap;
+            for (int i = 0; i < trackCount; i++)
+                if (result[i] > 0) usedSpace += result[i];
+            double freeSpace = Math.Max(0, availableSize - usedSpace);
+
+            for (int i = 0; i < Math.Min(tokens.Count, trackCount); i++)
+            {
+                var t = tokens[i].Trim().ToLowerInvariant();
+                if (t.EndsWith("fr"))
+                {
+                    double fr;
+                    if (double.TryParse(t.Substring(0, t.Length - 2), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out fr))
+                        result[i] = totalFr > 0 ? freeSpace * (fr / totalFr) : 0;
+                }
+                else if (result[i] == 0)
+                {
+                    result[i] = autoCount > 0 ? freeSpace / autoCount : 0;
+                }
+            }
+
+            return result;
+        }
+
+        private List<string> ExpandRepeat(string template, int targetCount)
+        {
+            var tokens = new List<string>();
+            int i = 0;
+            while (i < template.Length)
+            {
+                while (i < template.Length && char.IsWhiteSpace(template[i])) i++;
+                if (i >= template.Length) break;
+
+                if (template.Substring(i).StartsWith("repeat(", StringComparison.OrdinalIgnoreCase))
+                {
+                    int startParen = template.IndexOf('(', i);
+                    int endParen = FindMatchingParen(template, startParen);
+                    if (endParen > startParen)
+                    {
+                        var inner = template.Substring(startParen + 1, endParen - startParen - 1);
+                        int commaIdx = FindUnquotedComma(inner);
+                        if (commaIdx > 0)
+                        {
+                            var countStr = inner.Substring(0, commaIdx).Trim();
+                            var trackDef = inner.Substring(commaIdx + 1).Trim();
+                            int repeatCount;
+                            if (countStr == "auto-fill" || countStr == "auto-fit")
+                                repeatCount = targetCount;
+                            else if (int.TryParse(countStr, out repeatCount))
+                            { }
+                            else
+                                repeatCount = 1;
+
+                            var trackTokens = trackDef.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                            for (int r = 0; r < repeatCount; r++)
+                                foreach (var tt in trackTokens)
+                                    tokens.Add(tt);
+                        }
+                        i = endParen + 1;
+                        continue;
+                    }
+                }
+
+                int nextSpace = i;
+                while (nextSpace < template.Length && !char.IsWhiteSpace(template[nextSpace]) && template[nextSpace] != ',') nextSpace++;
+                if (nextSpace > i) tokens.Add(template.Substring(i, nextSpace - i));
+                i = nextSpace;
+                if (i < template.Length && template[i] == ',') i++;
+            }
+            while (tokens.Count < targetCount) tokens.Add("auto");
+            return tokens;
+        }
+
+        private int FindMatchingParen(string s, int openIdx)
+        {
+            int depth = 0;
+            for (int i = openIdx; i < s.Length; i++)
+            {
+                if (s[i] == '(') depth++;
+                else if (s[i] == ')') { depth--; if (depth == 0) return i; }
+            }
+            return -1;
+        }
+
+        private int FindUnquotedComma(string s)
+        {
+            int depth = 0;
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (s[i] == '(') depth++;
+                else if (s[i] == ')') depth--;
+                else if (s[i] == ',' && depth == 0) return i;
+            }
+            return -1;
+        }
+
+        private bool TryParseGridLength(string s, out double px)
+        {
+            px = 0;
+            s = s.Trim();
+            if (s.EndsWith("px"))
+            {
+                return double.TryParse(s.Substring(0, s.Length - 2), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out px);
+            }
+            if (s.EndsWith("%"))
+            {
+                double pct;
+                if (double.TryParse(s.Substring(0, s.Length - 1), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out pct))
+                { px = pct; return true; }
+            }
+            return double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out px);
+        }
+
+        private void ParseGridItemPlacement(RenderObject child, int numCols, int numRows, int autoIndex,
+            out int col, out int row, out int colSpan, out int rowSpan)
+        {
+            col = 0; row = 0; colSpan = 1; rowSpan = 1;
+
+            var gridCol = child.Style?.GridColumn;
+            var gridRow = child.Style?.GridRow;
+            var gridArea = child.Style?.GridArea;
+
+            if (!string.IsNullOrWhiteSpace(gridArea))
+            {
+                var areaParts = gridArea.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                if (areaParts.Length >= 2)
+                {
+                    col = ParseGridLine(areaParts[0].Trim(), numCols) - 1;
+                    row = ParseGridLine(areaParts[1].Trim(), numRows) - 1;
+                    if (areaParts.Length >= 4)
+                    {
+                        int endCol = ParseGridLine(areaParts[2].Trim(), numCols);
+                        int endRow = ParseGridLine(areaParts[3].Trim(), numRows);
+                        colSpan = Math.Max(1, endCol - col);
+                        rowSpan = Math.Max(1, endRow - row);
+                    }
+                    return;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(gridCol))
+            {
+                var parts = gridCol.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                col = ParseGridLine(parts[0].Trim(), numCols) - 1;
+                if (parts.Length > 1)
+                {
+                    int endCol = ParseGridLine(parts[1].Trim(), numCols);
+                    colSpan = Math.Max(1, endCol - col);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(gridRow))
+            {
+                var parts = gridRow.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                row = ParseGridLine(parts[0].Trim(), numRows) - 1;
+                if (parts.Length > 1)
+                {
+                    int endRow = ParseGridLine(parts[1].Trim(), numRows);
+                    rowSpan = Math.Max(1, endRow - row);
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(gridCol) && string.IsNullOrWhiteSpace(gridRow))
+            {
+                col = autoIndex % numCols;
+                row = autoIndex / numCols;
+            }
+
+            col = Math.Max(0, Math.Min(col, numCols - 1));
+            row = Math.Max(0, row);
+        }
+
+        private int ParseGridLine(string s, int max)
+        {
+            s = s.Trim().ToLowerInvariant();
+            if (s == "auto" || s == "span") return max + 1;
+            if (s.StartsWith("span "))
+            {
+                int span;
+                if (int.TryParse(s.Substring(5).Trim(), out span)) return span;
+                return 1;
+            }
+            int val;
+            if (int.TryParse(s, out val)) return val;
+            return max + 1;
         }
 
         private void LayoutAbsoluteChildren(Size availableSize)

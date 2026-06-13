@@ -38,6 +38,11 @@ namespace BrowserCore.Engine.Core
         // Store handler references for cleanup on pool return
         private readonly Dictionary<UIElement, object> _linkHandlerRefs = new Dictionary<UIElement, object>();
 
+        // Track sticky elements for scroll-time repositioning
+        private readonly HashSet<RenderObject> _stickyElements = new HashSet<RenderObject>();
+        private readonly Dictionary<RenderObject, double> _stickyOriginalY = new Dictionary<RenderObject, double>();
+        private readonly Dictionary<RenderObject, double> _stickyTop = new Dictionary<RenderObject, double>();
+
         private static bool IsZero(Thickness t)
         {
             return t.Left == 0 && t.Top == 0 && t.Right == 0 && t.Bottom == 0;
@@ -184,6 +189,22 @@ namespace BrowserCore.Engine.Core
             // Load / cancel images based on final visible set
             ProcessLazyImages(newVisible);
 
+            // Reposition sticky elements
+            foreach (var node in _stickyElements)
+            {
+                if (!_activeElements.TryGetValue(node, out var el)) continue;
+                if (!_stickyOriginalY.TryGetValue(node, out var origY)) continue;
+                if (!_stickyTop.TryGetValue(node, out var stickyTop)) continue;
+
+                double targetY = Math.Max(origY, verticalOffset + stickyTop);
+                if (Math.Abs(Canvas.GetTop(el) - targetY) > 0.5)
+                {
+                    Canvas.SetTop(el, EnsureValid(targetY));
+                    if (el is FrameworkElement feSticky)
+                        feSticky.Width = EnsureValid(node.Bounds.Width);
+                }
+            }
+
             // Update canvas size
             if (_root != null)
             {
@@ -196,8 +217,37 @@ namespace BrowserCore.Engine.Core
         {
             if (node == null) return;
 
-            double absX = parentX + node.Bounds.X;
-            double absY = parentY + node.Bounds.Y;
+            double absX, absY;
+            bool isAbsFixed = node.Style != null &&
+                (node.Style.Position == "absolute" || node.Style.Position == "fixed");
+
+            if (isAbsFixed && node.Style.Position == "fixed")
+            {
+                absX = EnsureValid(node.Bounds.X);
+                absY = EnsureValid(node.Bounds.Y);
+            }
+            else if (isAbsFixed)
+            {
+                // Walk up to nearest positioned ancestor
+                absX = EnsureValid(node.Bounds.X);
+                absY = EnsureValid(node.Bounds.Y);
+                var p = node.Parent;
+                while (p != null)
+                {
+                    absX += p.Bounds.X;
+                    absY += p.Bounds.Y;
+                    if (p.Style != null &&
+                        (p.Style.Position == "relative" || p.Style.Position == "absolute" ||
+                         p.Style.Position == "fixed" || p.Style.Position == "sticky"))
+                        break;
+                    p = p.Parent;
+                }
+            }
+            else
+            {
+                absX = parentX + node.Bounds.X;
+                absY = parentY + node.Bounds.Y;
+            }
 
             var nodeRect = new Rect(
                 EnsureValid(absX),
@@ -209,18 +259,29 @@ namespace BrowserCore.Engine.Core
             if (isVisible)
                 result.Add(node);
 
-            // Skip subtree if node is completely outside viewport
-            // (in our layout model, children are within parent bounds)
-            if (!isVisible && !HasOverflowVisible(node))
-                return;
-
             var tag = node.Node?.Tag?.ToUpperInvariant();
             bool isLeafControl = tag == "BUTTON" || tag == "INPUT" || tag == "IMG" || tag == "SELECT" || tag == "TEXTAREA";
 
             if (!isLeafControl && node.Children != null)
             {
+                var overflow = node.Style?.Overflow ?? "";
+                bool isHidden = string.Equals(overflow, "hidden", StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(overflow, "clip", StringComparison.OrdinalIgnoreCase);
+                bool isAuto = string.Equals(overflow, "auto", StringComparison.OrdinalIgnoreCase) ||
+                              string.Equals(overflow, "scroll", StringComparison.OrdinalIgnoreCase);
+
+                var childVisibleRect = visibleRect;
+                if (isHidden && node.Bounds.Width > 0 && node.Bounds.Height > 0)
+                {
+                    childVisibleRect = RectHelper.Intersect(visibleRect, nodeRect);
+                }
+                else if (isAuto && node.Bounds.Width > 0 && node.Bounds.Height > 0)
+                {
+                    childVisibleRect = RectHelper.Intersect(visibleRect, nodeRect);
+                }
+
                 for (int i = 0; i < node.Children.Count; i++)
-                    CollectVisible(node.Children[i], visibleRect, absX, absY, result);
+                    CollectVisible(node.Children[i], childVisibleRect, absX, absY, result);
             }
         }
 
@@ -262,6 +323,7 @@ namespace BrowserCore.Engine.Core
                     return typeof(TextBox);
                 }
                 if (tag == "BUTTON") return typeof(Button);
+                if (tag == "A") return typeof(Border);
 
                 if (HasBorderOrBackground(box)) return typeof(Border);
                 return null; // no visual needed
@@ -350,11 +412,41 @@ namespace BrowserCore.Engine.Core
 
             double ax = 0, ay = 0;
             var cur = node;
-            while (cur != null)
+            bool isAbsFixed = node.Style != null &&
+                (node.Style.Position == "absolute" || node.Style.Position == "fixed");
+
+            if (isAbsFixed && node.Style.Position == "fixed")
             {
-                ax += cur.Bounds.X;
-                ay += cur.Bounds.Y;
-                cur = cur.Parent;
+                // Fixed elements position relative to viewport
+                ax = EnsureValid(node.Bounds.X);
+                ay = EnsureValid(node.Bounds.Y);
+            }
+            else if (isAbsFixed)
+            {
+                // Absolute elements: walk up to nearest positioned ancestor
+                cur = node.Parent;
+                while (cur != null)
+                {
+                    ax += cur.Bounds.X;
+                    ay += cur.Bounds.Y;
+                    if (cur.Style != null &&
+                        (cur.Style.Position == "relative" || cur.Style.Position == "absolute" ||
+                         cur.Style.Position == "fixed" || cur.Style.Position == "sticky"))
+                        break;
+                    cur = cur.Parent;
+                }
+                ax += EnsureValid(node.Bounds.X);
+                ay += EnsureValid(node.Bounds.Y);
+            }
+            else
+            {
+                cur = node;
+                while (cur != null)
+                {
+                    ax += cur.Bounds.X;
+                    ay += cur.Bounds.Y;
+                    cur = cur.Parent;
+                }
             }
 
             if (visual is FrameworkElement fe)
@@ -363,7 +455,6 @@ namespace BrowserCore.Engine.Core
                 if (tag != "SVG")
                 {
                     fe.Width = EnsureValid(node.Bounds.Width);
-                    // Don't set explicit Height on TextBlock — use natural text height
                     if (!(visual is TextBlock))
                         fe.Height = EnsureValid(node.Bounds.Height);
                 }
@@ -372,6 +463,17 @@ namespace BrowserCore.Engine.Core
             Canvas.SetTop(visual, EnsureValid(ay));
             _canvas.Children.Add(visual);
             _activeElements[node] = visual;
+
+            // Track sticky elements
+            var pos = node.Style?.Position;
+            if (string.Equals(pos, "sticky", StringComparison.OrdinalIgnoreCase))
+            {
+                _stickyElements.Add(node);
+                _stickyOriginalY[node] = ay;
+                double topVal = 0;
+                if (node.Style?.Top.HasValue == true) topVal = node.Style.Top.Value;
+                _stickyTop[node] = topVal;
+            }
         }
 
         private void ApplyStyleToVisual(UIElement el, RenderObject node)
@@ -593,6 +695,34 @@ namespace BrowserCore.Engine.Core
                 TextWrapping = TextWrapping.Wrap
             };
 
+            // Apply white-space
+            var ws = style?.WhiteSpace ?? "";
+            if (string.Equals(ws, "nowrap", StringComparison.OrdinalIgnoreCase))
+                tb.TextWrapping = TextWrapping.NoWrap;
+            else if (string.Equals(ws, "pre", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(ws, "pre-wrap", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(ws, "pre-line", StringComparison.OrdinalIgnoreCase))
+            {
+                tb.TextWrapping = string.Equals(ws, "nowrap", StringComparison.OrdinalIgnoreCase)
+                    ? TextWrapping.NoWrap : TextWrapping.Wrap;
+                tb.FontFamily = new FontFamily("Consolas");
+            }
+            else if (string.Equals(ws, "normal", StringComparison.OrdinalIgnoreCase))
+                tb.TextWrapping = TextWrapping.Wrap;
+
+            // Apply line-height
+            if (style?.LineHeight.HasValue == true && style.LineHeight.Value > 0)
+                tb.LineHeight = style.LineHeight.Value;
+
+            // Apply text-overflow: ellipsis (check parent box too)
+            var parentStyle = textNode.Parent?.Style;
+            var textOverflow = style?.TextOverflow ?? parentStyle?.TextOverflow ?? "";
+            if (string.Equals(textOverflow, "ellipsis", StringComparison.OrdinalIgnoreCase))
+            {
+                tb.TextTrimming = Windows.UI.Xaml.TextTrimming.CharacterEllipsis;
+                tb.TextWrapping = TextWrapping.NoWrap;
+            }
+
             // Apply text-decoration (underline, line-through)
             if (style?.TextDecoration != null)
             {
@@ -745,6 +875,7 @@ namespace BrowserCore.Engine.Core
         {
             var type = box.Node.Attr != null && box.Node.Attr.ContainsKey("type")
                 ? box.Node.Attr["type"].ToLowerInvariant() : "text";
+            System.Diagnostics.Debug.WriteLine("[DIAG:INPUT] type=" + type + " w=" + box.Bounds.Width + " h=" + box.Bounds.Height + " placeholder=" + (box.Node.Attr?.ContainsKey("placeholder") == true ? box.Node.Attr["placeholder"] : "none"));
 
             if (type == "submit" || type == "button" || type == "reset")
             {
@@ -845,13 +976,17 @@ namespace BrowserCore.Engine.Core
                     if (element is Border b && b.Background == null)
                         b.Background = new SolidColorBrush(Windows.UI.Colors.Transparent);
 
+                    string hrefForLog = href;
                     TappedEventHandler handler = (s, e) =>
                     {
                         e.Handled = true;
+                        System.Diagnostics.Debug.WriteLine("[DIAG:LINK] Tapped href=" + hrefForLog + " uri=" + uri);
+                        DevToolsLogger.Log("[DIAG:LINK] Tapped href=" + hrefForLog + " uri=" + uri);
                         _onNavigate?.Invoke(uri);
                     };
                     _linkHandlerRefs[element] = handler;
                     element.Tapped += handler;
+                    DevToolsLogger.Log("[DIAG:LINK] Attached handler to " + element.GetType().Name + " href=" + href + " elemW=" + (element as FrameworkElement)?.Width + " elemH=" + (element as FrameworkElement)?.Height);
                 }
             }
         }

@@ -15,6 +15,8 @@ MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的�
 ![](/Images/sshot01.png)
 ![](/Images/sshot02.png)
 ![](/Images/sshot03.png)
+![](/Images/sshot04.png)
+
 
 ## 功能
 

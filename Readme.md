@@ -15,6 +15,7 @@ MediaExplorer is a hobby browser for Windows 10 Mobile (W10M, build 15063+) buil
 ![](/Images/sshot01.png)
 ![](/Images/sshot02.png)
 ![](/Images/sshot03.png)
+![](/Images/sshot04.png)
 
 ## Features
 - **Custom rendering engine** — HTML parser, CSS cascade, flexbox, XAML renderer
