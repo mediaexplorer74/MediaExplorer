@@ -410,4 +410,67 @@ If NiL.JS v2.6 proves too limiting (missing critical ES6 features, no path forwa
 
 ---
 
+## Session 8 Progress (June 13, 2026)
+
+### HN Full Page Rendering — Navbar, Orange Header, All 30 News Items, Footer
+
+**What was done:**
+1. **HTML presentational attributes** — Added `ApplyHtmlAttributes()` to `RenderTreeBuilder.ApplyUserAgentStyles()`:
+   - `bgcolor` → `BackgroundColor` (enables `<td bgcolor="#ff6600">`)
+   - `color` → `ForegroundColor`
+   - `width` → `Width`/`WidthPercent` (handles `width="85%"` on tables)
+   - `height` → `Height`/`HeightPercent`
+   - `cellpadding` → `Padding` on `<td>`/`<th>`
+   - `align` → `TextAlign`
+
+2. **VirtualizingRenderer BackgroundColor support**:
+   - `HasBorderOrBackground()` now checks `BackgroundColor.HasValue`
+   - `CreateBoxVisual()` creates Brush from BackgroundColor when Background is null
+   - `ApplyStyleToVisual()` applies BackgroundColor to Border elements
+
+3. **Root block display** — Added `#DOCUMENT`, `HTML`, `BODY` to block display list. Fixes infinite width propagation (`85% of ∞ = ∞`).
+
+4. **CSS Media Query Whitespace Bug (CRITICAL FIX)** — `EvaluateMediaQuery()` in CssLoader.cs split on `" and "` but CSS media queries have newlines (`@media only screen\nand (min-width:300px)\nand (max-width:750px)`). Split failed → fell through to "unknown features → assume match" → **mobile CSS always applied regardless of viewport**. Fixed with `Regex.Replace(query, @"\s+", " ")`.
+
+5. **`<span>` always inline** — Override CSS `display:block` on `<span>` elements. Span is semantically inline; CSS setting it to block was from broken media query.
+
+6. **`<b>` inline override** — When `<b>` has `display:block` and parent is not flex, force to `inline`.
+
+7. **Text measurement fix** — `RenderText.Layout()` charAdvance multiplier `0.55→0.62` (regular), `0.62→0.68` (bold). Fixes Verdana font truncation ("ne"→"new", "sho"→"show").
+
+8. **Flex-column height bug (CRITICAL FIX)** — `LayoutFlexChildren()` returned `totalCrossSize` (sum of cross-axis sizes) for BOTH row and column layouts. For `flex-direction:column`, cross-axis = width, so it returned total WIDTH instead of total HEIGHT. Fixed by tracking `totalMainSize` and returning it for column layout.
+
+**What works now:**
+- ✅ Orange `#ff6600` header bar with correct height (~50px)
+- ✅ **Nav bar HORIZONTAL**: Hacker News | new | past | comments | ask | show | jobs | submit | login
+- ✅ All **30 news items** with numbered list, titles, points, authors, timestamps, comment counts
+- ✅ Source domains in parentheses (e.g., "12gramsofcarbon.com")
+- ✅ Footer: Guidelines | FAQ | Lists | API | Security | Legal | Apply to YC | Contact | Search
+- ✅ "More" link at bottom
+- ✅ Beige background (#f6f6ef) on content area
+- ✅ Proper 85% table width
+- ✅ Links underlined (clickable)
+
+**Remaining issues:**
+- ❌ Vote arrows (▲) not rendering (CSS background SVG)
+- ❌ Article titles not clickable (links appear underlined but click not verified)
+- ❌ Orange separator line at bottom of page renders as orange block (footer `<td bgcolor="#ff6600">`)
+- ❌ Search form input not visible
+
+**Key discoveries this session:**
+1. **CSS Media Query Whitespace Bug** — `EvaluateMediaQuery()` splits on `" and "` but CSS has `\nand`. Parser falls through to "assume match" → mobile CSS always active. Fix: `Regex.Replace(@"\s+", " ")`.
+2. **Root block display** — `#document`/`html`/`body` as `display:inline` caused ∞ width → `width="85%"` of ∞ = ∞.
+3. **Flex-column return value bug** — `LayoutFlexChildren()` returned cross-axis total (width for column) instead of main-axis total (height for column). Caused ALL flex-column tables to have height = max-width of children.
+4. **Text measurement** — Verdana is wider than the `0.55` multiplier assumed. Bumped to `0.62`/`0.68`.
+
+**Files modified this session:**
+- `Engine/Core/RenderTreeBuilder.cs` — `ApplyHtmlAttributes()`, `TryParseHtmlColor()`, `TryParseDouble()`, `<span>`/`<b>` inline overrides, `#DOCUMENT`/`HTML`/`BODY` block display
+- `Engine/Core/VirtualizingRenderer.cs` — `HasBorderOrBackground()` BackgroundColor check, `CreateBoxVisual()` Brush creation, `ApplyStyleToVisual()` BackgroundColor to Border
+- `Engine/Core/RenderBox.cs` — `LayoutFlexChildren()` column height fix, BGCOLOR diagnostic logging
+- `Engine/Core/RenderText.cs` — charAdvance multiplier increase (0.55→0.62, 0.62→0.68)
+- `Engine/CustomHtmlEngine.cs` — `ConfigureMedia()` CSS viewport clamping
+- `Engine/CssLoader.cs` — `EvaluateMediaQuery()` whitespace normalization
+
+---
+
 *End of Plan_07 — June 13, 2026*

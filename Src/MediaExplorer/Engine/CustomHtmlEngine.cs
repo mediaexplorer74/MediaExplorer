@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -554,7 +554,13 @@ namespace BrowserCore.Engine
                 // Initialize viewport dimensions for vw/vh/calc() in CssLoader
                 CssLoader.SetViewportDimensions(vw, vh);
                 
-                CssParser.MediaViewportWidth = viewportWidth;
+                // For CSS media queries, use a desktop-like viewport width.
+                // This ensures desktop CSS layouts apply (e.g. HN nav stays horizontal).
+                // Actual rendering still uses the real viewport for layout.
+                double cssViewportWidth = vw;
+                if (cssViewportWidth < 768) cssViewportWidth = 1024;
+
+                CssParser.MediaViewportWidth = cssViewportWidth;
                 try { CssParser.MediaViewportHeight = vh; } catch { /* swallow */ }
                 try
                 {

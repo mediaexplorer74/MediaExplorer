@@ -554,7 +554,7 @@ namespace WEBVIEW.Engine
         private static bool EvaluateMediaQuery(string query)
         {
             if (string.IsNullOrWhiteSpace(query)) return true;
-            var q = query.ToLowerInvariant().Trim();
+            var q = System.Text.RegularExpressions.Regex.Replace(query.ToLowerInvariant().Trim(), @"\s+", " ");
 
             // Handle 'not' prefix
             bool negate = false;
@@ -2760,6 +2760,17 @@ namespace WEBVIEW.Engine
                     else if (string.Equals(ps, "hover", StringComparison.OrdinalIgnoreCase)
                           || string.Equals(ps, "focus", StringComparison.OrdinalIgnoreCase)
                           || string.Equals(ps, "active", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+                    // Link/visited pseudo-classes: :link matches <a> with href, :visited never matches (no state tracking)
+                    else if (string.Equals(ps, "link", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!string.Equals(n.Tag, "a", StringComparison.OrdinalIgnoreCase)) return false;
+                        string href;
+                        if (n.Attr == null || !n.Attr.TryGetValue("href", out href) || string.IsNullOrWhiteSpace(href)) return false;
+                    }
+                    else if (string.Equals(ps, "visited", StringComparison.OrdinalIgnoreCase))
                     {
                         return false;
                     }

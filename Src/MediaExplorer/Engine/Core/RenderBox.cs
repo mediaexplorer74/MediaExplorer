@@ -197,6 +197,11 @@ namespace BrowserCore.Engine.Core
             targetHeight = EnsureValid(targetHeight);
             Bounds = new Rect(0, 0, targetWidth, targetHeight);
 
+            if (Node?.HasAttribute("bgcolor") == true)
+            {
+                DevToolsLogger.Log($"[DIAG:BGCOLOR] tag={Node?.Tag} bg={Node.GetAttribute("bgcolor")} w={targetWidth:F0} h={targetHeight:F0} contentH={contentHeight:F0} pad={padding.Top}+{padding.Bottom} styleH={Style?.Height}");
+            }
+
             // 7. Layout Absolute Children
             LayoutAbsoluteChildren(new Size(targetWidth, targetHeight));
         }
@@ -350,6 +355,7 @@ namespace BrowserCore.Engine.Core
 
             // 3. Layout lines
             double totalCrossSize = 0;
+            double totalMainSize = 0;
             
             foreach (var line in lines)
             {
@@ -486,9 +492,13 @@ namespace BrowserCore.Engine.Core
 
                 crossAxisCurrent += lineCrossSize;
                 totalCrossSize += lineCrossSize;
+                totalMainSize = itemMainPos - startMain;
             }
 
-            return totalCrossSize;
+            if (isRow)
+                return totalCrossSize;
+            else
+                return totalMainSize;
         }
 
         private void LayoutAbsoluteChildren(Size availableSize)

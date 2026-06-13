@@ -35,17 +35,22 @@ MediaExplorer is a hobby browser for Windows 10 Mobile (W10M, build 15063+) buil
 - **SVG→XAML bridge abandoned** — after 18+ sessions, the architectural mismatch proved unfixable on Win SDK 15063. Replaced with text/image/link rendering and card-based layout for narrow viewports.
 - **Data extraction intact** — `__graphData` (755 nodes, 1647 links), `__entries` (722), `__stories` (230), `__collections` (33) available for future SkiaSharp renderer.
 
-## Dev section (June 12, 2026)
+## Dev section (June 13, 2026)
 
 ### Key decisions
 - **SVG→XAML bridge removed** — content doubling on scroll, architectural mismatch, too heavy for Lumia
 - **Card mode** — transparent replacement for narrow viewports: swipeable cards with entry details, category index, collection filtering
 - **Link routing** — internal entry URLs (/entry/E0001) → card mode; external URLs → system browser via Launcher
 - **Data extraction** — preserved for future SkiaSharp Canvas2D renderer
+- **General web rendering (v1.1)** — Custom RenderTreeBuilder pipeline for real websites. First successful rendering: Hacker News with full 30 news items, orange header, vote arrows, clickable links, footer
 
 ### Key files
 `MainPage.xaml.cs` — card mode, navigation, link routing
 `Engine/BrowserApi.cs` — ExtractEntriesJson/ExtractCollectionsJson/ExtractStoriesJson
+`Engine/Core/RenderTreeBuilder.cs` — HTML→RenderObject tree, UA styles, HTML presentational attributes
+`Engine/Core/RenderBox.cs` — Flex/block/inline layout engine
+`Engine/Core/VirtualizingRenderer.cs` — Canvas-based virtualizing renderer with lazy images
+`Engine/CssLoader.cs` — CSS cascade, selectors, media queries, pseudo-classes
 `AGENTS.md` — automation loop commands
 
 ## Dev section END
@@ -54,6 +59,7 @@ This is a homemade browser engine — not production-ready, not intended to repl
 
 ## Milestones
 
+- **2026.06.13 — v1.0.10** General web rendering. Hacker News fully renders: orange header, 30 news items, vote arrows, clickable navigation, footer. CSS pseudo-classes (`:link`/`:visited`), HTML presentation attributes (`bgcolor`, `width`), SVG logo support.
 - **2026.06.12 — v1.0.0** Phases R+S+T complete. Card-based smartphone layout, entry detail views, category index, link routing. SVG→XAML bridge abandoned.
 - **2026.06.07 — v0.55.0** D3.js force-directed graph (Nokia Design Archive) renders as live XAML shapes.
 - **2026.06.05 — v0.50.0** First successful d3.js evaluation on UWP via NiL.JS.
@@ -74,7 +80,7 @@ MediaExplorer works best with the Nokia Design Archive. For general web testing,
 | [librivox.org](https://librivox.org) | Audiobooks | Simple HTML, good stability test |
 | [indiehackers.com](https://indiehackers.com) | Community | React SPA, content-heavy |
 | [producthunt.com](https://producthunt.com) | Startups | Heavy SPA, good stress test |
-| [news.ycombinator.com](https://news.ycombinator.com) | Minimalism | Almost no JS, good baseline test |
+| [news.ycombinator.com](https://news.ycombinator.com) | Minimalism | **Fully renders** — orange header, 30 items, vote arrows, clickable links |
 
 **Tip:** Start with lightweight sites (Hackaday, Wikipedia, LibriVox) on Lumia 950. Heavy SPA sites (Reddit, Product Hunt) are useful as stress tests but may break on NiL.JS.
 
@@ -116,6 +122,6 @@ Include: URL, what you expected, what you got. Screenshots help.
 
 As is. No support. RnD only. DIY.
 
-[m][e] June 12, 2026
+[m][e] June 13, 2026
 
 ![](/Images/footer.png)

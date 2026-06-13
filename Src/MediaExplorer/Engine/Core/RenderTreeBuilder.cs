@@ -113,6 +113,24 @@ namespace BrowserCore.Engine.Core
                             box.AddChild(childRender);
                     }
                 }
+
+                if (tag == "DIV" && root.Attr != null)
+                {
+                    string cls;
+                    if (root.Attr.TryGetValue("class", out cls) && cls != null && cls.IndexOf("votearrow", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        var arrowNode = new RenderText
+                        {
+                            Text = "\u25B2",
+                            Style = box.Style,
+                            Parent = box
+                        };
+                        box.Style.Display = "inline";
+                        box.Style.ForegroundColor = Windows.UI.Color.FromArgb(255, 136, 136, 136);
+                        box.Style.FontSize = 10;
+                        box.AddChild(arrowNode);
+                    }
+                }
             }
 
             return renderNode;
@@ -127,7 +145,7 @@ namespace BrowserCore.Engine.Core
 
             if (box.Style.Display == null)
             {
-                if (tag == "DIV" || tag == "P" || tag == "H1" || tag == "H2" || tag == "H3" || tag == "H4" || tag == "H5" || tag == "H6" || tag == "UL" || tag == "OL" || tag == "HEADER" || tag == "FOOTER" || tag == "MAIN" || tag == "SECTION" || tag == "ARTICLE" || tag == "NAV" || tag == "HR" || tag == "PRE" || tag == "BLOCKQUOTE" || tag == "DT" || tag == "DD")
+                if (tag == "#DOCUMENT" || tag == "HTML" || tag == "BODY" || tag == "DIV" || tag == "P" || tag == "H1" || tag == "H2" || tag == "H3" || tag == "H4" || tag == "H5" || tag == "H6" || tag == "UL" || tag == "OL" || tag == "HEADER" || tag == "FOOTER" || tag == "MAIN" || tag == "SECTION" || tag == "ARTICLE" || tag == "NAV" || tag == "HR" || tag == "PRE" || tag == "BLOCKQUOTE" || tag == "DT" || tag == "DD")
                     box.Style.Display = "block";
                 else if (tag == "LI")
                 {
@@ -170,6 +188,22 @@ namespace BrowserCore.Engine.Core
                         box.Style.Display = "inline";
                 }
                 else
+                    box.Style.Display = "inline";
+            }
+
+            ApplyHtmlAttributes(box, tag);
+
+            if (tag == "SPAN" && string.Equals(box.Style.Display, "block", StringComparison.OrdinalIgnoreCase))
+            {
+                box.Style.Display = "inline";
+            }
+
+            if (tag == "B" && string.Equals(box.Style.Display, "block", StringComparison.OrdinalIgnoreCase))
+            {
+                var parentBox = box.Parent;
+                if (parentBox != null && parentBox.Style != null &&
+                    !string.IsNullOrEmpty(parentBox.Style.Display) &&
+                    !string.Equals(parentBox.Style.Display, "flex", StringComparison.OrdinalIgnoreCase))
                     box.Style.Display = "inline";
             }
 
@@ -221,6 +255,112 @@ namespace BrowserCore.Engine.Core
                 if (box.Style.BorderThickness == null) box.Style.BorderThickness = new Windows.UI.Xaml.Thickness(1);
                 if (!box.Style.BorderBrushColor.HasValue) box.Style.BorderBrushColor = Windows.UI.Colors.Gray;
             }
+        }
+
+        private static void ApplyHtmlAttributes(RenderBox box, string tag)
+        {
+            var attr = box.Node.Attr;
+            if (attr == null) return;
+
+            string bgColor;
+            if (attr.TryGetValue("bgcolor", out bgColor) && !string.IsNullOrWhiteSpace(bgColor))
+            {
+                var parsed = TryParseHtmlColor(bgColor);
+                if (parsed.HasValue && !box.Style.BackgroundColor.HasValue)
+                    box.Style.BackgroundColor = parsed.Value;
+            }
+
+            string color;
+            if (attr.TryGetValue("color", out color) && !string.IsNullOrWhiteSpace(color))
+            {
+                var parsed = TryParseHtmlColor(color);
+                if (parsed.HasValue && !box.Style.ForegroundColor.HasValue)
+                    box.Style.ForegroundColor = parsed.Value;
+            }
+
+            string width;
+            if (attr.TryGetValue("width", out width) && !string.IsNullOrWhiteSpace(width))
+            {
+                if (width.EndsWith("%"))
+                {
+                    double pct;
+                    if (double.TryParse(width.TrimEnd('%'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out pct))
+                    {
+                        if (!box.Style.Width.HasValue && !box.Style.WidthPercent.HasValue)
+                            box.Style.WidthPercent = pct;
+                    }
+                }
+                else
+                {
+                    double px;
+                    if (TryParseDouble(width, out px) && px > 0)
+                    {
+                        if (!box.Style.Width.HasValue && !box.Style.WidthPercent.HasValue)
+                            box.Style.Width = px;
+                    }
+                }
+            }
+
+            string height;
+            if (attr.TryGetValue("height", out height) && !string.IsNullOrWhiteSpace(height))
+            {
+                if (height.EndsWith("%"))
+                {
+                    double pct;
+                    if (double.TryParse(height.TrimEnd('%'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out pct))
+                    {
+                        if (!box.Style.Height.HasValue && !box.Style.HeightPercent.HasValue)
+                            box.Style.HeightPercent = pct;
+                    }
+                }
+                else
+                {
+                    double px;
+                    if (TryParseDouble(height, out px) && px > 0)
+                    {
+                        if (!box.Style.Height.HasValue && !box.Style.HeightPercent.HasValue)
+                            box.Style.Height = px;
+                    }
+                }
+            }
+
+            string cellpadding;
+            if (attr.TryGetValue("cellpadding", out cellpadding) && !string.IsNullOrWhiteSpace(cellpadding))
+            {
+                double px;
+                if (TryParseDouble(cellpadding, out px) && px >= 0)
+                {
+                    if ((tag == "TD" || tag == "TH") && IsZero(box.Style.Padding))
+                        box.Style.Padding = new Windows.UI.Xaml.Thickness(px);
+                }
+            }
+
+            string align;
+            if (attr.TryGetValue("align", out align) && !string.IsNullOrWhiteSpace(align))
+            {
+                var a = align.Trim().ToLowerInvariant();
+                if (box.Style.TextAlign == null)
+                {
+                    if (a == "center") box.Style.TextAlign = Windows.UI.Xaml.TextAlignment.Center;
+                    else if (a == "right") box.Style.TextAlign = Windows.UI.Xaml.TextAlignment.Right;
+                    else if (a == "left" || a == "justify") box.Style.TextAlign = Windows.UI.Xaml.TextAlignment.Left;
+                }
+            }
+        }
+
+        private static Windows.UI.Color? TryParseHtmlColor(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return null;
+            value = value.Trim();
+            try { return CssParser.ParseColor(value); } catch { return null;
+            }
+        }
+
+        private static bool TryParseDouble(string s, out double result)
+        {
+            result = 0;
+            if (string.IsNullOrWhiteSpace(s)) return false;
+            return double.TryParse(s.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out result);
         }
 
         private static bool IsZero(Windows.UI.Xaml.Thickness t)

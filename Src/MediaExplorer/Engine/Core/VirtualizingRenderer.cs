@@ -389,7 +389,9 @@ namespace BrowserCore.Engine.Core
             else if (el is Border b)
             {
                 if (style.Background != null) b.Background = style.Background;
+                else if (style.BackgroundColor.HasValue) b.Background = new SolidColorBrush(style.BackgroundColor.Value);
                 if (style.BorderBrush != null) b.BorderBrush = style.BorderBrush;
+                else if (style.BorderBrushColor.HasValue) b.BorderBrush = new SolidColorBrush(style.BorderBrushColor.Value);
                 if (style.BorderThickness != default(Thickness)) b.BorderThickness = style.BorderThickness;
                 if (style.BorderRadius != default(CornerRadius)) b.CornerRadius = style.BorderRadius;
             }
@@ -530,7 +532,14 @@ namespace BrowserCore.Engine.Core
                         {
                             try
                             {
-                                img.Source = new Windows.UI.Xaml.Media.Imaging.BitmapImage(uri);
+                                if (src.EndsWith(".svg", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    img.Source = new Windows.UI.Xaml.Media.Imaging.SvgImageSource(uri);
+                                }
+                                else
+                                {
+                                    img.Source = new Windows.UI.Xaml.Media.Imaging.BitmapImage(uri);
+                                }
                             }
                             catch { }
                         }
@@ -635,8 +644,8 @@ namespace BrowserCore.Engine.Core
             if (tag == "BUTTON") return CreateButtonVisual(box);
 
             // Create visual for ALL elements, not just those with border/background
-            var bg = box.Style?.Background;
-            var borderBrush = box.Style?.BorderBrush;
+            var bg = box.Style?.Background ?? (box.Style?.BackgroundColor.HasValue == true ? new SolidColorBrush(box.Style.BackgroundColor.Value) : null);
+            var borderBrush = box.Style?.BorderBrush ?? (box.Style?.BorderBrushColor.HasValue == true ? new SolidColorBrush(box.Style.BorderBrushColor.Value) : null);
             var borderThick = GetSafeThickness(box.Style?.BorderThickness);
             var margin = GetSafeThickness(box.Style?.Margin);
             var padding = GetSafeThickness(box.Style?.Padding);
@@ -799,6 +808,7 @@ namespace BrowserCore.Engine.Core
         private static bool HasBorderOrBackground(RenderBox box)
         {
             return box.Style?.Background != null ||
+                   box.Style?.BackgroundColor.HasValue == true ||
                    (box.Style?.BorderBrush != null && box.Style?.BorderThickness != null &&
                     box.Style.BorderThickness != new Thickness(0));
         }
