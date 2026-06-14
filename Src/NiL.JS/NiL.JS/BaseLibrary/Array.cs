@@ -6,15 +6,10 @@ using NiL.JS.Core;
 using NiL.JS.Core.Interop;
 using NiL.JS.Extensions;
 
-#if NET40
-using NiL.JS.Backward;
-#endif
 
 namespace NiL.JS.BaseLibrary;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Array : JSObject, IIterable
 {
     private static readonly SparseArray<JSValue> emptyData = new SparseArray<JSValue>();
@@ -740,17 +735,7 @@ public sealed class Array : JSObject, IIterable
         bool nativeMode = arraySrc != null;
         if (!self.Defined || (self._valueType >= JSValueType.Object && self._oValue == null))
         {
-#if (PORTABLE || NETCORE || NETSTANDARD1_4)
             ExceptionHelper.Throw(new TypeError("Trying to call method for null or undefined"));
-#else
-            var stackTrace = new System.Diagnostics.StackTrace();
-            var method = stackTrace.GetFrame(stackTrace.FrameCount - 2).GetMethod();
-            var fullMethodName = "Array.";
-            if (method.GetCustomAttribute(typeof(InstanceMemberAttribute)) != null)
-                fullMethodName += "prototype.";
-            fullMethodName += method.Name;
-            ExceptionHelper.Throw(new TypeError("Cannot call " + fullMethodName + " for null or undefined"));
-#endif
         }
 
         var length = nativeMode ? arraySrc._data.Length : Tools.getLengthOfArraylike(self, false);
@@ -927,12 +912,7 @@ public sealed class Array : JSObject, IIterable
         bool nativeMode = arraySrc != null;
         if (!self.Defined || (self._valueType >= JSValueType.Object && self._oValue == null))
         {
-#if (PORTABLE || NETCORE || NETSTANDARD1_4)
             ExceptionHelper.Throw(new TypeError("Trying to call method for for null or undefined"));
-#else
-            var stackTrace = new System.Diagnostics.StackTrace();
-            ExceptionHelper.Throw(new TypeError("Cannot call Array.prototype." + stackTrace.GetFrame(stackTrace.FrameCount - 2).GetMethod().Name + " for null or undefined"));
-#endif
         }
 
         var length = nativeMode ? arraySrc._data.Length : Tools.getLengthOfArraylike(self, false);

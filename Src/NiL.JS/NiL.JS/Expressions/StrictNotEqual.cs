@@ -1,11 +1,9 @@
-﻿using System;
+using System;
 using NiL.JS.Core;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class StrictNotEqual : StrictEqual
 {
     public StrictNotEqual(Expression first, Expression second)

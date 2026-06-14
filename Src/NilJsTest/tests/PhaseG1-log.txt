@@ -1,0 +1,273 @@
+"MediaExplorer.exe" (CoreCLR: DefaultDomain). Загружено "C:\Program Files\WindowsApps\Microsoft.NET.CoreRuntime.1.1_1.1.27004.0_x64__8wekyb3d8bbwe\System.Private.CoreLib.ni.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\entrypoint\MediaExplorer.exe". Символы загружены.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Runtime.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Program Files\WindowsApps\Microsoft.NET.CoreRuntime.1.1_1.1.27004.0_x64__8wekyb3d8bbwe\mscorlib.ni.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\WinMetadata\Windows.winmd". Сборка модуля выполнена без символов.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Runtime.InteropServices.WindowsRuntime.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Threading.Tasks.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Runtime.WindowsRuntime.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Diagnostics.Debug.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+[App] MediaExplorer v0.50.0.0
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Numerics.Vectors.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Runtime.WindowsRuntime.UI.Xaml.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\Microsoft.UI.Xaml.Markup.winmd". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Threading.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Collections.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Reflection.dll". Сборка модуля выполнена без символов.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Reflection.Extensions.dll". Сборка модуля выполнена без символов.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Linq.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Private.Uri.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Net.Primitives.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Runtime.Extensions.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Collections.Concurrent.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Text.RegularExpressions.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Globalization.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Threading.Timer.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Net.Http.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\NiL.JS.dll". Символы загружены.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Diagnostics.Tracing.dll". Сборка модуля выполнена без символов.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.IO.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Linq.Expressions.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Reflection.TypeExtensions.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Reflection.Emit.Lightweight.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Reflection.Emit.ILGeneration.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Reflection.Primitives.dll". Сборка модуля выполнена без символов.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "Anonymously Hosted DynamicMethods Assembly". 
+Поток 8576 завершился с кодом 0 (0x0).
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Runtime.InteropServices.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+Поток 13060 завершился с кодом 0 (0x0).
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\Newtonsoft.Json.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+Вызвано исключение: "System.IO.FileNotFoundException" в System.Private.CoreLib.ni.dll
+[DIAG] MainPage.NavigateAsync START seq=0 address=https://nokiadesignarchive.aalto.fi/
+[DIAG] ResetContentHost seq=1
+[DIAG] ResetContentHost CLEARED children=0
+[DIAG] BrowserHost.NavigateAsync START navId=1 url=https://nokiadesignarchive.aalto.fi/
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Runtime.Serialization.Primitives.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Dynamic.Runtime.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Runtime.Serialization.Formatters.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.ComponentModel.TypeConverter.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Runtime.Numerics.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+Вызвано исключение: "System.IO.FileNotFoundException" в System.Private.CoreLib.ni.dll
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Text.Encoding.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.ObjectModel.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+Вызвано исключение: "System.ArgumentNullException" в System.Private.CoreLib.ni.dll
+[FetchText] https://nokiadesignarchive.aalto.fi/ in 459ms
+[DIAG] BrowserHost FetchTextAsync htmlLen=6946 navId=1
+[DIAG] BrowserHost _engine.RenderAsync START navId=1
+[DIAG] RenderAsync START host=nokiadesignarchive.aalto.fi htmlLen=6946 vw=1024 js=default
+[DIAG] RenderAsync START host=nokiadesignarchive.aalto.fi htmlLen=6946 vw=1024 js=default
+[DIAG] SvgType available: true
+[DIAG] SvgType available: true
+[DIAG] RenderAsync Phase1 PARSED dom children=1
+[DIAG] RenderAsync Phase2 CSS start
+[FetchText] https://nokiadesignarchive.aalto.fi/assets/main-a-1_fGhU.css in 21ms
+[DIAG] RenderAsync Phase2 CSS DONE
+[JS ENABLE] initial EnableJavaScript=True baseUri=https://nokiadesignarchive.aalto.fi/
+[JS ENABLE] final allowJs=True
+[JS ENABLE] removed noscript count=1
+[DIAG] RenderAsync Phase3 JS RunScriptsAsync start
+[DIAG] RenderAsync Phase3 JS RunScriptsAsync start
+[Diag] RunScriptsAsync start (Phase123) - Parallelized
+[DIAG:RUNSCRIPTS] classified: immediate=5 deferred=0 async=0 baseUri=https://nokiadesignarchive.aalto.fi/
+[DIAG:FETCH] PreFetch external script src="https://d3js.org/d3.v7.min.js" resolved="https://d3js.org/d3.v7.min.js" nomodule=False isModule=False allowExt=True
+[FetchImage] https://nokiadesignarchive.aalto.fi/images/icon-network.svg in 141ms
+[FetchImage] https://nokiadesignarchive.aalto.fi/images/logo-aalto.png in 144ms
+[FetchImage] https://nokiadesignarchive.aalto.fi/images/icon-timeline.svg in 180ms
+[DIAG:FETCH] PreFetch external script src="/assets/polyfills-legacy-0pdt4c7e.js" resolved="https://nokiadesignarchive.aalto.fi/assets/polyfills-legacy-0pdt4c7e.js" nomodule=True isModule=False allowExt=True
+[DIAG:FETCH] managed-first OK: 248313 bytes from https://d3js.org/d3.v5.min.js
+[DIAG:FETCH] PreFetch result len=248313 uri="https://d3js.org/d3.v7.min.js"
+[DIAG:FETCH] managed-first OK: 34951 bytes from https://nokiadesignarchive.aalto.fi/assets/polyfills-legacy-0pdt4c7e.js
+[DIAG:EXEC] len=248313 isInline=False isModule=False uri="https://d3js.org/d3.v7.min.js" preview="// https://d3js.org v5.16.0 Copyright 2020 Mike Bostock !function(t,n){"object"==typeof exports&&"undefined"!=typeof mod…"
+[DIAG:EXEC] d3js.org script (no polyfill prefix — using v5)
+[DIAG:EXEC] eval https://d3js.org/d3.v7.min.js (direct eval, no debug)
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Diagnostics.DiagnosticSource.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+Вызвано исключение: "System.IO.FileNotFoundException" в System.Private.CoreLib.ni.dll
+Вызвано исключение: "System.IO.FileNotFoundException" в System.Private.CoreLib.ni.dll
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.IO.Compression.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Console.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+Вызвано исключение: "System.ArgumentOutOfRangeException" в System.Text.RegularExpressions.dll
+Вызвано исключение: "System.ArgumentOutOfRangeException" в System.Text.RegularExpressions.dll
+Вызвано исключение: "System.ArgumentOutOfRangeException" в System.Text.RegularExpressions.dll
+Вызвано исключение: "System.ArgumentOutOfRangeException" в System.Text.RegularExpressions.dll
+Вызвано исключение: "System.ArgumentOutOfRangeException" в System.Text.RegularExpressions.dll
+Вызвано исключение: "System.ArgumentOutOfRangeException" в System.Text.RegularExpressions.dll
+Вызвано исключение: "System.ArgumentOutOfRangeException" в System.Text.RegularExpressions.dll
+Вызвано исключение: "System.ArgumentOutOfRangeException" в System.Text.RegularExpressions.dll
+Поток 5948 завершился с кодом 0 (0x0).
+Вызвано исключение: "System.ArgumentOutOfRangeException" в System.Text.RegularExpressions.dll
+Вызвано исключение: "System.ArgumentOutOfRangeException" в System.Text.RegularExpressions.dll
+Вызвано исключение: "System.ArgumentOutOfRangeException" в System.Text.RegularExpressions.dll
+Вызвано исключение: "System.ArgumentOutOfRangeException" в System.Text.RegularExpressions.dll
+Вызвано исключение: "System.ArgumentOutOfRangeException" в System.Text.RegularExpressions.dll
+Вызвано исключение: "System.ArgumentOutOfRangeException" в System.Text.RegularExpressions.dll
+Вызвано исключение: "NiL.JS.Core.JSException" в NiL.JS.dll
+Поток 936 завершился с кодом 0 (0x0).
+Поток 6328 завершился с кодом 0 (0x0).
+Поток 5156 завершился с кодом 0 (0x0).
+[d3-err:object]
+[DIAG:EXEC] len=294 isInline=True isModule=False uri="https://nokiadesignarchive.aalto.fi/" preview="!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagNa…"
+[DIAG:EXEC] len=313 isInline=True isModule=False uri="https://nokiadesignarchive.aalto.fi/" preview="!function(){var e=document,t=e.createElement("script");if(!("noModule"in t)&&"onbeforeload"in t){var n=!1;e.addEventList…"
+[DIAG:FETCH] PreFetch result len=34951 uri="https://nokiadesignarchive.aalto.fi/assets/polyfills-legacy-0pdt4c7e.js"
+[DIAG:EXEC] len=34951 isInline=False isModule=False uri="https://nokiadesignarchive.aalto.fi/assets/polyfills-legacy-0pdt4c7e.js" preview="!function(){"use strict";var t="undefined"!=typeof globalThis?globalThis:"undefined"!=typeof window?window:"undefined"!=…"
+[DIAG:EXEC] eval https://nokiadesignarchive.aalto.fi/assets/polyfills-legacy-0pdt4c7e.js (direct eval, no debug)
+Вызвано исключение: "NiL.JS.Core.JSException" в NiL.JS.dll
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Resources.ResourceManager.dll". Сборка модуля выполнена без символов.
+Вызвано исключение: "NiL.JS.Core.JSException" в NiL.JS.dll
+[d3-err:object]
+[DIAG:EXEC] len=82 isInline=True isModule=False uri="https://nokiadesignarchive.aalto.fi/" preview="__sysImport(document.getElementById("vite-legacy-entry").getAttribute("data-src"))"
+[DIAG:System.import] fetching https://nokiadesignarchive.aalto.fi/assets/main-legacy-CgkFIb-k.js
+[DIAG:System.import] fetching https://nokiadesignarchive.aalto.fi/assets/main-legacy-CgkFIb-k.js
+[DIAG:FETCH] managed-first OK: 589152 bytes from https://nokiadesignarchive.aalto.fi/assets/main-legacy-CgkFIb-k.js
+[DIAG:System.import] OK: 589152 bytes from https://nokiadesignarchive.aalto.fi/assets/main-legacy-CgkFIb-k.js
+[DIAG:System.import] OK: 589152 bytes from https://nokiadesignarchive.aalto.fi/assets/main-legacy-CgkFIb-k.js
+[DIAG:SYS] creating System via SafeEval (1270 bytes)...
+[DIAG:SYS] __diagLog accessible
+[DIAG:SYS] __diagLog accessible
+[DIAG:SYS] SafeEval(sysInject) OK
+[DIAG:SYS] System.register = fn
+[DIAG:SYS] direct_test before register
+[DIAG:SYS] direct_test before register
+[DIAG:SYS] register ENTERED typeof this=object has_reg=true
+[DIAG:SYS] register ENTERED typeof this=object has_reg=true
+[DIAG:SYS] register OK url=mod:1
+[DIAG:SYS] register OK url=mod:1
+[DIAG:SYS] direct_test after register
+[DIAG:SYS] direct_test after register
+[DIAG:SYS] direct_test _entries count=1
+[DIAG:SYS] direct_test _modId=1
+[DIAG:SYS] running chunk via SafeEval (589152 bytes)...
+[DIAG:SYS] chunk prefix: 'System.register([],(function(e,t){"use strict";return{execute:function(){var e=d'
+[DIAG:SYS] IndexOf 'System.register(' = 0
+[DIAG:SYS] IndexOf (ignore case) 'system.register(' = 0
+[DIAG:SYS] split chunk into 1 System.register calls
+Вызвано исключение: "NiL.JS.Core.JSException" в NiL.JS.dll
+[DIAG:SYS] call #1 OK (589101 bytes)
+[DIAG:SYS] ctxTest=ok
+[DIAG:SYS] System var=defined
+[DIAG:SYS] globalThis.System after chunk: ok
+[DIAG:SYS] _modId=1
+[DIAG:SYS] registry entries: 1
+[DIAG:SYS] direct_test declare called
+[DIAG:SYS] direct_test declare called
+[DIAG:SYS] direct_test execute called
+[DIAG:SYS] direct_test execute called
+[DIAG:SYS] force-exec: 1 entries, 1 declared
+[DIAG:SYS] force-exec: 1 entries, 1 declared
+[DIAG:SYS] post-exec d3=d3_defined
+[DIAG:EXEC] typeof d3.select = no
+[DIAG:EXEC] typeof d3.forceSimulation = no
+[DIAG:SYS] post-exec typeof Map=function
+[DIAG:SYS] post-exec typeof Set=function
+[DIAG:SYS] post-exec body_children=5 tag=BODY
+[DIAG] RenderAsync Phase3 JS DONE
+[DIAG] RenderAsync Phase3 JS DONE
+[DIAG] RenderAsync Phase4 BuildVisualTreeAsync start
+[DIAG] RenderAsync Phase4 BuildVisualTreeAsync start
+[DIAG] BuildVisualTree CssLoader.ComputeAsync start
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\Microsoft.CSharp.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\Microsoft.VisualBasic.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\Microsoft.Win32.Primitives.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.AppContext.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Buffers.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Collections.Immutable.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Collections.NonGeneric.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Collections.Specialized.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.ComponentModel.Annotations.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.ComponentModel.DataAnnotations.dll". Сборка модуля выполнена без символов.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.ComponentModel.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.ComponentModel.EventBasedAsync.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.ComponentModel.Primitives.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Core.dll". Сборка модуля выполнена без символов.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Data.Common.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Diagnostics.Contracts.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Diagnostics.StackTrace.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Diagnostics.Tools.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.dll". Сборка модуля выполнена без символов.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Globalization.Calendars.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Globalization.Extensions.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.IO.Compression.ZipFile.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.IO.FileSystem.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.IO.FileSystem.Primitives.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.IO.IsolatedStorage.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.IO.UnmanagedMemoryStream.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Linq.Parallel.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Linq.Queryable.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Net.dll". Сборка модуля выполнена без символов.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Net.Http.Rtc.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Net.NameResolution.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Net.NetworkInformation.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Net.Requests.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Net.Sockets.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Net.WebHeaderCollection.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Net.WebSockets.Client.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Net.WebSockets.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Numerics.dll". Сборка модуля выполнена без символов.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Numerics.Vectors.WindowsRuntime.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Private.DataContractSerialization.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Private.ServiceModel.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Reflection.Context.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Reflection.DispatchProxy.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Reflection.Emit.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Reflection.Metadata.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Runtime.Handles.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Runtime.InteropServices.RuntimeInformation.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Runtime.Serialization.dll". Сборка модуля выполнена без символов.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Runtime.Serialization.Json.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Runtime.Serialization.Xml.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Security.Claims.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Security.Cryptography.Algorithms.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Security.Cryptography.Cng.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Security.Cryptography.Encoding.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Security.Cryptography.Primitives.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Security.Cryptography.X509Certificates.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Security.Principal.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.ServiceModel.dll". Сборка модуля выполнена без символов.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.ServiceModel.Duplex.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.ServiceModel.Http.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.ServiceModel.NetTcp.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.ServiceModel.Primitives.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.ServiceModel.Security.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.ServiceModel.Web.dll". Сборка модуля выполнена без символов.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Text.Encoding.CodePages.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Text.Encoding.Extensions.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Threading.Overlapped.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Threading.Tasks.Dataflow.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Threading.Tasks.Extensions.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Threading.Tasks.Parallel.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Windows.dll". Сборка модуля выполнена без символов.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Xml.dll". Сборка модуля выполнена без символов.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Xml.Linq.dll". Сборка модуля выполнена без символов.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Xml.ReaderWriter.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Xml.Serialization.dll". Сборка модуля выполнена без символов.
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Xml.XDocument.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Xml.XmlDocument.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Xml.XmlSerializer.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+[DIAG] BuildVisualTree CssLoader.ComputeAsync DONE nodes=102
+[DIAG] BuildVisualTree Step1 RenderTreeBuilder.Build start
+[DIAG] RenderTreeBuilder.Build DONE boxes=73 text=22 filtered=4
+[DIAG] BuildVisualTree Step1 DONE root=RenderBox
+[DIAG] BuildVisualTree Step2 Layout start size=1024x768
+[DIAG] BuildVisualTree Step2 Layout DONE
+[DIAG] BuildVisualTree Step3 Paint start
+[DIAG] VirtualizingRenderer canvas=1024x1024 rootChildren=1
+[DIAG] BuildVisualTree Step3 Paint DONE rootType=ScrollViewer
+[DIAG] RenderAsync Phase4 BuildVisualTreeAsync DONE element=Border
+[DIAG] RenderAsync Phase4 BuildVisualTreeAsync DONE element=Border
+Вызвано исключение: "System.Exception" в MediaExplorer.exe
+Вызвано исключение: "System.Exception" в MediaExplorer.exe
+[RENDER] Final element null=False empty=False
+[DIAG] BrowserHost _engine.RenderAsync DONE element2=Border navId=1
+[DIAG:REPAINT-PRE] seq=1 type=Border explicit=(NaNxNaN) actual=(0x0) → this is PRE-MEASURE; will re-check after Add()
+[DIAG] Engine_RepaintReady seq=1 currentSeq=1 elementSize=0x0 type=Border
+[DIAG] Engine_RepaintReady ADDED idx=0 children=1
+[DIAG] BrowserHost RaiseRepaintAsync DONE navId=1
+[History] AddHistory uri=https://nokiadesignarchive.aalto.fi/ index=-1 count=0
+[History] After add: index=0 count=1 CanGoBack=False CanGoForward=False
+[NavEvent] RaiseNavigated uri=https://nokiadesignarchive.aalto.fi/
+[NavButtons] Back=False Forward=False BackBtn=True FwdBtn=True
+[DIAG] MainPage.NavigateAsync DONE
+[DIAG:REPAINT-POST] type=Border actual=(1024x1024)
+Поток 12920 завершился с кодом 0 (0x0).
+Поток 10804 завершился с кодом 0 (0x0).
+Поток 3796 завершился с кодом 0 (0x0).
+Поток 11976 завершился с кодом 0 (0x0).

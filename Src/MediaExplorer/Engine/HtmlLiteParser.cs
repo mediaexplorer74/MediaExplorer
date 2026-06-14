@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Text;
 using System.Collections.Generic;
 using System.Globalization;
@@ -16,6 +16,14 @@ namespace BrowserCore.Engine
         private int _i;
         private readonly int _n;
         private const int MaxStackDepth = 256; // Prevent StackOverflow on deep trees
+        // Phase S.3: hard cap on DOM element nodes to prevent runaway pages
+        // (e.g. a <div> nested 50 000 deep, or a 100 000-node generated ad).
+        // When hit, parser stops appending new elements (keeps consuming input
+        // to keep the rest of the page parseable). Text nodes are not counted.
+        public const int MaxDomNodes = 10000;
+        private int _nodeCount = 0;
+        private bool _domCapLogged = false;
+        public int NodeCount { get { return _nodeCount; } }
 
         // Tags that can be implicitly closed by other tags.
         private static readonly HashSet<string> ImpliedEndTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -78,7 +86,23 @@ namespace BrowserCore.Engine
                     // Start tag
                     _i++; // consume '<'
                     var tag = ReadTagNameLower();
-                    var elem = new LiteElement(tag);
+                    LiteElement elem;
+                    _nodeCount++;
+                    if (_nodeCount > MaxDomNodes)
+                    {
+                        if (!_domCapLogged)
+                        {
+                            try { DevToolsLogger.Log("[WARN] DOM cap hit at " + MaxDomNodes + " nodes — truncating further element creation"); } catch { }
+                            _domCapLogged = true;
+                        }
+                        // Consume attributes + closing '>' of this tag so the parser stays in sync,
+                        // but don't create a node and don't push on the stack.
+                        while (!Eof()) { SkipWs(); if (Peek() == '/' || Peek() == '>') break; ReadAttribute(out _, out _, out _, out _); }
+                        if (Peek() == '/') _i++;
+                        if (Peek() == '>') _i++;
+                        continue;
+                    }
+                    elem = new LiteElement(tag);
 
                     // Read attributes
                     while (!Eof())

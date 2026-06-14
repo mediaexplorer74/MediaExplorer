@@ -1,4 +1,4 @@
-п»їusing System;
+using System;
 using System.Collections.Generic;
 using NiL.JS.BaseLibrary;
 using NiL.JS.Core.Interop;
@@ -7,12 +7,10 @@ using NiL.JS.Expressions;
 namespace NiL.JS.Core.Functions;
 
 /// <summary>
-/// Р РµР°Р»РёР·СѓРµС‚ РїРѕРІРµРґРµРЅРёРµ С„СѓРЅРєС†РёРё Function.prototype.bind.
+/// Реализует поведение функции Function.prototype.bind.
 /// </summary>
 [Prototype(typeof(Function), true)]
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 internal sealed class BindedFunction : Function
 {
     private Function _target;

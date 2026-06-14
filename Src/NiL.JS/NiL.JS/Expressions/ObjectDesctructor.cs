@@ -1,10 +1,7 @@
-﻿#nullable enable
+#nullable enable
 
 using System;
 using System.Collections.Generic;
-#if !NETSTANDARD1_4
-using System.Data;
-#endif
 using System.Linq;
 using NiL.JS.Core;
 
@@ -16,9 +13,7 @@ public enum DestructuringType
     Array
 }
 
-#if !NETCORE
 [Serializable]
-#endif
 public sealed class ObjectDesctructor : Expression
 {
     private sealed class DestructuringAcceptor : JSValue

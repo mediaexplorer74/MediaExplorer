@@ -282,9 +282,7 @@ public static class Math
         return res;
     }
 
-#if !NET40
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-#endif
     private static ulong shr(ulong x, int y)
     {
         if (y > 63)

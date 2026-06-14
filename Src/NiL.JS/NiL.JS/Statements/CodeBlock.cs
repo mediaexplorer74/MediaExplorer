@@ -10,9 +10,7 @@ using System.Text;
 
 namespace NiL.JS.Statements;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public enum SuppressScopeIsolationMode
 {
     Auto,
@@ -20,9 +18,7 @@ public enum SuppressScopeIsolationMode
     DoNotSuppress
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class CodeBlock : CodeNode
 {
     private sealed class SuspendData
@@ -32,9 +28,6 @@ public sealed class CodeBlock : CodeNode
     }
 
     private string _sourceCode;
-#if (NET40 || !NETSTANDARD1_3 && !NET40) && JIT
-    internal Func<Context, JSObject> compiledVersion;
-#endif
 #if DEBUG
     internal HashSet<string> directives;
 #endif
@@ -354,7 +347,7 @@ public sealed class CodeBlock : CodeNode
             var t = ls[i].Evaluate(context);
             if (t != null)
                 context._lastResult = t;
-#if DEBUG && !(PORTABLE || NETCORE)
+#if DEBUG
             if (!context.Running)
                 if (System.Diagnostics.Debugger.IsAttached)
                     System.Diagnostics.Debugger.Break();
@@ -568,9 +561,6 @@ public sealed class CodeBlock : CodeNode
                         break;
                 }
             }
-#if (NET40 || !NETSTANDARD1_3 && !NET40) && JIT
-            compiledVersion = JITHelpers.compile(this, depth >= 0);
-#endif
         }
 
         var disableCache = stats.ContainsEval || stats.ContainsWith;
@@ -741,7 +731,6 @@ public sealed class CodeBlock : CodeNode
         }
     }
 
-#if !PORTABLE
     internal override System.Linq.Expressions.Expression TryCompile(bool selfCompile, bool forAssign, Type expectedType, List<CodeNode> dynamicValues)
     {
         for (int i = _variables.Length; i-- > 0;)
@@ -753,7 +742,6 @@ public sealed class CodeBlock : CodeNode
 
         return null;
     }
-#endif
     public override string ToString()
     {
         return ToString(false);

@@ -7,7 +7,6 @@
     <PackageReleaseNotes>@(ReleaseNoteLines, '%0a')</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <TargetFramework>netstandard1.4</TargetFramework>
-    <DefineConstants>TRACE;INLINE</DefineConstants>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <DebugType>portable</DebugType>
     <LangVersion>latest</LangVersion>

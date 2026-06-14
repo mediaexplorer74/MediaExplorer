@@ -1,11 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Reflection;
 
 namespace NiL.JS.Core.JIT;
 
-#if !NETCORE
 internal static class JITHelpers
 {
     public static readonly FieldInfo _items = typeof(List<CodeNode>).GetField("_items", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -163,4 +162,3 @@ internal static class JITHelpers
         return dest;
     }
 }
-#endif

@@ -311,7 +311,10 @@
     <div style="width:50vw; background:lightyellow; padding:4px; margin-top:8px;">
         50vw wide (half viewport)
     </div>
-    <div class="expected">Expected: inner green bar narrower than container; yellow bar half screen</div>
+    <div style="width:25dvw; background:lightcoral; padding:4px; margin-top:8px;">
+        25dvw wide (quarter dynamic viewport)
+    </div>
+    <div class="expected">Expected: inner green bar narrower than container; yellow half-screen; coral quarter-screen</div>
 </div>
 
 <!-- T-C-012: transform scale -->
@@ -339,6 +342,28 @@
     <div class="expected">Expected: navy box shifted right 40px and down 10px</div>
 </div>
 
+<!-- T-C-016: CSS custom properties scope -->
+<div class="test-card">
+    <span class="test-id">T-C-016</span>
+    <h2>CSS Custom Properties (--var) Scope</h2>
+    <style>
+        :root { --cp-global: #0078D7; }
+        #cp-override { --cp-global: purple; }
+    </style>
+    <div style="background:var(--cp-global); color:white; padding:6px; margin-bottom:4px;">
+        :root default (blue via --cp-global)
+    </div>
+    <div id="cp-override">
+        <div style="background:var(--cp-global); color:white; padding:6px; margin-bottom:4px;">
+            Inherited from #cp-override (should be purple)
+        </div>
+    </div>
+    <div style="background:var(--cp-missing, crimson); color:white; padding:6px;">
+        Fallback var(--cp-missing, crimson)
+    </div>
+    <div class="expected">Expected: blue bar, purple bar (inherited), crimson bar (fallback)</div>
+</div>
+
 <!-- T-C-014: grid-template-areas -->
 <div class="test-card">
     <span class="test-id">T-C-014</span>
@@ -352,14 +377,51 @@
     <div class="expected">Expected: 4 areas in classic layout (fallback to block if unsupported)</div>
 </div>
 
-<!-- T-C-015: transition (manual test) -->
+<!-- T-C-015: CSS Transitions (hover, all 3 properties) -->
+<style>
+  #t015a { width:80px; height:40px; background:#0078D7; color:white; text-align:center;
+           line-height:40px; cursor:pointer; transition: opacity 0.3s ease; border-radius:4px; }
+  #t015a:hover { opacity:0.5; }
+  #t015b { width:80px; height:40px; background:#107C10; color:white; text-align:center;
+           line-height:40px; cursor:pointer; transition: background-color 0.3s ease; border-radius:4px; margin-left:8px; display:inline-block; }
+  #t015b:hover { background-color:#FFB900; }
+  #t015c { width:80px; height:40px; background:#5C2D91; color:white; text-align:center;
+           line-height:40px; cursor:pointer; transition: transform 0.3s ease; border-radius:4px;
+           margin-left:8px; display:inline-block; }
+  #t015c:hover { transform: scale(1.1) rotate(5deg); }
+  #t015d { width:80px; height:40px; background:#E81123; color:white; text-align:center;
+           line-height:40px; cursor:pointer; transition: all 0.3s ease; border-radius:4px;
+           margin-left:8px; display:inline-block; }
+  #t015d:hover { opacity:0.5; background-color:#FFB900; transform: scale(1.1); }
+</style>
 <div class="test-card">
     <span class="test-id">T-C-015</span>
-    <h2>CSS Transitions (manual)</h2>
-    <div id="transition-box" style="width:80px; height:40px; background:#0078D7; color:white; text-align:center; line-height:40px; cursor:pointer; transition: opacity 0.3s; border-radius:4px;">
-        Tap me
+    <h2>CSS Transitions (hover, 3 properties)</h2>
+    <div id="t015a">opacity</div>
+    <div id="t015b">bg</div>
+    <div id="t015c">transform</div>
+    <div id="t015d">all</div>
+    <div class="expected">Expected: on hover each box animates smoothly to the new state over 0.3s;
+        on pointer-exit, animates back. Boxes are placed side-by-side.</div>
+</div>
+
+<!-- T-C-017: clamp() -->
+<div class="test-card">
+    <span class="test-id">T-C-017</span>
+    <h2>clamp() — fluid sizing with min/max</h2>
+    <div style="font-size:clamp(14px, 2vw, 20px); color:#222; margin-bottom:4px;">
+        clamp(14px, 2vw, 20px) — text grows with viewport, stays 14–20px
     </div>
-    <div class="expected">Expected: tap → opacity changes with fade (if transitions supported)</div>
+    <div style="width:clamp(100px, 50%, 300px); height:24px; background:#0078D7; color:white; padding:4px 8px; margin-bottom:4px;">
+        width: clamp(100px, 50%, 300px)
+    </div>
+    <div style="font-size:clamp(10px, 1vw, 12px); color:#444;">
+        clamp(10px, 1vw, 12px) — small fluid text
+    </div>
+    <div style="padding:clamp(2px, 1vw, 8px); background:lightgreen; color:#222;">
+        padding: clamp(2px, 1vw, 8px)
+    </div>
+    <div class="expected">Expected: 4 visible blocks; first scales with viewport (14–20px), second capped between 100–300px (50% approximated as viewport % per Phase C.1), third stays in 10–12px, padding 2–8px.</div>
 </div>
 
 <!-- ======================== SECTION C: JS BEHAVIOR ======================== -->
@@ -466,6 +528,13 @@
             results.innerHTML = html;
         }, 300);
     })();
+    </script>
+    <!-- Inserted synthetic bad inline scripts for NilJsTest/local debugging: two identical throws to trigger bad-hash persistence -->
+    <script>
+        throw new Error('uwp-synthetic-bad');
+    </script>
+    <script>
+        throw new Error('uwp-synthetic-bad');
     </script>
 </div>
 

@@ -18,13 +18,8 @@ public class JsonSerializer
     public JsonSerializer(Type targetType)
     {
         TargetType = targetType ?? throw new ArgumentNullException(nameof(targetType));
-#if NETSTANDARD1_3
-        _properties = targetType.GetRuntimeProperties().ToArray();
-        _fields = targetType.GetRuntimeFields().ToArray();
-#else
         _properties = targetType.GetProperties();
         _fields = targetType.GetFields();
-#endif
         var weight = 0;
         var curType = targetType;
         while (curType != null && curType != typeof(object))
@@ -102,11 +97,7 @@ public class JsonSerializer
 
         if (deserializedJson._valueType < JSValueType.Object)
             return deserializedJson.Value;
-#if NETSTANDARD1_3
-        var result = resultContainer ?? TargetType.GetTypeInfo().DeclaredConstructors.Where(x => x.IsPublic).First(x=>x.GetParameters().Length == 0).Invoke(new object[0]);
-#else
         var result = resultContainer ?? TargetType.GetConstructor(Type.EmptyTypes).Invoke(new object[0]);
-#endif
         var tempSrcObject = deserializedJson._oValue as JSObject;
         foreach (var property in tempSrcObject._fields)
         {

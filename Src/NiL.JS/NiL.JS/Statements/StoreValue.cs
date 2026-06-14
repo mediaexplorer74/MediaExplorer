@@ -1,4 +1,4 @@
-﻿using NiL.JS.Core;
+using NiL.JS.Core;
 using NiL.JS.Expressions;
 
 namespace NiL.JS.Statements;

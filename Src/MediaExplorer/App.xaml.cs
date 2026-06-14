@@ -1,8 +1,9 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading.Tasks;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
 using Windows.Foundation;
@@ -36,6 +37,8 @@ namespace WEBVIEW
             this.InitializeComponent();
             this.Suspending += this.OnSuspending;
             try { this.UnhandledException += App_UnhandledException; } catch { }
+            try { TaskScheduler.UnobservedTaskException += (s, e) => { try { e.SetObserved(); System.Diagnostics.Debug.WriteLine("[App] UnobservedTaskException: " + (e.Exception?.Message ?? "?")); } catch { } }; } catch { }
+            try { var v = Package.Current.Id.Version; System.Diagnostics.Debug.WriteLine($"[App] MediaExplorer v{v.Major}.{v.Minor}.{v.Build}.{v.Revision}"); } catch { }
         }
 
         // Remove custom InitializeComponent (XAML generates partial implementation)

@@ -1,13 +1,11 @@
-п»їusing System;
+using System;
 using System.Collections.Generic;
 using NiL.JS.Core;
 using NiL.JS.Core.Interop;
 
 namespace NiL.JS.BaseLibrary;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Date
 {
     [Obsolete("Use GlobalContext.CurrentTimeZone instead")]
@@ -293,7 +291,7 @@ public sealed class Date
         t %= _400yearsMilliseconds;
         y += System.Math.Min(3, t / _100yearsMilliseconds) * 100;
         t -= System.Math.Min(3, t / _100yearsMilliseconds) * _100yearsMilliseconds;
-        y += (t / _4yearsMilliseconds) * 4; // 25 РЅРёРєРѕРіРґР° РЅРµ Р±СѓРґРµС‚, С‚Р°Рє РєР°Рє 25 * _4yearsMilliseconds > _100yearsMilliseconds
+        y += (t / _4yearsMilliseconds) * 4; // 25 никогда не будет, так как 25 * _4yearsMilliseconds > _100yearsMilliseconds
         t %= _4yearsMilliseconds;
         y += System.Math.Min(3, t / _yearMilliseconds) + 1;
         return (int)y; // base date: 0001-01-01
@@ -328,7 +326,7 @@ public sealed class Date
 
         var y = (t / _400yearsMilliseconds) * 400;
         t %= _400yearsMilliseconds;
-        y += System.Math.Min(3, t / _100yearsMilliseconds) * 100; // 4 Р±С‹С‚СЊ РЅРµ РґРѕР»Р¶РЅРѕ, РІРµРґСЊ РјС‹ СѓР¶Рµ РїСЂРѕРІРµСЂРёР»Рё РґРµР»РёРјРѕСЃС‚СЊ РЅР° 400
+        y += System.Math.Min(3, t / _100yearsMilliseconds) * 100; // 4 быть не должно, ведь мы уже проверили делимость на 400
         t -= System.Math.Min(3, t / _100yearsMilliseconds) * _100yearsMilliseconds;
         y += (t / _4yearsMilliseconds) * 4;
         t %= _4yearsMilliseconds;
@@ -871,7 +869,7 @@ public sealed class Date
         month %= 12;
         var isLeap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 ? 1 : 0;
         year--;
-        //month--; // Р’ JS mode РЅР°РґРѕ Р·Р°РєРѕРјРјРµРЅС‚РёСЂРѕРІР°С‚СЊ
+        //month--; // В JS mode надо закомментировать
         day--;
         var time = (year / 400) * _400yearsMilliseconds;
         year %= 400;
@@ -1160,7 +1158,7 @@ public sealed class Date
         var seconds = 0;
         var milliseconds = 0;
         var computeTzo = false;
-        var part = 0; // 0 - РґР°С‚Р°, 1 - РІСЂРµРјСЏ, 2 - РјРёР»Р»РёСЃРµРєСѓРЅРґС‹
+        var part = 0; // 0 - дата, 1 - время, 2 - миллисекунды
         var inManyLoop = false;
         var i = 0;
         var j = 0;

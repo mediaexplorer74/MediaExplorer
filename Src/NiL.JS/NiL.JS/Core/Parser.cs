@@ -970,35 +970,60 @@ public static class Parser
 
     internal static CodeNode Parse(ParseInfo state, ref int index, CodeFragmentType ruleSet, bool throwError)
     {
-        while ((index < state.Code.Length) && (Tools.IsWhiteSpace(state.Code[index])))
-            index++;
-
-        if (index >= state.Code.Length || state.Code[index] == '}')
-            return null;
-
-        int sindex = index;
-        if (state.Code[index] == ',' || state.Code[index] == ';')
+        // Depth guard: prevent StackOverflowException on deeply nested/minified JS (e.g. d3.v5)
+        if (state.ParserDepth >= ParseInfo.MaxParserDepth)
         {
-            return null;
+            var vicinity = index >= 0 && index < state.Code.Length
+                ? state.Code.Substring(index, System.Math.Min(60, state.Code.Length - index))
+                : "(eof)";
+            var msg = "Parser recursion depth exceeded (> " + ParseInfo.MaxParserDepth
+                + ") at index " + index + " near \"" + vicinity.Replace("\r", "").Replace("\n", " ") + "\"";
+            throw new JSException(JSValue.Marshal(msg));
         }
-
-        if (index >= state.Code.Length)
-            return null;
-
-        for (int i = 0; i < rules[(int)ruleSet].Count; i++)
+        state.ParserDepth++;
+        if (ParseInfo.VerboseParser && state.ParserDepth % 25 == 0)
         {
-            if (rules[(int)ruleSet][i].Validate(state.Code, index))
+            var vicinity = index >= 0 && index < state.Code.Length
+                ? state.Code.Substring(index, System.Math.Min(40, state.Code.Length - index))
+                : "(eof)";
+            System.Diagnostics.Debug.WriteLine("[PARSER:DEPTH] " + state.ParserDepth + " at index " + index + " near \"" + vicinity.Replace("\r", "").Replace("\n", " ") + "\"");
+        }
+        try
+        {
+            while ((index < state.Code.Length) && (Tools.IsWhiteSpace(state.Code[index])))
+                index++;
+
+            if (index >= state.Code.Length || state.Code[index] == '}')
+                return null;
+
+            int sindex = index;
+            if (state.Code[index] == ',' || state.Code[index] == ';')
             {
-                var result = rules[(int)ruleSet][i].Parse(state, ref index);
-                if (result != null)
-                    return result;
+                return null;
             }
+
+            if (index >= state.Code.Length)
+                return null;
+
+            for (int i = 0; i < rules[(int)ruleSet].Count; i++)
+            {
+                if (rules[(int)ruleSet][i].Validate(state.Code, index))
+                {
+                    var result = rules[(int)ruleSet][i].Parse(state, ref index);
+                    if (result != null)
+                        return result;
+                }
+            }
+
+            if (throwError)
+                ExceptionHelper.ThrowUnknownToken(state.Code, sindex);
+
+            return null;
         }
-
-        if (throwError)
-            ExceptionHelper.ThrowUnknownToken(state.Code, sindex);
-
-        return null;
+        finally
+        {
+            state.ParserDepth--;
+        }
     }
 
     internal static void Build<T>(ref T self, int expressionDepth, int scopeLevel, Dictionary<string, VariableDescriptor> variables, CodeContext codeContext, InternalCompilerMessageCallback message, FunctionInfo stats, Options opts) where T : CodeNode

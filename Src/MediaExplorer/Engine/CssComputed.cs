@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Windows.UI.Text;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Media;
@@ -31,6 +31,7 @@ namespace BrowserCore.Engine
         public string Overflow { get; set; }
         public string OverflowX { get; set; }
         public string OverflowY { get; set; }
+        public string BorderCollapse { get; set; } // "separate" (default) or "collapse"
         public string Visibility { get; set; } // "visible" (default), "hidden", "collapse"
         public string Float { get; set; } // "none", "left", "right"
         public string Clear { get; set; } // "none", "left", "right", "both"
@@ -86,7 +87,7 @@ namespace BrowserCore.Engine
             {
                 if (_fontFamily == null && !string.IsNullOrEmpty(FontFamilyName))
                 {
-                    try { _fontFamily = new FontFamily(FontFamilyName); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CssComputed.cs] empty catch empty catch"); }
+                    try { _fontFamily = new FontFamily(FontFamilyName); } catch { /* swallow */ }
                 }
                 return _fontFamily;
             }
@@ -146,5 +147,50 @@ namespace BrowserCore.Engine
 
         // Image fitting
         public string ObjectFit { get; set; }           // "fill", "contain", "cover", "none", "scale-down"
+
+        // CSS Grid
+        public string GridTemplateColumns { get; set; }
+        public string GridTemplateRows { get; set; }
+        public string GridTemplateAreas { get; set; }
+        public string GridAutoColumns { get; set; }
+        public string GridAutoRows { get; set; }
+        public string GridAutoFlow { get; set; }
+        public string GridColumn { get; set; }
+        public string GridRow { get; set; }
+        public string GridArea { get; set; }
+
+        // CSS Transitions (Phase C.6, Session 3.26)
+        // Raw shorthand value as authored in CSS (e.g. "opacity 0.3s ease")
+        public string Transition { get; set; }
+        // Parsed duration in milliseconds. 0 means "no animation" (instant).
+        public double TransitionDurationMs { get; set; }
+        // Property name to animate. One of:
+        //   "opacity" | "background-color" | "transform" | "all"
+        // Empty means the shorthand couldn't be parsed.
+        public string TransitionProperty { get; set; }
+        // Easing function. One of: "ease" | "linear" | "ease-in" |
+        //   "ease-out" | "ease-in-out". Defaults to "ease".
+        public string TransitionTimingFunction { get; set; }
+        // Optional delay before the animation starts. 0 = immediate.
+        public double TransitionDelayMs { get; set; }
+        // :hover override. Null if no :hover rules apply to this element.
+        // When non-null, the renderer swaps in these computed values on
+        // PointerEntered and reverts to base on PointerExited, animating
+        // any property listed in TransitionProperty via TransitionAnimator.
+        public CssComputed Hover { get; set; }
+
+        // Parsed transition list (supports comma-separated multiple transitions).
+        // Each entry corresponds to one comma-separated transition() entry.
+        public sealed class TransitionSpec
+        {
+            public string Property { get; set; }
+            public double DurationMs { get; set; }
+            public string TimingFunction { get; set; }
+            public double DelayMs { get; set; }
+            public string Raw { get; set; }
+        }
+
+        // If non-empty, contains parsed transitions (in source order).
+        public System.Collections.Generic.List<TransitionSpec> TransitionList { get; set; }
     }
 }

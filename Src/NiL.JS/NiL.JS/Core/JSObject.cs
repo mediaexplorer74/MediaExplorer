@@ -10,9 +10,7 @@ using NiL.JS.Extensions;
 
 namespace NiL.JS.Core;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public class JSObject : JSValue
 {
     internal IDictionary<string, JSValue> _fields;
@@ -357,9 +355,7 @@ public class JSObject : JSValue
         }
     }
 
-#if !NET40
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-#endif
     internal static IDictionary<string, JSValue> getFieldsContainer()
     {
         // return new Dictionary<string, JSValue>(System.StringComparer.Ordinal);

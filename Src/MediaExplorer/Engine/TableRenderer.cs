@@ -52,7 +52,7 @@ namespace BrowserCore.Engine
                 var css = TryGetCss(col);
                 if (css != null && css.Width.HasValue) return new GridLength(css.Width.Value);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/TableRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             return null;
         }
@@ -190,7 +190,7 @@ namespace BrowserCore.Engine
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/TableRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             // Read border-spacing from table's computed CSS
             double cellSpacingH = 0, cellSpacingV = 0;
@@ -204,7 +204,7 @@ namespace BrowserCore.Engine
                     else cellSpacingV = cellSpacingH;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/TableRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             var headerGrid = new Grid { Margin = new Thickness(0, 6, 0, 0) };
             var bodyGrid = new Grid { Margin = new Thickness(0, 0, 0, 12) };
@@ -257,7 +257,7 @@ namespace BrowserCore.Engine
                     int localRow = place.Row;
                     int rs = Math.Min(place.RowSpan, Math.Max(1, headerRows - localRow));
                     var b = addCell(headerGrid, localRow, place.Col, rs, place.ColSpan, content);
-                    try { b.Background = new SolidColorBrush(Windows.UI.Colors.LightGray); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/TableRenderer.cs] empty catch empty catch"); }
+                    try { b.Background = new SolidColorBrush(Windows.UI.Colors.LightGray); } catch { /* swallow */ }
                 }
                 else
                 {
@@ -268,6 +268,34 @@ namespace BrowserCore.Engine
             }
 
             var root = new Grid();
+
+            // Apply table width attribute (e.g., width="85%")
+            try
+            {
+                if (table.Attr != null)
+                {
+                    string tw;
+                    if (table.Attr.TryGetValue("width", out tw) && !string.IsNullOrWhiteSpace(tw))
+                    {
+                        tw = tw.Trim();
+                        if (tw.EndsWith("%"))
+                        {
+                            double pct;
+                            if (double.TryParse(tw.TrimEnd('%'), out pct))
+                                root.Width = (pct / 100.0) * 960;
+                        }
+                        else
+                        {
+                            double px;
+                            if (double.TryParse(tw.Replace("px", ""), out px))
+                                root.Width = px;
+                        }
+                        root.HorizontalAlignment = HorizontalAlignment.Center;
+                    }
+                }
+            }
+            catch { /* swallow */ }
+
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             Grid.SetRow(headerGrid, 0);
@@ -305,12 +333,12 @@ namespace BrowserCore.Engine
                         if (changeB) bodyGrid.ColumnDefinitions[i].Width = new GridLength(target);
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/TableRenderer.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 finally { syncing = false; }
             };
-            headerGrid.Loaded += (s, e) => { try { syncCols(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/TableRenderer.cs] empty catch empty catch"); } };
-            bodyGrid.Loaded += (s, e) => { try { syncCols(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/TableRenderer.cs] empty catch empty catch"); } };
-            bodyGrid.SizeChanged += (s, e) => { try { syncCols(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/TableRenderer.cs] empty catch empty catch"); } };
+            headerGrid.Loaded += (s, e) => { try { syncCols(); } catch { /* swallow */ } };
+            bodyGrid.Loaded += (s, e) => { try { syncCols(); } catch { /* swallow */ } };
+            bodyGrid.SizeChanged += (s, e) => { try { syncCols(); } catch { /* swallow */ } };
 
             return Finish(root, table);
         }
@@ -328,7 +356,7 @@ namespace BrowserCore.Engine
                     else cellSpacingV = cellSpacingH;
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/TableRenderer.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             var panel = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(0, 6, 0, 6) };
             foreach (var r in rows)

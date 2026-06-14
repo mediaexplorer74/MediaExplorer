@@ -1,4 +1,4 @@
-ï»¿using System;
+using System;
 using NiL.JS.BaseLibrary;
 using NiL.JS.Core.Interop;
 using NiL.JS.Expressions;
@@ -9,14 +9,14 @@ namespace NiL.JS.Core.Functions;
 [Prototype(typeof(Function), true)]
 internal sealed class AsyncFunction : Function
 {
-    internal sealed class Ð¡ontinuator
+    internal sealed class Ñontinuator
     {
         private readonly AsyncFunction _asyncFunction;
         private readonly Context _context;
 
         public JSValue ResultPromise { get; private set; }
 
-        public Ð¡ontinuator(AsyncFunction asyncFunction, Context context)
+        public Ñontinuator(AsyncFunction asyncFunction, Context context)
         {
             _asyncFunction = asyncFunction;
             _context = context;
@@ -137,7 +137,7 @@ internal sealed class AsyncFunction : Function
         if (internalContext._executionMode == ExecutionMode.Suspend)
         {
             var promise = internalContext._executionInfo;
-            var continuator = new Ð¡ontinuator(this, internalContext);
+            var continuator = new Ñontinuator(this, internalContext);
             continuator.Build(promise);
             result = continuator.ResultPromise;
         }

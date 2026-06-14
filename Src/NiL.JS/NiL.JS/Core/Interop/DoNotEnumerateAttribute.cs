@@ -1,13 +1,11 @@
-п»їusing System;
+using System;
 
 namespace NiL.JS.Core.Interop;
 
 /// <summary>
-/// РЈРєР°Р·С‹РІР°РµС‚, С‡С‚Рѕ РїРѕРјРµС‡РµРЅРЅС‹Р№ С‡Р»РµРЅ СЃР»РµРґСѓРµС‚ РїСЂРѕРїСѓСЃС‚РёС‚СЊ РїСЂРё РїРµСЂРµС‡РёСЃР»РµРЅРёРё РІ РєРѕРЅСЃС‚СЂСѓРєС†РёРё for-in
+/// Указывает, что помеченный член следует пропустить при перечислении в конструкции for-in
 /// </summary>
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [AttributeUsage(AttributeTargets.Event | AttributeTargets.Field | AttributeTargets.Method | AttributeTargets.Property | AttributeTargets.Constructor, AllowMultiple = false, Inherited = false)]
 public sealed class DoNotEnumerateAttribute : Attribute
 {

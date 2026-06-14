@@ -29,7 +29,15 @@ namespace BrowserCore.Engine.Core
             var renderRoot = RenderTreeBuilder.Build(domRoot, styles);
 
             // 4. Layout
-            LayoutEngine.PerformLayout(renderRoot, viewportSize);
+            try
+            {
+                LayoutEngine.PerformLayout(renderRoot, viewportSize);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[DIAG:LAYOUT] PerformLayout exception: " + ex.GetType().Name + ": " + ex.Message);
+                // Continue with partial layout rather than crashing
+            }
 
             // 5. Paint
             var visualRoot = Painter.Paint(renderRoot);

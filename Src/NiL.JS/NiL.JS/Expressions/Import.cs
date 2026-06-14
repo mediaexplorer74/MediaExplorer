@@ -1,13 +1,11 @@
-﻿using System;
+using System;
 using NiL.JS.Core;
 using NiL.JS.BaseLibrary;
 using System.Threading.Tasks;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Import : Expression
 {
     protected internal override PredictedType ResultType => PredictedType.Object;

@@ -1,4 +1,4 @@
-п»їusing System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -105,7 +105,7 @@ public sealed class SparseArray<TValue> : IList<TValue>, IDictionary<int, TValue
             this[i] = values[i];
     }
 
-    #region Р§Р»РµРЅС‹ IList<TValue>
+    #region Члены IList<TValue>
 
     public int IndexOf(TValue item)
     {
@@ -355,7 +355,7 @@ public sealed class SparseArray<TValue> : IList<TValue>, IDictionary<int, TValue
 
                 if (segmentNavItem.SegmentIndex > virtualSegmentIndex)
                 {
-                    // РґР°Р»СЊРЅРµР№С€РµРµ РїСЂРѕРґРІРёР¶РµРЅРёРµ Р±СѓРґРµС‚ С‚РѕР»СЊРєРѕ СѓРІРµР»РёС‡РёРІР°С‚СЊ РёРЅРґРµРєСЃ
+                    // дальнейшее продвижение будет только увеличивать индекс
                     virtualSegmentIndex = segmentNavItem.SegmentIndex;
                     realSegmentIndex = i;
                     return (realSegmentIndex, virtualSegmentIndex, 0);
@@ -756,7 +756,7 @@ public sealed class SparseArray<TValue> : IList<TValue>, IDictionary<int, TValue
         }
         set
         {
-            bool isDefault = value is null; // СЃС‚СЂСѓРєС‚СѓСЂС‹ РјС‹ Р±СѓРґРµРј Р·Р°РїРёСЃС‹РІР°С‚СЊ, РёРЅР°С‡Рµ РїСЂРёС€Р»РѕСЃСЊ Р±С‹ РІС‹Р·С‹РІР°С‚СЊ С‚СЏР¶РµР»С‹Рµ РѕРїРµСЂР°С†РёРё СЃСЂР°РІРЅРµРЅРёСЏ.
+            bool isDefault = value is null; // структуры мы будем записывать, иначе пришлось бы вызывать тяжелые операции сравнения.
 
             if (isDefault)
             {
@@ -776,7 +776,7 @@ public sealed class SparseArray<TValue> : IList<TValue>, IDictionary<int, TValue
 
     #endregion
 
-    #region Р§Р»РµРЅС‹ ICollection<TValue>
+    #region Члены ICollection<TValue>
 
     public void Add(TValue item)
     {
@@ -858,7 +858,7 @@ public sealed class SparseArray<TValue> : IList<TValue>, IDictionary<int, TValue
 
     #endregion
 
-    #region Р§Р»РµРЅС‹ IEnumerable<TValue>
+    #region Члены IEnumerable<TValue>
 
     public IEnumerator<TValue> GetEnumerator()
     {
@@ -868,7 +868,7 @@ public sealed class SparseArray<TValue> : IList<TValue>, IDictionary<int, TValue
 
     #endregion
 
-    #region Р§Р»РµРЅС‹ IEnumerable
+    #region Члены IEnumerable
 
     System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
     {

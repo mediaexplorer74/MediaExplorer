@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using NiL.JS.Core;
@@ -9,9 +9,7 @@ using System.Linq;
 
 namespace NiL.JS.Statements;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class ForOf : CodeNode
 {
     private sealed class SuspendData
@@ -33,11 +31,7 @@ public sealed class ForOf : CodeNode
     {
         get
         {
-#if (PORTABLE || NETCORE || NETSTANDARD1_4)
             return new ReadOnlyCollection<string>(_labels);
-#else
-            return System.Array.AsReadOnly(_labels);
-#endif
         }
     }
 

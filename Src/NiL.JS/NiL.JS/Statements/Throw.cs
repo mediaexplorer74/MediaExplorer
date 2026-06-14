@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using NiL.JS.BaseLibrary;
 using NiL.JS.Core;
@@ -6,9 +6,7 @@ using NiL.JS.Expressions;
 
 namespace NiL.JS.Statements;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Throw : CodeNode
 {
     private Expression _body;

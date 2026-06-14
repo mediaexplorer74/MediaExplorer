@@ -1,68 +1,127 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta
-      name="viewport"
-      content="width=device-width,initial-scale=1,maximum-scale=1"
-    />
-    <title>Image Test Suite</title>
-    <style>
-      body {
-        margin: 0;
-        padding: 10px;
-        background-color: #0b1220;
-        color: #e6eef6;
-        font-family: "Segoe UI", sans-serif;
-      }
-      h1 {
-        font-size: 20px;
-        color: #60a5fa;
-        margin: 0 0 15px 0;
-      }
-      h3 {
-        font-size: 14px;
-        margin: 15px 0 10px 0;
-      }
-      img {
-        max-width: 100%;
-      }
-    </style>
-  </head>
-
-  <body>
-    <h1>Image Test Suite</h1>
-    <p style="color: #fbbf24; font-size: 13px;">Check debug output for [MakeImage], [ImgTry], [ImgLoadOK/FAIL] logs</p>
-    
-    <div style="margin:12px 0; padding:8px; background:#1a2744; border:1px solid #334; border-radius:4px;">
-      <p style="margin:0; font-size:13px;">
-        <a href="ms-appx:///Html/test.html" style="color:#60a5fa; font-weight:bold;">🧪 Full Test Suite (about:test)</a> &nbsp;|&nbsp;
-        <a href="ms-appx:///Html/test_boxmodel.html" style="color:#10b981;">Box Model</a> &nbsp;|&nbsp;
-        <a href="ms-appx:///Html/test_forms.html" style="color:#f59e0b;">Forms</a> &nbsp;|&nbsp;
-        <a href="ms-appx:///Html/test_tables.html" style="color:#a78bfa;">Tables</a> &nbsp;|&nbsp;
-        <a href="ms-appx:///Html/test_typography.html" style="color:#ec4899;">Typography</a>
-      </p>
-    </div>
-    
-    <h3 style="color: #60a5fa;">1. Remote PNG (Wikipedia Logo)</h3>
-    <img src="https://www.wikipedia.org/portal/wikipedia.org/assets/img/Wikipedia-logo-v2.png" alt="Wikipedia Logo" width="135" height="155" />
-    
-    <h3 style="color: #10b981;">2. Remote PNG (Chess Piece)</h3>
-    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/10/Chess_rdt45.svg/120px-Chess_rdt45.svg.png" alt="Chess Rook" width="120" />
-    
-    <h3 style="color: #f59e0b;">3. Data URI (Red Pixel)</h3>
-    <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg==" alt="Red Pixel" width="50" height="50" />
-    
-    <h3 style="color: #ef4444;">4. Broken Image (should show placeholder with alt text)</h3>
-    <img src="https://example.com/nonexistent.png" alt="This image does not exist" />
-    
-    <h3 style="color: #ef4444;">5. Broken Image with alt="Image" (should show [img])</h3>
-    <img src="https://example.com/also-broken.png" alt="Image" />
-    
-    <h3 style="color: #8b5cf6;">6. Inline Image in Text</h3>
-    <p>This sentence has an inline <img src="https://www.wikipedia.org/portal/wikipedia.org/assets/img/Wikipedia-logo-v2.png" alt="Wiki" width="20" height="22" style="vertical-align: middle;"> image inside the paragraph.</p>
-    
-    <h3 style="color: #a78bfa;">8. Local Asset (ms-appx)</h3>
-    <img src="ms-appx:///Assets/Square150x150Logo.scale-200.png" alt="App Logo" width="75" />
-  </body>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>MediaExplorer</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #1A1A1A;
+  color: #CCCCCC;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding: 32px 20px;
+}
+.wrap {
+  max-width: 500px;
+  margin: 0 auto;
+  width: 100%;
+}
+h1 {
+  font-size: 28px;
+  font-weight: 600;
+  color: #FFFFFF;
+  margin-bottom: 4px;
+}
+.tagline {
+  font-size: 14px;
+  color: #FF0078D7;
+  margin-bottom: 24px;
+}
+.desc {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #AAAAAA;
+  margin-bottom: 28px;
+}
+.desc span {
+  color: #FF0078D7;
+  font-weight: 500;
+}
+.links {
+  list-style: none;
+  margin-bottom: 32px;
+}
+.links li {
+  margin-bottom: 10px;
+}
+.links a {
+  display: inline-block;
+  padding: 8px 16px;
+  background: #2D2D2D;
+  border: 1px solid #3E3E3E;
+  border-radius: 4px;
+  color: #60A5FA;
+  text-decoration: none;
+  font-size: 13px;
+  transition: background 0.15s;
+}
+.links a:hover {
+  background: #3D3D3D;
+  border-color: #60A5FA;
+}
+.blockquote {
+  border-left: 3px solid #FF0078D7;
+  padding: 12px 16px;
+  margin: 0;
+  background: #222222;
+  border-radius: 0 4px 4px 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #BBBBBB;
+  min-height: 60px;
+}
+.blockquote cite {
+  display: block;
+  margin-top: 8px;
+  color: #888888;
+  font-style: normal;
+  font-size: 12px;
+}
+.footer {
+  margin-top: auto;
+  padding-top: 32px;
+  font-size: 11px;
+  color: #666666;
+  text-align: center;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>MediaExplorer</h1>
+  <p class="tagline">A minimal web browser, built from scratch</p>
+  <p class="desc">
+    <span>MediaExplorer</span> renders HTML, CSS, and JavaScript using its own custom engine —
+    no WebView, no Chromium, no Edge. Every pixel is parsed, styled, and painted in-process
+    with UWP XAML.
+  </p>
+  <ul class="links">
+    <li><a href="about:test">about:test — Full test suite</a></li>
+    <li><a href="https://httpbin.org/html">httpbin.org/html — Simple HTML page</a></li>
+    <li><a href="https://text.npr.org">text.npr.org — Text-only news</a></li>
+    <li><a href="about:blank">about:blank — Blank page</a></li>
+  </ul>
+  <blockquote class="blockquote" id="quote">Loading quote…</blockquote>
+  <p class="footer">Type a URL above or tap a link to begin.</p>
+</div>
+<script>
+var quotes = [
+  '"The Web as I envisaged it, we have not seen it yet. The future is still so much bigger than the past." — Tim Berners-Lee',
+  '"The Web does not just connect machines, it connects people." — Tim Berners-Lee',
+  '"The amazing thing is that the Web is fundamentally a read-write medium, not a read-only medium." — Tim Berners-Lee',
+  '"We need diversity of thought in the world to face the new challenges." — Tim Berners-Lee',
+  '"The original idea of the web was that it should be a collaborative space where you can communicate through sharing knowledge." — Tim Berners-Lee',
+  '"The Internet is becoming the town square for the global village of tomorrow." — Bill Gates',
+  '"The best way to predict the future is to invent it." — Alan Kay',
+  '"Information is the oil of the 21st century, and analytics is the combustion engine." — Peter Sondergaard'
+];
+document.getElementById('quote').innerHTML =
+  quotes[Math.floor(Math.random() * quotes.length)] +
+  '<cite>Museum of the Web</cite>';
+</script>
+</body>
 </html>

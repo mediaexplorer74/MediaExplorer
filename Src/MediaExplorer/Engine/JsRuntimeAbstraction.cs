@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 namespace BrowserCore.Engine
 {
@@ -46,12 +46,12 @@ namespace BrowserCore.Engine
 
         public void SetDom(LiteElement root)
         {
-            try { _inner.SetDom(root); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JsRuntimeAbstraction.cs] empty catch empty catch"); }
+            try { _inner.SetDom(root); } catch { /* swallow */ }
         }
 
         public void Reset(JsContext ctx)
         {
-            try { _inner.Reset(ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JsRuntimeAbstraction.cs] empty catch empty catch"); }
+            try { _inner.Reset(ctx); } catch { /* swallow */ }
         }
 
         public bool RunInline(string code, JsContext ctx)
@@ -62,18 +62,18 @@ namespace BrowserCore.Engine
         public bool AllowExternalScripts
         {
             get { try { return _inner.AllowExternalScripts; } catch { return false; } }
-            set { try { _inner.AllowExternalScripts = value; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JsRuntimeAbstraction.cs] empty catch empty catch"); } }
+            set { try { _inner.AllowExternalScripts = value; } catch { /* swallow */ } }
         }
 
         public SandboxPolicy Sandbox
         {
             get { try { return _inner.Sandbox; } catch { return SandboxPolicy.AllowAll; } }
-            set { try { _inner.Sandbox = value; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JsRuntimeAbstraction.cs] empty catch empty catch"); } }
+            set { try { _inner.Sandbox = value; } catch { /* swallow */ } }
         }
 
         public void ExecuteBlock(string code, JsContext ctx)
         {
-            try { _inner.ExecuteScriptBlock(code, ctx); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/JsRuntimeAbstraction.cs] empty catch empty catch"); }
+            try { _inner.ExecuteScriptBlock(code, ctx); } catch { /* swallow */ }
         }
 
         public void RegisterHostFunction(string name, string body)
@@ -83,7 +83,7 @@ namespace BrowserCore.Engine
                 if (!string.IsNullOrWhiteSpace(name)) 
                     _inner.RegisterUserFunction(name, body ?? string.Empty); 
             } 
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/JsRuntimeAbstraction.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         public string EvaluateExpression(string expr, JsContext ctx)

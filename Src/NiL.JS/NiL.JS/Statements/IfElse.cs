@@ -1,13 +1,11 @@
-п»їusing System;
+using System;
 using System.Collections.Generic;
 using NiL.JS.Core;
 using NiL.JS.Expressions;
 
 namespace NiL.JS.Statements;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class IfElse : CodeNode
 {
     private Expression condition;
@@ -58,8 +56,8 @@ public sealed class IfElse : CodeNode
             if (state.Message != null)
                 state.Message(MessageLevel.CriticalWarning, body.Position, body.Length, Strings.DoNotDeclareFunctionInNestedBlocks);
 
-            body = new CodeBlock([body]); // РґР»СЏ С‚РѕРіРѕ, С‡С‚РѕР±С‹ РЅРµ РґСѓР±Р»РёСЂРѕРІР°С‚СЊ РєРѕРґ РїРѕ РґРµРєР»Р°СЂР°С†РёРё С„СѓРЅРєС†РёРё, 
-            // РѕРЅР° РѕР±РѕСЂР°С‡РёРІР°РµС‚СЃСЏ РІ Р±Р»РѕРє, РєРѕС‚РѕСЂС‹Р№ СЃРґРµР»Р°РµС‚ СЃР°РјРѕРІС‹РїРёР» РЅР° РІС‚РѕСЂРѕРј СЌС‚Р°РїРµ, РЅРѕ РїРµСЂРµРґ СЌС‚РёРј РєРѕСЂСЂРµРєС‚РЅРѕ РѕР±СЉСЏРІРёС‚ С„СѓРЅРєС†РёСЋ.
+            body = new CodeBlock([body]); // для того, чтобы не дублировать код по декларации функции, 
+            // она оборачивается в блок, который сделает самовыпил на втором этапе, но перед этим корректно объявит функцию.
         }
 
         CodeNode elseBody = null;
@@ -86,8 +84,8 @@ public sealed class IfElse : CodeNode
                 if (state.Message != null)
                     state.Message(MessageLevel.CriticalWarning, elseBody.Position, elseBody.Length, Strings.DoNotDeclareFunctionInNestedBlocks);
 
-                elseBody = new CodeBlock([elseBody]); // РґР»СЏ С‚РѕРіРѕ, С‡С‚РѕР±С‹ РЅРµ РґСѓР±Р»РёСЂРѕРІР°С‚СЊ РєРѕРґ РїРѕ РґРµРєР»Р°СЂР°С†РёРё С„СѓРЅРєС†РёРё, 
-                // РѕРЅР° РѕР±РѕСЂР°С‡РёРІР°РµС‚СЃСЏ РІ Р±Р»РѕРє, РєРѕС‚РѕСЂС‹Р№ СЃРґРµР»Р°РµС‚ СЃР°РјРѕРІС‹РїРёР» РЅР° РІС‚РѕСЂРѕРј СЌС‚Р°РїРµ, РЅРѕ РїРµСЂРµРґ СЌС‚РёРј РєРѕСЂСЂРµРєС‚РЅРѕ РѕР±СЉСЏРІРёС‚ С„СѓРЅРєС†РёСЋ.
+                elseBody = new CodeBlock([elseBody]); // для того, чтобы не дублировать код по декларации функции, 
+                // она оборачивается в блок, который сделает самовыпил на втором этапе, но перед этим корректно объявит функцию.
             }
         }
         else

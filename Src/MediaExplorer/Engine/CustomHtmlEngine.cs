@@ -14,6 +14,7 @@ using BrowserCore.Api;
 using BrowserCore.Engine.Core;
 using WEBVIEW.Engine;
 using Windows.Foundation;
+using NiL.JS.Core;
 
 namespace BrowserCore.Engine
 {
@@ -70,6 +71,14 @@ namespace BrowserCore.Engine
         public event EventHandler<bool> LoadingChanged;
 
         public bool EnableJavaScript { get; set; } = true;
+
+        /// <summary>
+        /// Timeout (ms) for the entire JS execution phase (RunScriptsAsync).
+        /// Default 60s allows heavy scripts like D3.js to initialize.
+        /// Increase for JS-heavy SPAs, decrease for simple text sites.
+        /// </summary>
+        public int JsPhaseTimeoutMs { get; set; } = 60000;
+
         public void ApplySafeMode()
         {
             if (SafeMode)
@@ -82,6 +91,8 @@ namespace BrowserCore.Engine
         public Func<Uri, Task<string>> ScriptFetcher { get; set; }
 
         public event Action<FrameworkElement> RepaintReady;
+
+        public event Action<string, string, string> NodeTapped; // id, name, type
 
         // Incremental render state
         private RenderObject _currentRenderTree;
@@ -101,6 +112,9 @@ namespace BrowserCore.Engine
         private readonly CookieContainer _jsCookieJar = new CookieContainer();
         private readonly System.Threading.SemaphoreSlim _repaintGate = new System.Threading.SemaphoreSlim(1, 1);
         private int _repaintScheduled;
+
+        private int _buildVisualTreeCount;
+        private int _dispatchCount;
         private readonly CoreDispatcher _uiDispatcher;
         private volatile int _isRendering;
 
@@ -148,7 +162,7 @@ namespace BrowserCore.Engine
                 _activeJs = null; 
                 _activeDom = null;
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private async Task RaiseLoadingChangedAsync(bool isLoading)
@@ -163,7 +177,7 @@ namespace BrowserCore.Engine
                     await UiThreadHelper.RunAsyncAwaitable(disp, CoreDispatcherPriority.Normal, () =>
                     {
                         try { handler(this, isLoading); }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     });
                 }
                 else
@@ -171,7 +185,7 @@ namespace BrowserCore.Engine
                     handler(this, isLoading);
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         // Resolve a possibly relative URL against a base
@@ -190,7 +204,7 @@ namespace BrowserCore.Engine
                 if (Uri.TryCreate(href, UriKind.Absolute, out abs)) return abs;
                 if (baseUri != null && Uri.TryCreate(baseUri, href, out abs)) return abs;
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return null;
         }
 
@@ -217,7 +231,7 @@ namespace BrowserCore.Engine
                 if (System.Text.RegularExpressions.Regex.IsMatch(u, @"\.(webp|avif)(\?.*)?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                     u = System.Text.RegularExpressions.Regex.Replace(u, @"\.(webp|avif)(\?.*)?$", ".jpg$2", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return u;
         }
 
@@ -273,7 +287,7 @@ namespace BrowserCore.Engine
                 var gate = new System.Threading.SemaphoreSlim(6);
                 int budget = 32; // avoid over-queuing
                 double dw = viewportWidth ?? 0; 
-                try { if (dw <= 0) dw = Windows.UI.Xaml.Window.Current.Bounds.Width; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                try { if (dw <= 0) dw = Windows.UI.Xaml.Window.Current.Bounds.Width; } catch { /* swallow */ }
                 if (dw <= 0) dw = 480;
 
                 // Helper to execute load
@@ -293,7 +307,7 @@ namespace BrowserCore.Engine
                                 try { await imageLoader(abs); } 
                                 finally { gate.Release(); } 
                             } 
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); } 
+                            catch { /* swallow */ } 
                         }));
                     }
                 };
@@ -358,11 +372,11 @@ namespace BrowserCore.Engine
                             }
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
                 // Fire-and-forget; we do not await prewarm tasks to avoid blocking render
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private static string GatherPlainText(LiteElement n)
@@ -524,7 +538,7 @@ namespace BrowserCore.Engine
             if (_activeJs != null)
             {
                 try { _activeJs.FetchOverride = ScriptFetcher; }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }
         }
 
@@ -540,13 +554,26 @@ namespace BrowserCore.Engine
                 // Initialize viewport dimensions for vw/vh/calc() in CssLoader
                 CssLoader.SetViewportDimensions(vw, vh);
                 
-                CssParser.MediaViewportWidth = viewportWidth;
-                try { CssParser.MediaViewportHeight = vh; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
-                try { CssParser.MediaDppx = 1.0; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                // For CSS media queries, use a desktop-like viewport width.
+                // This ensures desktop CSS layouts apply (e.g. HN nav stays horizontal).
+                // Actual rendering still uses the real viewport for layout.
+                double cssViewportWidth = vw;
+                if (cssViewportWidth < 768) cssViewportWidth = 1024;
+
+                CssParser.MediaViewportWidth = cssViewportWidth;
+                try { CssParser.MediaViewportHeight = vh; } catch { /* swallow */ }
+                try
+                {
+                    double dpr = 1.0;
+                    try { var di = Windows.Graphics.Display.DisplayInformation.GetForCurrentView(); dpr = di.RawPixelsPerViewPixel; } catch { /* swallow */ }
+                    CssParser.MediaDppx = dpr;
+                }
+                catch { CssParser.MediaDppx = 1.0; }
                 try { CssParser.MediaPrefersColorScheme = ((Application.Current != null && Application.Current.RequestedTheme == ApplicationTheme.Dark) ? "dark" : "light"); }
                 catch { CssParser.MediaPrefersColorScheme = "light"; }
+                try { CssParser.MediaScripting = "enabled"; } catch { /* swallow */ }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private async Task<FrameworkElement> BuildVisualTreeAsync(
@@ -565,7 +592,8 @@ namespace BrowserCore.Engine
             ConfigureMedia(viewportWidth);
 
             var cssFetcher = fetchExternalCssAsync ?? (async _ => string.Empty);
-            System.Diagnostics.Debug.WriteLine("[DIAG] BuildVisualTree CssLoader.ComputeAsync start");
+            int bvtCount = System.Threading.Interlocked.Increment(ref _buildVisualTreeCount);
+            System.Diagnostics.Debug.WriteLine("[DIAG] BuildVisualTree CssLoader.ComputeAsync start #" + bvtCount);
             var computed = await CssLoader.ComputeAsync(dom, baseUri, cssFetcher, viewportWidth, null);
             System.Diagnostics.Debug.WriteLine("[DIAG] BuildVisualTree CssLoader.ComputeAsync DONE nodes=" + (computed != null ? computed.Count.ToString() : "null"));
 
@@ -640,7 +668,7 @@ namespace BrowserCore.Engine
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
 
             if (imageLoader == null)
                 imageLoader = _ => Task.FromResult<IRandomAccessStream>(null);
@@ -710,6 +738,7 @@ namespace BrowserCore.Engine
                         {
                             System.Diagnostics.Debug.WriteLine("[DIAG] BuildVisualTree Step3 Paint start");
                             var vRenderer = new VirtualizingRenderer(renderRoot, baseUri, onNavigate);
+                            vRenderer.NodeTapped += (id, name, type) => NodeTapped?.Invoke(id, name, type);
                             _currentRenderTree = renderRoot;
                             _currentRenderer = vRenderer;
                             _currentStyles = computed;
@@ -738,7 +767,7 @@ namespace BrowserCore.Engine
                         var sp = new StackPanel { Margin = new Thickness(12, 12, 12, 12) };
                         sp.Children.Add(new TextBlock { Text = "Render thread error", FontSize = 18, FontWeight = Windows.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Windows.UI.Colors.Black) });
                         string detail = threadEx.Message;
-                        try { detail += "\n" + (threadEx.StackTrace ?? "(no stack)" ); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                        try { detail += "\n" + (threadEx.StackTrace ?? "(no stack)" ); } catch { /* swallow */ }
                         sp.Children.Add(new TextBlock { Text = detail, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Windows.UI.Colors.Black), Margin = new Thickness(0,6,0,0) });
                         element = new Border { Background = new SolidColorBrush(Windows.UI.Colors.White), Child = sp };
                     });
@@ -808,7 +837,7 @@ namespace BrowserCore.Engine
                              }
                         }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
             }
 
@@ -817,7 +846,7 @@ namespace BrowserCore.Engine
                 var fallback = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(12, 12, 12, 12) };
                 var fg = new SolidColorBrush(Windows.UI.Colors.White);
                 string title = null;
-                try { var tnode = dom.Descendants().FirstOrDefault(n => n.Tag == "title"); if (tnode != null) title = tnode.Text; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                try { var tnode = dom.Descendants().FirstOrDefault(n => n.Tag == "title"); if (tnode != null) title = tnode.Text; } catch { /* swallow */ }
                 if (string.IsNullOrWhiteSpace(title)) title = baseUri != null ? baseUri.Host : "This page";
                 fallback.Children.Add(new TextBlock { Text = title, FontSize = 20, FontWeight = Windows.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6), Foreground = fg });
                 fallback.Children.Add(new TextBlock { Text = baseUri != null ? baseUri.AbsoluteUri : string.Empty, TextWrapping = TextWrapping.Wrap, Foreground = fg });
@@ -831,7 +860,7 @@ namespace BrowserCore.Engine
                 {
                     element.CacheMode = new Windows.UI.Xaml.Media.BitmapCache();
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }
 
             if (includeDiagnosticsBanner)
@@ -848,7 +877,7 @@ namespace BrowserCore.Engine
                     if (element != null) wrap.Children.Add(element);
                     element = wrap;
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
             }
 
             return element;
@@ -899,6 +928,9 @@ namespace BrowserCore.Engine
             if (element == null) return;
             var handler = RepaintReady;
             if (handler == null) return;
+            int dc = System.Threading.Interlocked.Increment(ref _dispatchCount);
+            System.Diagnostics.Debug.WriteLine("[DIAG:REPAINT] DispatchRepaintAsync #" + dc + " bvt=" + _buildVisualTreeCount);
+            DevToolsLogger.Log("[DIAG:REPAINT] DispatchRepaintAsync #" + dc + " bvt=" + _buildVisualTreeCount);
 
             try
             {
@@ -908,7 +940,7 @@ namespace BrowserCore.Engine
                     await UiThreadHelper.RunAsyncAwaitable(disp, CoreDispatcherPriority.Normal, () =>
                     {
                         try { handler(element); }
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     }).ConfigureAwait(false);
                 }
                 else
@@ -916,7 +948,7 @@ namespace BrowserCore.Engine
                     handler(element);
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private async Task<bool> ApplyIncrementalUpdateAsync(CoreDispatcher disp)
@@ -940,7 +972,11 @@ namespace BrowserCore.Engine
                 if (mut.Type == "childList")
                 {
                     if (mut.Added != null)
-                        foreach (var a in mut.Added) affectedNodes.Add(a);
+                        foreach (var a in mut.Added)
+                        {
+                            affectedNodes.Add(a);
+                            addedNodes.Add(a);
+                        }
                     if (mut.Removed != null)
                         foreach (var r in mut.Removed) affectedNodes.Add(r);
                     if (mut.Target != null) affectedNodes.Add(mut.Target);
@@ -1049,23 +1085,25 @@ namespace BrowserCore.Engine
                     // Phase 3: Patch renderer (incremental, not full UpdateView)
                     _currentRenderer.UpdateCanvasSize();
 
-                    // Patch added subtrees
-                    foreach (var added in addedNodes)
                     {
-                        if (_elementToRenderObject.TryGetValue(added, out var ro))
-                            _currentRenderer.PatchAdded(ro);
-                    }
+                        // Patch added subtrees
+                        foreach (var added in addedNodes)
+                        {
+                            if (_elementToRenderObject.TryGetValue(added, out var ro))
+                                _currentRenderer.PatchAdded(ro);
+                        }
 
-                    // Patch style-changed nodes
-                    foreach (var node in affectedNodes)
-                    {
-                        if (_elementToRenderObject.TryGetValue(node, out var ro))
-                            _currentRenderer.PatchStyle(ro);
-                    }
+                        // Patch style-changed nodes
+                        foreach (var node in affectedNodes)
+                        {
+                            if (_elementToRenderObject.TryGetValue(node, out var ro))
+                                _currentRenderer.PatchStyle(ro);
+                        }
 
-                    // Fallback: if no specific patches were applied, do full UpdateView
-                    if (addedNodes.Count == 0 && affectedNodes.Count == 0)
-                        _currentRenderer.UpdateView();
+                        // Fallback: if no specific patches were applied, do full UpdateView
+                        if (addedNodes.Count == 0 && affectedNodes.Count == 0)
+                            _currentRenderer.UpdateView();
+                    }
                 }
                 catch (System.Exception ex)
                 {
@@ -1094,11 +1132,14 @@ namespace BrowserCore.Engine
         {
             if (!EnableJavaScript) return;
             if (_activeDom == null) return;
-            if (_isRendering != 0) return;
+            if (_isRendering != 0) { System.Diagnostics.Debug.WriteLine("[DIAG:REPAINT] ScheduleRepaintFromJs BLOCKED _isRendering=" + _isRendering); DevToolsLogger.Log("[DIAG:REPAINT] Blocked _isRendering=" + _isRendering); return; }
+            int bvtNow = _buildVisualTreeCount;
 
             if (System.Threading.Interlocked.Exchange(ref _repaintScheduled, 1) == 1)
-                return;
+            { System.Diagnostics.Debug.WriteLine("[DIAG:REPAINT] ScheduleRepaintFromJs SKIP already scheduled bvt=" + bvtNow); return; }
 
+            System.Diagnostics.Debug.WriteLine("[DIAG:REPAINT] ScheduleRepaintFromJs DISPATCHING bvt=" + bvtNow);
+            DevToolsLogger.Log("[DIAG:REPAINT] Dispatching full repaint bvt=" + bvtNow);
             _ = Task.Run(async () =>
             {
                 try
@@ -1125,7 +1166,7 @@ namespace BrowserCore.Engine
                         _repaintGate.Release();
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
                 finally
                 {
                     System.Threading.Interlocked.Exchange(ref _repaintScheduled, 0);
@@ -1271,7 +1312,7 @@ namespace BrowserCore.Engine
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
 
                 // Hint CSS that JS is enabled: swap 'no-js' -> 'js' on <html> element if present
@@ -1297,10 +1338,13 @@ namespace BrowserCore.Engine
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 // 1.25) Prewarm images in the background so first paint can swap in sooner
-                try { PrewarmImages(dom, baseUri, imageLoader, viewportWidth); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                try { PrewarmImages(dom, baseUri, imageLoader, viewportWidth); } catch { /* swallow */ }
+
+                // Диагностика режима рендеринга и состояния JS
+                DevToolsLogger.Log("[DIAG:MODE] _renderMode=" + _renderMode + " EnableJavaScript=" + EnableJavaScript + " allowJs_initial=" + EnableJavaScript);
 
                 bool allowJs = EnableJavaScript;
                 bool richMode = _renderMode == RenderModeType.Rich;
@@ -1348,7 +1392,7 @@ namespace BrowserCore.Engine
                     if (!hasScripts)
                     {
                         allowJs = false;
-                        try { System.Diagnostics.Debug.WriteLine("[PERF] No scripts detected. Skipping JS engine initialization."); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                        try { System.Diagnostics.Debug.WriteLine("[PERF] No scripts detected. Skipping JS engine initialization."); } catch { /* swallow */ }
                     }
                 }
 
@@ -1357,19 +1401,19 @@ namespace BrowserCore.Engine
                 // JavaScript execution entirely to avoid 20-30s loads and double renders.
                 if (allowJs && IsJsHeavyAppShell(baseUri))
                 {
-                    try { System.Diagnostics.Debug.WriteLine("[SAFE-MODE] Skipping JS for heavy app-shell site " + baseUri); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                    try { System.Diagnostics.Debug.WriteLine("[SAFE-MODE] Skipping JS for heavy app-shell site " + baseUri); } catch { /* swallow */ }
                     allowJs = false;
                 }
-                try { System.Diagnostics.Debug.WriteLine("[JS ENABLE] initial EnableJavaScript=" + EnableJavaScript + " baseUri=" + (baseUri!=null? baseUri.AbsoluteUri: "(null)")); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                try { System.Diagnostics.Debug.WriteLine("[JS ENABLE] initial EnableJavaScript=" + EnableJavaScript + " baseUri=" + (baseUri!=null? baseUri.AbsoluteUri: "(null)")); } catch { /* swallow */ }
 
                 var jsOverride = BrowserCoreHelpers.GetJsQueryOverride(baseUri);
                 if (jsOverride.HasValue)
                 {
                     allowJs = jsOverride.Value;
-                    try { System.Diagnostics.Debug.WriteLine("[JS ENABLE] query override detected -> " + allowJs); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                    try { System.Diagnostics.Debug.WriteLine("[JS ENABLE] query override detected -> " + allowJs); } catch { /* swallow */ }
                 }
 
-                try { System.Diagnostics.Debug.WriteLine("[JS ENABLE] final allowJs=" + allowJs); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                try { System.Diagnostics.Debug.WriteLine("[JS ENABLE] final allowJs=" + allowJs); } catch { /* swallow */ }
 
                 if (allowJs)
                 {
@@ -1383,9 +1427,9 @@ namespace BrowserCore.Engine
                         {
                             node.Remove(); removed++;
                         }
-                        try { System.Diagnostics.Debug.WriteLine("[JS ENABLE] removed noscript count=" + removed); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                        try { System.Diagnostics.Debug.WriteLine("[JS ENABLE] removed noscript count=" + removed); } catch { /* swallow */ }
                     }
-                    catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                    catch { /* swallow */ }
                 }
 
                 var cssFetcher = fetchExternalCssAsync ?? (async _ => string.Empty);
@@ -1406,16 +1450,20 @@ namespace BrowserCore.Engine
                                 // Fix: Never block threads with .Wait() in WP8.1
                                 if (disp != null && !UiThreadHelper.HasThreadAccess(disp))
                                 {
-                                    var _ = disp.RunAsync(CoreDispatcherPriority.Normal, () => { try { action(); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); } });
+                                    var _ = disp.RunAsync(CoreDispatcherPriority.Normal, () => { try { action(); } catch { /* swallow */ } });
                                 }
-                                else action();
+                                else
+                                {
+                                    try { action(); }
+                                    catch { /* swallow */ }
+                                }
                             }
-                            catch { action(); }
+                            catch { try { action(); } catch { /* swallow */ } }
                         }))
                     {
                         Sandbox = allowJs ? SandboxPolicy.AllowAll : SandboxPolicy.NoScripts,
-                        AllowExternalScripts = allowJs,
-                        SubresourceAllowed = (u, kind) => allowJs,
+                        AllowExternalScripts = true,
+                        SubresourceAllowed = (u, kind) => true,
                         ExecuteInlineScriptsOnInnerHTML = allowJs
                     };
                 }
@@ -1423,11 +1471,7 @@ namespace BrowserCore.Engine
                 if (js != null)
                 {
                     js.CookieBridge = scope => _jsCookieJar;
-    #if USE_NILJS
                     js.UseMiniPrattEngine = false;
-    #else
-                    js.UseMiniPrattEngine = true;
-    #endif
 
                     // When a ResourceManager-backed fetcher is available, reuse it for
                     // script text as well so we benefit from its disk cache and
@@ -1449,7 +1493,7 @@ namespace BrowserCore.Engine
                                     return await ScriptFetcher(u).ConfigureAwait(false);
                                 }
                             }
-                            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                            catch { /* swallow */ }
                             return null;
                         };
                     }
@@ -1473,7 +1517,7 @@ namespace BrowserCore.Engine
                         }
                     }
                 }
-                catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                catch { /* swallow */ }
 
                 CaptureActiveContext(dom, baseUri, cssFetcher, imageLoader, onNavigate, viewportWidth, onFixedBackground, js);
 
@@ -1482,8 +1526,32 @@ namespace BrowserCore.Engine
                     var msg = "[DIAG] RenderAsync Phase3 JS RunScriptsAsync start";
                     System.Diagnostics.Debug.WriteLine(msg);
                     DevToolsLogger.Log(msg);
-                    try { await js.RunScriptsAsync(dom, baseUri); var m2 = "[DIAG] RenderAsync Phase3 JS DONE"; System.Diagnostics.Debug.WriteLine(m2); DevToolsLogger.Log(m2); } catch (Exception ex) { var m3 = "[DIAG] RenderAsync Phase3 JS EXC " + ex.Message; System.Diagnostics.Debug.WriteLine(m3); DevToolsLogger.Log(m3); }
-                }
+                    try
+                    {
+                        var jsTask = js.RunScriptsAsync(dom, baseUri);
+                        if (await Task.WhenAny(jsTask, Task.Delay(JsPhaseTimeoutMs)) == jsTask)
+                        {
+                            await jsTask;
+                            var m2 = "[DIAG] RenderAsync Phase3 JS DONE"; System.Diagnostics.Debug.WriteLine(m2); DevToolsLogger.Log(m2);
+                        }
+                                else
+                                {
+                                    try { System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase3 JS TIMEOUT (" + JsPhaseTimeoutMs + "ms)"); } catch { }
+                                    try { DevToolsLogger.Log("[DIAG] RenderAsync Phase3 JS TIMEOUT (" + JsPhaseTimeoutMs + "ms)"); } catch { }
+                                }
+
+                                // Patch D3 DOM manipulation after scripts have run
+                                try { js?.PatchD3DomManipulation(); } catch (Exception patchEx) { System.Diagnostics.Debug.WriteLine("[DIAG] D3 patch error: " + patchEx.Message); }
+                                // Install fetch interceptor to capture data URL
+                                try { js?.InterceptFetch(); } catch (Exception fetchEx) { System.Diagnostics.Debug.WriteLine("[DIAG] Fetch interceptor error: " + fetchEx.Message); }
+                                // Install XHR interceptor to capture XMLHttpRequest data fetches
+                                try { js?.InterceptXhr(); } catch (Exception xhrEx) { System.Diagnostics.Debug.WriteLine("[DIAG] XHR interceptor error: " + xhrEx.Message); }
+                                // Search for global data objects
+                                try { js?.SearchGlobalData(); } catch (Exception dataEx) { System.Diagnostics.Debug.WriteLine("[DIAG] Global data search error: " + dataEx.Message); }
+
+                            }
+                            catch (Exception ex) { var m3 = "[DIAG] RenderAsync Phase3 JS EXC " + ex.Message; System.Diagnostics.Debug.WriteLine(m3); DevToolsLogger.Log(m3); }
+                        }
                 else if (richMode)
                 {
                     // RICH mode: run MiniRunner only for setTimeout/clearTimeout + analytics kill
@@ -1497,7 +1565,21 @@ namespace BrowserCore.Engine
                 var msg4 = "[DIAG] RenderAsync Phase4 BuildVisualTreeAsync start";
                 System.Diagnostics.Debug.WriteLine(msg4);
                 DevToolsLogger.Log(msg4);
-                var element = await BuildVisualTreeAsync(dom, baseUri, cssFetcher, imageLoader, onNavigate, js, viewportWidth, onFixedBackground, includeDiagnosticsBanner: false).ConfigureAwait(false);
+                FrameworkElement element = null;
+                try
+                {
+                    element = await BuildVisualTreeAsync(dom, baseUri, cssFetcher, imageLoader, onNavigate, js, viewportWidth, onFixedBackground, includeDiagnosticsBanner: false).ConfigureAwait(false);
+                }
+                catch (JSException jex)
+                {
+                    System.Diagnostics.Debug.WriteLine("[RENDER] Phase4 JSException swallowed: " + jex.Message);
+                    element = null;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("[RENDER] Phase4 Exception swallowed: " + ex.GetType().Name + ": " + ex.Message);
+                    element = null;
+                }
                 var msg5 = "[DIAG] RenderAsync Phase4 BuildVisualTreeAsync DONE element=" + (element != null ? element.GetType().Name : "null");
                 System.Diagnostics.Debug.WriteLine(msg5);
                 DevToolsLogger.Log(msg5);
@@ -1512,13 +1594,14 @@ namespace BrowserCore.Engine
 
                     if (isEmpty)
                     {
-                        try { System.Diagnostics.Debug.WriteLine("[RENDER] JS path empty, retrying without scripts"); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                        try { System.Diagnostics.Debug.WriteLine("[RENDER] JS path empty, retrying without scripts"); } catch { /* swallow */ }
                         await RaiseLoadingChangedAsync(false);
                         return await RenderAsync(html, baseUri, fetchExternalCssAsync, imageLoader, onNavigate, viewportWidth, onFixedBackground, forceJavascript: false, disableAutoFallback: true).ConfigureAwait(false);
                     }
                 }
 
-                try { System.Diagnostics.Debug.WriteLine("[RENDER] Final element null=" + (element == null) + " empty=" + (element != null && IsEffectivelyEmpty(element))); } catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+                try { System.Diagnostics.Debug.WriteLine("[RENDER] Final element null=" + (element == null) + " empty=" + (element != null && IsEffectivelyEmpty(element))); } catch { /* swallow */ }
+
                 return element;
             }
             finally
@@ -1542,7 +1625,7 @@ namespace BrowserCore.Engine
             Action<Windows.UI.Xaml.Media.Brush> onFixedBackground = null)
         {
             try { var _ = RenderAsync(html, baseUri, fetchExternalCssAsync, imageLoader, onNavigate, viewportWidth, onFixedBackground); }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         /// <summary>Expose the current active Lite DOM (last parsed).</summary>
@@ -1567,7 +1650,7 @@ namespace BrowserCore.Engine
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
             return dict;
         }
 
@@ -1579,7 +1662,7 @@ namespace BrowserCore.Engine
                 var cookie = new System.Net.Cookie(name ?? string.Empty, value ?? string.Empty, path ?? "/", u.Host);
                 _jsCookieJar.Add(u, cookie);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         public void DeleteCookie(Uri scope, string name)
@@ -1591,7 +1674,7 @@ namespace BrowserCore.Engine
                 var expired = new System.Net.Cookie(name ?? string.Empty, string.Empty, "/", u.Host) { Expires = DateTime.UtcNow.AddDays(-1) };
                 _jsCookieJar.Add(u, expired);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         private static bool IsEffectivelyEmpty(FrameworkElement fe)
@@ -1718,7 +1801,8 @@ namespace BrowserCore.Engine
                 int count = Windows.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(node);
                 for (int i = 0; i < count; i++) ApplyDefaultForeground(Windows.UI.Xaml.Media.VisualTreeHelper.GetChild(node, i), desired);
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CustomHtmlEngine.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
+
     }
 }

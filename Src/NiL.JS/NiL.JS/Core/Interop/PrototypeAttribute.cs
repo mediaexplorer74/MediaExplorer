@@ -1,13 +1,11 @@
-п»їusing System;
+using System;
 
 namespace NiL.JS.Core.Interop;
 
 /// <summary>
-/// РЈРєР°Р·С‹РІР°РµС‚, РєР°РєРѕР№ С‚РёРї РЅРµРѕР±С…РѕРґРёРјРѕ РїСЂРµРґСЃС‚Р°РІРёС‚СЊ РІ С†РµРїРѕС‡РєРµ РїСЂРѕС‚РѕС‚РёРїРѕРІ РѕР±СЉРµРєС‚Р°-РїСЂРѕСЃР»РѕР№РєРё РґР»СЏ РїРѕРјРµС‡РµРЅРЅРѕРіРѕ С‚РёРїР°.
+/// Указывает, какой тип необходимо представить в цепочке прототипов объекта-прослойки для помеченного типа.
 /// </summary>
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Enum | AttributeTargets.Struct, AllowMultiple = false, Inherited = true)]
 public sealed class PrototypeAttribute : Attribute
 {

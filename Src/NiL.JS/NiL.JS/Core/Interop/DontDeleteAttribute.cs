@@ -1,13 +1,11 @@
-п»їusing System;
+using System;
 
 namespace NiL.JS.Core.Interop;
 
 /// <summary>
-/// Р§Р»РµРЅ, РїРѕРјРµС‡РµРЅРЅС‹Р№ РґР°РЅРЅС‹Рј Р°С‚С‚СЂРёР±СѓС‚РѕРј, РЅРµ Р±СѓРґРµС‚ СѓРґР°Р»СЏС‚СЊСЃСЏ РѕРїРµСЂР°С‚РѕСЂРѕРј "delete".
+/// Член, помеченный данным аттрибутом, не будет удаляться оператором "delete".
 /// </summary>
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field | AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
 public sealed class DoNotDeleteAttribute : Attribute
 {

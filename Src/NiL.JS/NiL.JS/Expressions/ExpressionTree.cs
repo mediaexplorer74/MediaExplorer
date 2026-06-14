@@ -13,9 +13,7 @@ namespace NiL.JS.Expressions;
  * Если желание твоё посетить сие место всё ещё живо и не угасло... и да хранит тебя Б-г.
  */
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 internal enum OperationTypeGroups
 {
     None = 0x00,
@@ -38,9 +36,7 @@ internal enum OperationTypeGroups
     Special = 0xFF0
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 internal enum OperationType
 {
     None = OperationTypeGroups.None + 0,
@@ -99,9 +95,7 @@ internal enum OperationType
     Yield = OperationTypeGroups.Special + 4
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class ExpressionTree : Expression
 {
     private OperationType _operationKind;
@@ -354,22 +348,47 @@ public sealed class ExpressionTree : Expression
 
     internal static Expression Parse(ParseInfo state, ref int index, bool forUnary = false, bool processComma = true, bool forNew = false, bool root = true, bool forForLoop = false)
     {
-        int i = index;
+        // Depth guard: prevent StackOverflowException on deeply nested expressions (e.g. minified d3.js v5)
+        if (state.ParserDepth >= ParseInfo.MaxParserDepth)
+        {
+            var vicinity = index >= 0 && index < state.Code.Length
+                ? state.Code.Substring(index, System.Math.Min(60, state.Code.Length - index))
+                : "(eof)";
+            var msg = "Parser recursion depth exceeded (> " + ParseInfo.MaxParserDepth
+                + ") at index " + index + " near \"" + vicinity.Replace("\r", "").Replace("\n", " ") + "\"";
+            throw new JSException(JSValue.Marshal(msg));
+        }
+        state.ParserDepth++;
+        if (ParseInfo.VerboseParser && state.ParserDepth % 25 == 0)
+        {
+            var vicinity = index >= 0 && index < state.Code.Length
+                ? state.Code.Substring(index, System.Math.Min(40, state.Code.Length - index))
+                : "(eof)";
+            System.Diagnostics.Debug.WriteLine("[EXPR:DEPTH] " + state.ParserDepth + " at index " + index + " near \"" + vicinity.Replace("\r", "").Replace("\n", " ") + "\"");
+        }
+        try
+        {
+            int i = index;
 
-        var result = parseOperand(state, ref i, forNew, forForLoop);
-        if (result == null)
-            return null;
+            var result = parseOperand(state, ref i, forNew, forForLoop);
+            if (result == null)
+                return null;
 
-        result = parseContinuation(state, result, index, ref i, ref root, forUnary, processComma, forNew, forForLoop);
+            result = parseContinuation(state, result, index, ref i, ref root, forUnary, processComma, forNew, forForLoop);
 
-        if (root)
-            result = deicstra(result as ExpressionTree) ?? result;
+            if (root)
+                result = deicstra(result as ExpressionTree) ?? result;
 
-        if (!forForLoop && processComma && !forUnary && i < state.Code.Length && state.Code[i] == ';')
-            i++;
+            if (!forForLoop && processComma && !forUnary && i < state.Code.Length && state.Code[i] == ';')
+                i++;
 
-        index = i;
-        return result;
+            index = i;
+            return result;
+        }
+        finally
+        {
+            state.ParserDepth--;
+        }
     }
 
     private static Expression parseContinuation(ParseInfo state, Expression first, int startIndex, ref int i, ref bool root, bool forUnary, bool processComma, bool forNew, bool forForLoop)
@@ -1163,6 +1182,32 @@ public sealed class ExpressionTree : Expression
                 {
                     bool proot = false;
                     second = parseContinuation(state, parseTernaryBranches(state, forForLoop, ref i), startIndex, ref i, ref proot, forUnary, processComma, false, forForLoop);
+                }
+                else if (kind == OperationType.None && processComma)
+                {
+                    // Iterative comma handling: avoid deep recursion for long comma chains (e.g. d3.js minified)
+                    var commaExprs = new System.Collections.Generic.List<Expression> { first, Parse(state, ref i, false, false, false, true, forForLoop) };
+                    while (i < state.Code.Length && state.Code[i] == ',')
+                    {
+                        i++;
+                        while (i < state.Code.Length && Tools.IsWhiteSpace(state.Code[i]))
+                            i++;
+                        commaExprs.Add(Parse(state, ref i, false, false, false, true, forForLoop));
+                    }
+                    // Build left-associative comma chain: ((a,b),c)
+                    second = commaExprs[commaExprs.Count - 1];
+                    for (int ci = commaExprs.Count - 2; ci >= 0; ci--)
+                    {
+                        second = new ExpressionTree()
+                        {
+                            _left = commaExprs[ci],
+                            _right = second,
+                            _operationKind = OperationType.None,
+                            Position = commaExprs[ci].Position,
+                            Length = (second.Position + second.Length) - commaExprs[ci].Position
+                        };
+                    }
+                    binary = false;
                 }
                 else
                     second = Parse(state, ref i, false, processComma, false, false, forForLoop);

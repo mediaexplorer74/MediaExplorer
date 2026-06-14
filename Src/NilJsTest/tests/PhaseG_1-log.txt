@@ -1,0 +1,128 @@
+
+[DIAG] MainPage.NavigateAsync START seq=0 address=https://nokiadesignarchive.aalto.fi/
+[DIAG] ResetContentHost seq=1
+[DIAG] ResetContentHost CLEARED children=0
+[DIAG] BrowserHost.NavigateAsync START navId=1 url=https://nokiadesignarchive.aalto.fi/
+[FetchText] https://nokiadesignarchive.aalto.fi/ in 632ms
+[DIAG] BrowserHost FetchTextAsync htmlLen=6946 navId=1
+[DIAG] BrowserHost _engine.RenderAsync START navId=1
+[DIAG] RenderAsync START host=nokiadesignarchive.aalto.fi htmlLen=6946 vw=1024 js=default
+[DIAG] RenderAsync START host=nokiadesignarchive.aalto.fi htmlLen=6946 vw=1024 js=default
+[DIAG] SvgType available: true
+[DIAG] SvgType available: true
+[DIAG] RenderAsync Phase1 PARSED dom children=1
+[DIAG] RenderAsync Phase2 CSS start
+[FetchText] https://nokiadesignarchive.aalto.fi/assets/main-a-1_fGhU.css in 25ms
+[DIAG] RenderAsync Phase2 CSS DONE
+[JS ENABLE] initial EnableJavaScript=True baseUri=https://nokiadesignarchive.aalto.fi/
+[JS ENABLE] final allowJs=True
+[JS ENABLE] removed noscript count=1
+[DIAG] RenderAsync Phase3 JS RunScriptsAsync start
+[DIAG] RenderAsync Phase3 JS RunScriptsAsync start
+[FetchImage] https://nokiadesignarchive.aalto.fi/images/icon-timeline.svg in 83ms
+[FetchImage] https://nokiadesignarchive.aalto.fi/images/logo-aalto.png in 89ms
+[FetchImage] https://nokiadesignarchive.aalto.fi/images/icon-network.svg in 80ms
+[Diag] RunScriptsAsync start (Phase123) - Parallelized
+[DIAG:RUNSCRIPTS] classified: immediate=5 deferred=0 async=0 baseUri=https://nokiadesignarchive.aalto.fi/
+[DIAG:FETCH] PreFetch external script src="https://d3js.org/d3.v7.min.js" resolved="https://d3js.org/d3.v7.min.js" nomodule=False isModule=False allowExt=True
+[DIAG:FETCH] PreFetch external script src="/assets/polyfills-legacy-0pdt4c7e.js" resolved="https://nokiadesignarchive.aalto.fi/assets/polyfills-legacy-0pdt4c7e.js" nomodule=True isModule=False allowExt=True
+[DIAG:FETCH] managed-first OK: 34951 bytes from https://nokiadesignarchive.aalto.fi/assets/polyfills-legacy-0pdt4c7e.js
+[DIAG:FETCH] managed-first OK: 248313 bytes from https://d3js.org/d3.v5.min.js
+[DIAG:FETCH] PreFetch result len=248313 uri="https://d3js.org/d3.v7.min.js"
+Вызвано исключение: "System.IO.FileNotFoundException" в System.Private.CoreLib.ni.dll
+Вызвано исключение: "System.IO.FileNotFoundException" в System.Private.CoreLib.ni.dll
+[DIAG:EXEC] len=248313 isInline=False isModule=False uri="https://d3js.org/d3.v7.min.js" preview="// https://d3js.org v5.16.0 Copyright 2020 Mike Bostock !function(t,n){"object"==typeof exports&&"undefined"!=typeof mod…"
+[DIAG:EXEC] d3js.org script (no polyfill prefix — using v5)
+[DIAG:EXEC] eval https://d3js.org/d3.v7.min.js (direct eval, no debug)
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Console.dll". Загрузка символов пропущена. Модуль оптимизирован, включен параметр отладчика "Только мой код".
+Поток 3880 завершился с кодом 0 (0x0).
+[DIAG:EXEC] len=294 isInline=True isModule=False uri="https://nokiadesignarchive.aalto.fi/" preview="!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagNa…"
+[DIAG:EXEC] len=313 isInline=True isModule=False uri="https://nokiadesignarchive.aalto.fi/" preview="!function(){var e=document,t=e.createElement("script");if(!("noModule"in t)&&"onbeforeload"in t){var n=!1;e.addEventList…"
+[DIAG:FETCH] PreFetch result len=34951 uri="https://nokiadesignarchive.aalto.fi/assets/polyfills-legacy-0pdt4c7e.js"
+[DIAG:EXEC] len=34951 isInline=False isModule=False uri="https://nokiadesignarchive.aalto.fi/assets/polyfills-legacy-0pdt4c7e.js" preview="!function(){"use strict";var t="undefined"!=typeof globalThis?globalThis:"undefined"!=typeof window?window:"undefined"!=…"
+[DIAG:EXEC] eval https://nokiadesignarchive.aalto.fi/assets/polyfills-legacy-0pdt4c7e.js (direct eval, no debug)
+Вызвано исключение: "NiL.JS.Core.JSException" в NiL.JS.dll
+Поток 4836 завершился с кодом 0 (0x0).
+Поток 7280 завершился с кодом 0 (0x0).
+"MediaExplorer.exe" (CoreCLR: CoreCLR_UWP_Domain). Загружено "C:\Users\Admin\source\repos\!Browsers\MediaExplorer\Src\MediaExplorer\bin\x64\Debug\AppX\System.Resources.ResourceManager.dll". Сборка модуля выполнена без символов.
+Вызвано исключение: "NiL.JS.Core.JSException" в NiL.JS.dll
+[d3-err:object]
+[DIAG:EXEC] len=82 isInline=True isModule=False uri="https://nokiadesignarchive.aalto.fi/" preview="__sysImport(document.getElementById("vite-legacy-entry").getAttribute("data-src"))"
+[DIAG:System.import] fetching https://nokiadesignarchive.aalto.fi/assets/main-legacy-CgkFIb-k.js
+[DIAG:System.import] fetching https://nokiadesignarchive.aalto.fi/assets/main-legacy-CgkFIb-k.js
+[DIAG:FETCH] managed-first OK: 589152 bytes from https://nokiadesignarchive.aalto.fi/assets/main-legacy-CgkFIb-k.js
+[DIAG:System.import] OK: 589152 bytes from https://nokiadesignarchive.aalto.fi/assets/main-legacy-CgkFIb-k.js
+[DIAG:System.import] OK: 589152 bytes from https://nokiadesignarchive.aalto.fi/assets/main-legacy-CgkFIb-k.js
+[DIAG:SYS] creating System via SafeEval (1270 bytes)...
+[DIAG:SYS] __diagLog accessible
+[DIAG:SYS] __diagLog accessible
+[DIAG:SYS] SafeEval(sysInject) OK
+[DIAG:SYS] System.register = fn
+[DIAG:SYS] direct_test before register
+[DIAG:SYS] direct_test before register
+[DIAG:SYS] register ENTERED typeof this=object has_reg=true
+[DIAG:SYS] register ENTERED typeof this=object has_reg=true
+[DIAG:SYS] register OK url=mod:1
+[DIAG:SYS] register OK url=mod:1
+[DIAG:SYS] direct_test after register
+[DIAG:SYS] direct_test after register
+[DIAG:SYS] direct_test _entries count=1
+[DIAG:SYS] direct_test _modId=1
+[DIAG:SYS] running chunk via SafeEval (589152 bytes)...
+[DIAG:SYS] chunk prefix: 'System.register([],(function(e,t){"use strict";return{execute:function(){var e=d'
+[DIAG:SYS] IndexOf 'System.register(' = 0
+[DIAG:SYS] IndexOf (ignore case) 'system.register(' = 0
+[DIAG:SYS] split chunk into 1 System.register calls
+Вызвано исключение: "NiL.JS.Core.JSException" в NiL.JS.dll
+[DIAG:SYS] call #1 OK (589101 bytes)
+[DIAG:SYS] ctxTest=ok
+[DIAG:SYS] System var=defined
+[DIAG:SYS] globalThis.System after chunk: ok
+[DIAG:SYS] _modId=1
+[DIAG:SYS] registry entries: 1
+[DIAG:SYS] direct_test declare called
+[DIAG:SYS] direct_test declare called
+[DIAG:SYS] direct_test execute called
+[DIAG:SYS] direct_test execute called
+[DIAG:SYS] force-exec: 1 entries, 1 declared
+[DIAG:SYS] force-exec: 1 entries, 1 declared
+[DIAG:SYS] post-exec d3=d3_defined
+[DIAG:EXEC] typeof d3.select = function
+[DIAG:EXEC] typeof d3.forceSimulation = function
+[DIAG:SYS] post-exec typeof Map=function
+[DIAG:SYS] post-exec typeof Set=function
+[DIAG:SYS] post-exec body_children=5 tag=BODY
+[DIAG] RenderAsync Phase3 JS DONE
+[DIAG] RenderAsync Phase3 JS DONE
+[DIAG] RenderAsync Phase4 BuildVisualTreeAsync start
+[DIAG] RenderAsync Phase4 BuildVisualTreeAsync start
+[DIAG] BuildVisualTree CssLoader.ComputeAsync start
+[DIAG] BuildVisualTree CssLoader.ComputeAsync DONE nodes=102
+[DIAG] BuildVisualTree Step1 RenderTreeBuilder.Build start
+[DIAG] RenderTreeBuilder.Build DONE boxes=73 text=22 filtered=4
+[DIAG] BuildVisualTree Step1 DONE root=RenderBox
+[DIAG] BuildVisualTree Step2 Layout start size=1024x768
+[DIAG] BuildVisualTree Step2 Layout DONE
+[DIAG] BuildVisualTree Step3 Paint start
+[DIAG] VirtualizingRenderer canvas=1024x1024 rootChildren=1
+[DIAG] BuildVisualTree Step3 Paint DONE rootType=ScrollViewer
+[DIAG] RenderAsync Phase4 BuildVisualTreeAsync DONE element=Border
+[DIAG] RenderAsync Phase4 BuildVisualTreeAsync DONE element=Border
+Вызвано исключение: "System.Exception" в MediaExplorer.exe
+Вызвано исключение: "System.Exception" в MediaExplorer.exe
+[RENDER] Final element null=False empty=False
+[DIAG] BrowserHost _engine.RenderAsync DONE element2=Border navId=1
+[DIAG:REPAINT-PRE] seq=1 type=Border explicit=(NaNxNaN) actual=(0x0) → this is PRE-MEASURE; will re-check after Add()
+[DIAG] Engine_RepaintReady seq=1 currentSeq=1 elementSize=0x0 type=Border
+[DIAG] Engine_RepaintReady ADDED idx=0 children=1
+[DIAG] BrowserHost RaiseRepaintAsync DONE navId=1
+[History] AddHistory uri=https://nokiadesignarchive.aalto.fi/ index=-1 count=0
+[History] After add: index=0 count=1 CanGoBack=False CanGoForward=False
+[NavEvent] RaiseNavigated uri=https://nokiadesignarchive.aalto.fi/
+[NavButtons] Back=False Forward=False BackBtn=True FwdBtn=True
+[DIAG] MainPage.NavigateAsync DONE
+[DIAG:REPAINT-POST] type=Border actual=(1024x1024)
+Поток 4092 завершился с кодом 0 (0x0).
+Поток 3744 завершился с кодом 0 (0x0).
+Поток 5364 завершился с кодом 0 (0x0).
+Поток 7932 завершился с кодом 0 (0x0).

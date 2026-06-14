@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -10,9 +10,7 @@ using NiL.JS.Core.Interop;
 
 namespace NiL.JS.Statements;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class TryCatch : CodeNode
 {
     private bool _catch;
@@ -219,14 +217,12 @@ public sealed class TryCatch : CodeNode
 
         JSValue cvar = null;
 
-#if !(PORTABLE || NETCORE)
         if (e is RuntimeWrappedException)
         {
             cvar = new JSValue();
             cvar.Assign((e as RuntimeWrappedException).WrappedException as JSValue);
         }
         else
-#endif
         {
             cvar = e is JSException ? (e as JSException).Error.CloneImpl(false) : context.GlobalContext.ProxyValue(new NativeError(e.Message) { exception = e });
         }

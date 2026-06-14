@@ -9,9 +9,7 @@ using NiL.JS.Statements;
 
 namespace NiL.JS.Expressions;
 
-#if !NETCORE
 [Serializable]
-#endif
 public sealed class ParameterDescriptor : VariableDescriptor
 {
     public ObjectDesctructor Destructor { get; internal set; }
@@ -35,9 +33,7 @@ public sealed class ParameterDescriptor : VariableDescriptor
     }
 }
 
-#if !NETCORE
 [Serializable]
-#endif
 public sealed class ParameterReference : VariableReference
 {
     public override string Name
@@ -70,9 +66,7 @@ public sealed class ParameterReference : VariableReference
     }
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class FunctionDefinition : EntityDefinition
 {
     #region Runtime
@@ -940,13 +934,11 @@ public sealed class FunctionDefinition : EntityDefinition
             _functionInfo.ResultType = PredictedType.Undefined;
     }
 
-#if !PORTABLE
     internal override System.Linq.Expressions.Expression TryCompile(bool selfCompile, bool forAssign, Type expectedType, List<CodeNode> dynamicValues)
     {
         _body.TryCompile(true, false, null, new List<CodeNode>());
         return null;
     }
-#endif
     public override T Visit<T>(Visitor<T> visitor)
     {
         return visitor.Visit(this);

@@ -19,6 +19,12 @@ namespace BrowserCore.Engine.Core
         public bool IsDirty { get; set; }
         public bool IsDetached { get; set; }
 
+        // Table cell grid position (populated by RenderTreeBuilder for TD/TH cells)
+        public int TableRow { get; set; }
+        public int TableCol { get; set; }
+        public int TableRowSpan { get; set; } = 1;
+        public int TableColSpan { get; set; } = 1;
+
         public void AddChild(RenderObject child)
         {
             child.Parent = this;

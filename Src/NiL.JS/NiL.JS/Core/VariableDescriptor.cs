@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Runtime.CompilerServices;
@@ -23,9 +23,7 @@ public enum PredictedType
     Full = 0xFF
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public class VariableDescriptor
 {
     internal int definitionScopeLevel;

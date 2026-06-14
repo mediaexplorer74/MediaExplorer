@@ -1,4 +1,4 @@
-п»їusing System;
+using System;
 using NiL.JS.Core;
 using NiL.JS.BaseLibrary;
 
@@ -9,9 +9,7 @@ public enum DecrimentType
     Predecriment,
     Postdecriment
 }
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Decrement : Expression
 {
     private DecrimentType _type;
@@ -242,7 +240,7 @@ public sealed class Decrement : Expression
                     }
                 case PredictedType.Double:
                     {
-                        // РєСЂРѕРјРµ РєР°Рє double РѕРЅ РЅРёС‡РµРј Р±РѕР»СЊС€Рµ РѕРєР°Р·Р°С‚СЊСЃСЏ РЅРµ РјРѕР¶РµС‚. Р”Р°Р¶Рµ NaN СЌС‚Рѕ double
+                        // кроме как double он ничем больше оказаться не может. Даже NaN это double
                         break;
                     }
                 default:

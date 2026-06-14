@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using NiL.JS.Core;
 
 namespace NiL.JS.BaseLibrary;
@@ -9,24 +9,17 @@ public static class Debug
     {
         for (var i = 0; i < args._iValue; i++)
         {
-#if !(PORTABLE || NETCORE)
             if (i < args._iValue)
                 System.Diagnostics.Debug.Write(args[0]);
             else
-#endif
                 System.Diagnostics.Debug.WriteLine(args[args._iValue - 1]);
         }
     }
 
     public static void write(Arguments args)
     {
-#if (PORTABLE || NETCORE)
-        for (var i = 0; i < args._iValue; i++)
-            System.Diagnostics.Debug.WriteLine(args[0]);
-#else
         for (var i = 0; i < args._iValue; i++)
             System.Diagnostics.Debug.Write(args[0]);
-#endif
     }
 
     public static void assert(Arguments args)

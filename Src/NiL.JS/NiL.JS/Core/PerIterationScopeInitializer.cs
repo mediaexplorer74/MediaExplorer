@@ -1,4 +1,4 @@
-﻿namespace NiL.JS.Core;
+namespace NiL.JS.Core;
 
 internal sealed class PerIterationScopeInitializer : CodeNode
 {

@@ -20,7 +20,7 @@ namespace BrowserCore.Engine.Core
             bool isBold = false;
             try { isBold = style?.FontWeight != null && style.FontWeight.Value.Weight >= 700; } catch { }
 
-            double charAdvance = fontSize * (isBold ? 0.62 : 0.55);
+            double charAdvance = fontSize * (isBold ? 0.68 : 0.62);
             double lineHeight = fontSize * 1.3;
 
             double maxWidth = double.IsInfinity(availableSize.Width) ? double.PositiveInfinity : availableSize.Width;

@@ -167,9 +167,7 @@ public static class Tools
         #endregion
     }
 
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     public static double JSObjectToDouble(JSValue arg)
     {
         do
@@ -226,9 +224,7 @@ public static class Tools
     /// </summary>
     /// <param name="arg">JSObject, значение которого нужно преобразовать.</param>
     /// <returns>Целочисленное значение, представленное в объекте arg.</returns>
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     public static int JSObjectToInt32(JSValue arg)
     {
         if (arg._valueType == JSValueType.Integer)
@@ -248,9 +244,7 @@ public static class Tools
     /// <param name="arg">JSObject, значение которого нужно преобразовать.</param>
     /// <param name="nullOrUndefinedOrNan">Значение, которое будет возвращено, если значение arg null или undefined.</param>
     /// <returns>Целочисленное значение, представленное в объекте arg.</returns>
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     public static int JSObjectToInt32(JSValue arg, int nullOrUndefinedOrNan)
     {
         return JSObjectToInt32(arg, nullOrUndefinedOrNan, 0, false);
@@ -262,9 +256,7 @@ public static class Tools
     /// <param name="arg">JSObject, значение которого нужно преобразовать.</param>
     /// <param name="alternateInfinity">Если истина, для значений +Infinity и -Infinity будут возвращены значения int.MaxValue и int.MinValue соответственно.</param>
     /// <returns>Целочисленное значение, представленное в объекте arg.</returns>
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     public static int JSObjectToInt32(JSValue arg, bool alternateInfinity)
     {
         return JSObjectToInt32(arg, 0, 0, alternateInfinity);
@@ -344,9 +336,7 @@ public static class Tools
     /// <param name="arg">JSObject, значение которого нужно преобразовать.</param>
     /// <param name="nullOrUndef">Значение, которое будет возвращено, если значение arg null или undefined.</param>
     /// <returns>Целочисленное значение, представленное в объекте arg.</returns>
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     public static long JSObjectToInt64(JSValue arg)
     {
         return JSObjectToInt64(arg, 0, false);
@@ -358,9 +348,7 @@ public static class Tools
     /// <param name="arg">JSObject, значение которого нужно преобразовать.</param>
     /// <param name="nullOrUndefinedOrNan">Значение, которое будет возвращено, если значение arg null или undefined.</param>
     /// <returns>Целочисленное значение, представленное в объекте arg.</returns>
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     public static long JSObjectToInt64(JSValue arg, long nullOrUndefinedOrNan)
     {
         return JSObjectToInt64(arg, nullOrUndefinedOrNan, false);
@@ -425,9 +413,7 @@ public static class Tools
         }
     }
 
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     public static JSValue JSObjectToNumber(JSValue arg)
     {
         return JSObjectToNumber(arg, new JSValue());
@@ -676,7 +662,6 @@ public static class Tools
 
                     if (targetType.GetTypeInfo().IsEnum)
                     {
-#if NET461 || NET48 || NETSTANDARD1_4
                         try
                         {
                             return Enum.Parse(targetType, jsobj.Value.ToString());
@@ -685,10 +670,6 @@ public static class Tools
                         {
                             return null;
                         }
-#else
-                        if (Enum.TryParse(targetType, jsobj.Value.ToString(), out object result))
-                            return result;
-#endif
                     }
 
                     if (targetType == typeof(Guid))
@@ -754,13 +735,8 @@ public static class Tools
         if (targetType.IsAssignableFrom(value.GetType()))
             return value;
 
-#if (PORTABLE || NETCORE)
-        if (IntrospectionExtensions.GetTypeInfo(targetType).IsEnum && Enum.IsDefined(targetType, value))
-            return value;
-#else
             if (targetType.GetTypeInfo().IsEnum && Enum.IsDefined(targetType, value))
             return value;
-#endif
 
         var tpres = value as Proxy;
         if (tpres != null && targetType.IsAssignableFrom(tpres._hostedType))
@@ -1149,17 +1125,13 @@ public static class Tools
         }
     }
 
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     public static string Unescape(string code, bool strict)
     {
         return Unescape(code, strict, true, false, true);
     }
 
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     public static string Unescape(string code, bool strict, bool processUnknown, bool processRegexComp)
     {
         return Unescape(code, strict, processUnknown, processRegexComp, true);
@@ -1367,17 +1339,13 @@ public static class Tools
         return (res as object ?? code).ToString();
     }
 
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     public static string UnescapeNextChar(string code, int index, out int processedChars, bool strict)
     {
         return UnescapeNextChar(code, index, out processedChars, strict, true, false, true);
     }
 
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     public static string UnescapeNextChar(string code, int index, out int processedChars, bool strict, bool processUnknown, bool processRegexComp)
     {
         return UnescapeNextChar(code, index, out processedChars, strict, processUnknown, processRegexComp, true);
@@ -1612,9 +1580,7 @@ public static class Tools
         return str[i];
     }
 
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     internal static bool IsSurrogatePair(string str, int i)
     {
         return (i >= 0 && i + 1 < str.Length && str[i] >= '\uD800' && str[i] <= '\uDBFF' && str[i + 1] >= '\uDC00' && str[i + 1] <= '\uDFFF');
@@ -1634,17 +1600,13 @@ public static class Tools
         return h.ToString() + l.ToString();
     }
 
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     internal static bool IsLineTerminator(char c)
     {
         return (c == '\u000A') || (c == '\u000D') || (c == '\u2028') || (c == '\u2029');
     }
 
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     internal static bool isHex(char p)
     {
         if (p < '0' || p > 'f')
@@ -1659,9 +1621,7 @@ public static class Tools
     /// </summary>
     /// <param name="p"></param>
     /// <returns></returns>
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     internal static int hexCharToInt(char p)
     {
         return ((p % 'a' % 'A' + 10) % ('0' + 10));
@@ -2005,11 +1965,7 @@ public static class Tools
             for (var i = 0; i < prms.Length; i++)
             {
                 Expression argument = handlerArgumentsParameters[i + (thisParameter != null ? 1 : 0)];
-#if (PORTABLE || NETCORE)
                 if (argument.Type.GetTypeInfo().IsValueType)
-#else
-                if (argument.Type.GetTypeInfo().IsValueType)
-#endif
                 {
                     argument = Expression.Convert(argument, typeof(object));
                 }

@@ -4,22 +4,13 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 
-#if !(PORTABLE || NETCORE || NETSTANDARD1_4)
-using System.Runtime.Serialization;
-#endif
 
 namespace NiL.JS.Core;
 
 /// <summary>
 /// Предоставляет реализацию бинарного дерева поиска.
 /// </summary>
-#if !(PORTABLE || NETCORE || NETSTANDARD1_4)
-[Serializable]
-#endif
 public class BinaryTree<TKey, TValue> : IDictionary<TKey, TValue>
-#if !(PORTABLE || NETCORE || NETSTANDARD1_4)
-, ISerializable
-#endif
 where TKey : IComparable<TKey>
 {
     private sealed class _Values : ICollection<TValue>
@@ -143,9 +134,6 @@ where TKey : IComparable<TKey>
         }
     }
 
-#if !(PORTABLE || NETCORE || NETSTANDARD1_4)
-    [Serializable]
-#endif
     internal sealed class Node
     {
         public TKey key;
@@ -242,25 +230,13 @@ where TKey : IComparable<TKey>
     }
 
     private IComparer<TKey> comparer;
-#if !(PORTABLE || NETCORE || NETSTANDARD1_4)
-    [NonSerialized]
-#endif
     private long state = 0;
-#if !(PORTABLE || NETCORE || NETSTANDARD1_4)
-    [NonSerialized]
-#endif
     private Stack<Node> stack = new Stack<Node>();
     public int Height { get { return root == null ? 0 : root.height; } }
     public int Count { get; private set; }
     public bool IsReadOnly { get { return false; } }
-#if !(PORTABLE || NETCORE || NETSTANDARD1_4)
-    [NonSerialized]
-#endif
     private ICollection<TKey> keys;
     public ICollection<TKey> Keys { get { return keys ?? (keys = new _Keys(this)); } }
-#if !(PORTABLE || NETCORE || NETSTANDARD1_4)
-    [NonSerialized]
-#endif
     private ICollection<TValue> values;
     public ICollection<TValue> Values { get { return values ?? (values = new _Values(this)); } }
     private Node root;
@@ -284,28 +260,6 @@ where TKey : IComparable<TKey>
         state = DateTime.UtcNow.Ticks;
         this.comparer = comparer;
     }
-#if !(PORTABLE || NETCORE || NETSTANDARD1_4)
-    protected BinaryTree(SerializationInfo info, StreamingContext context)
-    {
-        root = info.GetValue("root", typeof(Node)) as Node;
-        comparer = info.GetValue("comparer", typeof(IComparer<TKey>)) as IComparer<TKey>;
-        Count = info.GetInt32("count");
-        stack = new Stack<Node>();
-        Node[] nodes = new Node[Count];
-        for (var e = enumerate(root); e.MoveNext(); )
-            nodes[--Count] = e.Current;
-        root = null;
-        for (var i = 0; i < nodes.Length; i++)
-            Insert(nodes[i].key, nodes[i].value, false);
-    }
-
-    public virtual void GetObjectData(SerializationInfo info, StreamingContext context)
-    {
-        info.AddValue("root", root);
-        info.AddValue("count", Count);
-        info.AddValue("comparer", comparer);
-    }
-#endif
     public TValue this[TKey key]
     {
         get
@@ -461,9 +415,7 @@ where TKey : IComparable<TKey>
             }
         }
     }
-#if !NET40
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-#endif
     public bool TryGetValue(TKey key, out TValue value)
     {
         lock (this)
@@ -924,9 +876,6 @@ where TKey : IComparable<TKey>
     }
 }
 
-#if !(PORTABLE || NETCORE || NETSTANDARD1_4)
-[Serializable]
-#endif
 public sealed class BinaryTree<TValue> : BinaryTree<string, TValue>
 {
     public BinaryTree()
@@ -934,13 +883,6 @@ public sealed class BinaryTree<TValue> : BinaryTree<string, TValue>
 
     }
 
-#if !(PORTABLE || NETCORE || NETSTANDARD1_4)
-    private BinaryTree(SerializationInfo info, StreamingContext context)
-        : base(info, context)
-    {
-
-    }
-#endif
 
     public IEnumerable<KeyValuePair<string, TValue>> StartsWith(string prefix)
     {

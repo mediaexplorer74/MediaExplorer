@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Windows.UI;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -68,7 +68,7 @@ namespace BrowserCore.Engine
 
         public void SetSource(Uri uri)
         {
-            try { _media.Source = uri; } catch { System.Diagnostics.Debug.WriteLine(" [Engine/VideoHost.cs] empty catch empty catch"); }
+            try { _media.Source = uri; } catch { /* swallow */ }
         }
 
         private void OnTapped(object sender, TappedRoutedEventArgs e)
@@ -84,7 +84,7 @@ namespace BrowserCore.Engine
                 }
                 if (_media.CurrentState == MediaElementState.Playing) _media.Pause(); else _media.Play();
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/VideoHost.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
     }
 }

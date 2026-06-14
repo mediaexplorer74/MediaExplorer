@@ -1,14 +1,12 @@
-п»їusing System;
+using System;
 using NiL.JS.BaseLibrary;
 
 namespace NiL.JS.Core;
 
 /// <summary>
-/// РџСЂРµРґСЃС‚Р°РІР»СЏРµС‚ РѕС€РёР±РєРё, РІРѕР·РЅРёРєС€РёРµ РІРѕ РІСЂРµРјСЏ РІС‹РїРѕР»РЅРµРЅРёСЏ СЃРєСЂРёРїС‚Р°.
+/// Представляет ошибки, возникшие во время выполнения скрипта.
 /// </summary>
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class JSException : Exception
 {
     private ExceptionHelper.StackTraceState _stackTraceData;

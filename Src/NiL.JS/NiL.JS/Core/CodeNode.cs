@@ -1,11 +1,9 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 using NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 using NiL.JS.Core.JIT;
-#endif
 
 namespace NiL.JS.Core;
 
@@ -30,14 +28,11 @@ public enum CodeContext
     AllowDirectives = 1 << 14,
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public abstract class CodeNode
 {
     private static readonly CodeNode[] emptyCodeNodeArray = new CodeNode[0];
 
-#if !NET35 && !(PORTABLE || NETCORE)
     internal System.Linq.Expressions.Expression JitOverCall(bool forAssign)
     {
         var methodName = forAssign ? "EvaluateForWrite" : "Evaluate";
@@ -50,7 +45,6 @@ public abstract class CodeNode
             JITHelpers.ContextParameter
             );
     }
-#endif
 
     public virtual bool Eliminated { get; internal set; }
     public virtual int Position { get; internal set; }
@@ -82,12 +76,10 @@ public abstract class CodeNode
     {
 
     }
-#if !PORTABLE
     internal virtual System.Linq.Expressions.Expression TryCompile(bool selfCompile, bool forAssign, Type expectedType, List<CodeNode> dynamicValues)
     {
         return null;
     }
-#endif
 
     public abstract void Decompose(ref CodeNode self);
 

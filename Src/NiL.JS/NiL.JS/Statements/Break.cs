@@ -1,11 +1,9 @@
-﻿using System;
+using System;
 using NiL.JS.Core;
 
 namespace NiL.JS.Statements;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Break : CodeNode
 {
     private JSValue label;

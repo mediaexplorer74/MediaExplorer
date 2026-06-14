@@ -1,12 +1,10 @@
-п»їusing System;
+using System;
 using System.Collections.Generic;
 using NiL.JS.Core;
 
 namespace NiL.JS.Statements;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Debugger : CodeNode
 {
     internal static CodeNode Parse(ParseInfo state, ref int index)
@@ -27,8 +25,8 @@ public sealed class Debugger : CodeNode
     public override JSValue Evaluate(Context context)
     {
         if (!context._debugging)
-            // Р‘РµР· СЌС‚РѕРіРѕ СѓСЃР»РѕРІРёСЏ РѕР±СЂР°Р±РѕС‚С‡РёРє РѕСЃС‚Р°РЅРѕРІРєРё РІС‹Р·С‹РІР°РµС‚СЃСЏ РґРІР°Р¶РґС‹ СЃ РѕРґРЅРёРј РІС‹СЂР°Р¶РµРЅРёРµРј.
-            // РџРµСЂРІС‹Р№ РІС‹Р·РѕРІ РїСЂРѕРёСЃС…РѕРґРёС‚ РёР· С†РёРєР»Р° CodeBlock, РІС‚РѕСЂРѕР№ РёР· СЃС‚СЂРѕРєРё РЅРёР¶Рµ.
+            // Без этого условия обработчик остановки вызывается дважды с одним выражением.
+            // Первый вызов происходит из цикла CodeBlock, второй из строки ниже.
             context.raiseDebugger(this);
         return JSValue.undefined;
     }

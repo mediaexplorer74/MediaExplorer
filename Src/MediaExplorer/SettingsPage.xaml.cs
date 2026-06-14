@@ -1,4 +1,5 @@
 using System;
+using Windows.ApplicationModel;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -15,14 +16,18 @@ namespace WEBVIEW
             Loaded += (s, e) =>
             {
                 LoadSettings();
+                var v = Package.Current.Id.Version;
+                VersionText.Text = $"Version: {v.Major}.{v.Minor}.{v.Build}.{v.Revision} (dev; pre-alpha)";
                 SystemNavigationManager.GetForCurrentView().AppViewBackButtonVisibility = AppViewBackButtonVisibility.Visible;
             };
 
-            BackButton.Click += (s, e) => GoBack();
             SystemNavigationManager.GetForCurrentView().BackRequested += (s, e) =>
             {
-                e.Handled = true;
-                GoBack();
+                if (Frame.CanGoBack)
+                {
+                    e.Handled = true;
+                    Frame.GoBack();
+                }
             };
 
             JsToggle.Toggled += (s, e) =>
@@ -54,10 +59,15 @@ namespace WEBVIEW
                 if (MainPage.Current != null) MainPage.Current.ApplyAppBarMode();
             };
 
-            RenderModeCombo.SelectionChanged += (s, e) =>
+            // RenderModeCombo controls the rendering profile:
+//   Full  – CSS + JS + full interactivity (default/"Normal" mode)
+//   Rich  – CSS only, no JavaScript; used for reading‑mode pages
+//   Poor  – Plain‑text fallback, no CSS or JavaScript (e‑book style)
+RenderModeCombo.SelectionChanged += (s, e) =>
             {
                 if (RenderModeCombo == null) return;
                 int idx = RenderModeCombo.SelectedIndex;
+                // Map the selected index to the internal mode string
                 string mode = idx == 0 ? "Full" : idx == 1 ? "Rich" : "Poor";
                 SaveRenderMode(mode);
                 if (MainPage.Current != null) MainPage.Current.RenderMode = mode;
@@ -93,18 +103,26 @@ namespace WEBVIEW
                 }
                 catch { }
             };
-        }
 
-        private void GoBack()
-        {
-            try
+            ShowSnapshotToggle.Toggled += (s, e) =>
             {
-                if (Frame.CanGoBack)
+                try
                 {
-                    Frame.GoBack();
+                    SaveShowSnapshot(ShowSnapshotToggle.IsOn);
+                    if (MainPage.Current != null) MainPage.Current.ApplyButtonVisibility();
                 }
-            }
-            catch { }
+                catch { }
+            };
+
+            ShowCopyToggle.Toggled += (s, e) =>
+            {
+                try
+                {
+                    SaveShowCopy(ShowCopyToggle.IsOn);
+                    if (MainPage.Current != null) MainPage.Current.ApplyButtonVisibility();
+                }
+                catch { }
+            };
         }
 
         private void LoadSettings()
@@ -148,6 +166,12 @@ namespace WEBVIEW
                 // Status Bar
                 if (StatusBarToggle != null)
                     StatusBarToggle.IsOn = LoadStatusBarVisible();
+
+                // Button visibility
+                if (ShowSnapshotToggle != null)
+                    ShowSnapshotToggle.IsOn = LoadShowSnapshot();
+                if (ShowCopyToggle != null)
+                    ShowCopyToggle.IsOn = LoadShowCopy();
             }
             catch { }
         }
@@ -282,6 +306,48 @@ namespace WEBVIEW
             try
             {
                 Windows.Storage.ApplicationData.Current.LocalSettings.Values["StatusBarVisible"] = visible;
+            }
+            catch { }
+        }
+
+        private static bool LoadShowSnapshot()
+        {
+            try
+            {
+                var s = Windows.Storage.ApplicationData.Current.LocalSettings;
+                if (s.Values.TryGetValue("ShowSnapshot", out var v) && v is bool b)
+                    return b;
+            }
+            catch { }
+            return true;
+        }
+
+        private static void SaveShowSnapshot(bool show)
+        {
+            try
+            {
+                Windows.Storage.ApplicationData.Current.LocalSettings.Values["ShowSnapshot"] = show;
+            }
+            catch { }
+        }
+
+        private static bool LoadShowCopy()
+        {
+            try
+            {
+                var s = Windows.Storage.ApplicationData.Current.LocalSettings;
+                if (s.Values.TryGetValue("ShowCopy", out var v) && v is bool b)
+                    return b;
+            }
+            catch { }
+            return true;
+        }
+
+        private static void SaveShowCopy(bool show)
+        {
+            try
+            {
+                Windows.Storage.ApplicationData.Current.LocalSettings.Values["ShowCopy"] = show;
             }
             catch { }
         }

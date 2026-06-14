@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.Reflection;
 using System.Collections.Generic;
@@ -18,6 +18,7 @@ namespace BrowserCore.Engine
         public static double? MediaViewportHeight { get; set; }
         public static double? MediaDppx { get; set; }
         public static string MediaPrefersColorScheme { get; set; }
+        public static string MediaScripting { get; set; } // "enabled", "none", "initial-only"
 
         private static readonly Dictionary<string, Windows.UI.Color> _namedColors 
             = new Dictionary<string, Windows.UI.Color>(StringComparer.OrdinalIgnoreCase);
@@ -61,11 +62,11 @@ namespace BrowserCore.Engine
                             var c = (Windows.UI.Color)p.GetValue(null);
                             _namedColors[p.Name] = c;
                         } 
-                        catch { System.Diagnostics.Debug.WriteLine(" [Engine/CssParser.cs] empty catch empty catch"); }
+                        catch { /* swallow */ }
                     }
                 }
             }
-            catch { System.Diagnostics.Debug.WriteLine(" [Engine/CssParser.cs] empty catch empty catch"); }
+            catch { /* swallow */ }
         }
 
         /// <summary>

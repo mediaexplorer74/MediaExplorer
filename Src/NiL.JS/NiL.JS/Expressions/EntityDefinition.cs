@@ -1,12 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using NiL.JS.Core;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 internal sealed class EntityReference : VariableReference
 {
     public EntityDefinition Entity { get { return (EntityDefinition)Descriptor.initializer; } }

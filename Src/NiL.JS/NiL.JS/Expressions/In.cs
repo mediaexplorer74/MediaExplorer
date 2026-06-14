@@ -1,12 +1,10 @@
-﻿using System;
+using System;
 using NiL.JS.Core;
 using NiL.JS.BaseLibrary;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class In : Expression
 {
     protected internal override PredictedType ResultType

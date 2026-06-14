@@ -1,12 +1,10 @@
-﻿using System;
+using System;
 using NiL.JS.Core;
 using NiL.JS.Core.Interop;
 
 namespace NiL.JS.BaseLibrary;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public class Boolean : JSObject
 {
     internal const string TrueString = "true";
@@ -72,9 +70,7 @@ public class Boolean : JSObject
         _attributes |= JSValueAttributesInternal.SystemObject;
     }
 
-#if !NET40
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-#endif
     [Hidden]
     public static implicit operator Boolean(bool value)
     {

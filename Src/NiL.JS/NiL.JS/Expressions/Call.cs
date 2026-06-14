@@ -14,9 +14,7 @@ public enum CallMode
     Super
 }
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Call : Expression
 {
     private Expression[] _arguments;

@@ -1,14 +1,12 @@
-п»їusing System;
+using System;
 
 namespace NiL.JS.Core.Interop;
 
 /// <summary>
-/// РћР±СЉРµРєС‚-РїСЂРѕСЃР»РѕР№РєР°, СЃРѕР·РґР°РЅРЅС‹Р№ РґР»СЏ С‚РёРїР°, РїРѕРјРµС‡РµРЅРЅРѕРіРѕ РґР°РЅРЅС‹Рј Р°С‚С‚СЂРёР±СѓС‚РѕРј, 
-/// РЅРµ Р±СѓРґРµС‚ РґРѕРїСѓСЃРєР°С‚СЊ СЃРѕР·РґР°РЅРёРµ РїРѕР»РµР№, РєРѕС‚РѕСЂС‹Рµ РЅРµ СЃСѓС‰РµСЃС‚РІСѓСЋС‚ РІ РїРѕРјРµС‡РµРЅРЅРѕРј С‚РёРїРµ.
+/// Объект-прослойка, созданный для типа, помеченного данным аттрибутом, 
+/// не будет допускать создание полей, которые не существуют в помеченном типе.
 /// </summary>
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, AllowMultiple = false, Inherited = false)]
 public sealed class ImmutableAttribute : Attribute
 {

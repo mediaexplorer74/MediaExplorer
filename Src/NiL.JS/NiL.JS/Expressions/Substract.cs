@@ -1,5 +1,4 @@
-﻿
-#define TYPE_SAFE
+
 
 using System;
 using System.Collections.Generic;
@@ -7,9 +6,7 @@ using NiL.JS.Core;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Substract : Expression
 {
     protected internal override PredictedType ResultType
@@ -35,7 +32,6 @@ public sealed class Substract : Expression
     {
         //lock (this)
         {
-#if TYPE_SAFE
             JSValue f = _left.Evaluate(context);
             JSValue s = null;
             long l = 0;
@@ -75,11 +71,6 @@ public sealed class Substract : Expression
             _tempContainer._dValue = da - Tools.JSObjectToDouble(s);
             _tempContainer._valueType = JSValueType.Double;
             return _tempContainer;
-#else
-            tempResult.dValue = Tools.JSObjectToDouble(first.Invoke(context)) - Tools.JSObjectToDouble(second.Invoke(context));
-            tempResult.valueType = JSObjectType.Double;
-            return tempResult;
-#endif
         }
     }
 

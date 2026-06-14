@@ -5,9 +5,7 @@ using System.Runtime.CompilerServices;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public class Assignment : Expression
 {
     private Arguments _setterArgs;
@@ -104,14 +102,6 @@ public class Assignment : Expression
 
     public override bool Build(ref CodeNode _this, int expressionDepth, int scopeLevel, Dictionary<string, VariableDescriptor> variables, CodeContext codeContext, InternalCompilerMessageCallback message, FunctionInfo stats, Options opts)
     {
-#if GIVENAMEFUNCTION
-        if (first is VariableReference && second is FunctionExpression)
-        {
-            var fs = second as FunctionExpression;
-            if (fs.name == null)
-                fs.name = (first as VariableReference).Name;
-        }
-#endif
         base.Build(ref _this, expressionDepth, scopeLevel, variables, codeContext, message, stats, opts);
 
         var f = _left as VariableReference ?? ((_left is AssignmentOperatorCache) ? (_left as AssignmentOperatorCache).Source as VariableReference : null);

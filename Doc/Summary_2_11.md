@@ -1,83 +1,95 @@
-# Summary_2_11 — Phase 11 (UI Polish)
+# Summary 2.17 — Image Diagnostics + Placeholder Fix
 
-## Goal
-Make the retro browser feel polished: loading indicators, swipe gestures, reading mode, URL autocomplete, styled error pages, clear cache.
-
-## Changes
-
-### Files modified
-- `Engine\ResourceManager.cs` — `ClearCache()` method, styled error page template
-- `Engine\BrowserApi.cs` — `GetHistoryUrls()` public method
-- `MainPage.xaml` — autocomplete list, reading mode overlay, `ManipulationMode` on content area
-- `MainPage.xaml.cs` — 6 new handler groups
+**Session date:** 2026-05-18
+**Build:** 0.8.0.0 ARM Debug — ✅ 0 errors
 
 ---
 
-### 1. Clear Cache button (wired)
-**Before:** Button did `Task.Delay(500)` and showed "Cache cleared." without actually clearing anything.
+## 1. Image Loading Diagnostics
 
-**After:** `ClearCache()` added to `ResourceManager`:
-- Clears `_textMap`, `_textLru`, `_imgMap`, `_imgLru` (memory LRU)
-- Deletes all `cache_*` subfolders from `LocalFolder` (disk cache)
+### Problem
+- Images were being fetched successfully (`[FetchImage] ... in 260ms`) but not displaying
+- No visibility into why `LoadImageSourceUiThreadAsync` was failing
+- `System.ArgumentException` in `System.Net.Http.dll` from problematic `Seek(0)` call
 
-Button now calls `_resources.ClearCache()` directly.
+### Fix — DomBasicRenderer.cs
+- Removed `ras.Seek(0)` call (IRandomAccessStream.Seek expects ulong, caused ArgumentException)
+- Added detailed diagnostic logging:
+  - `[ImgTryStream] {url} len={size}` - stream received from ImageLoader
+  - `[ImgLoadOK] {url}` - image successfully decoded
+  - `[ImgLoadFail] {url} ex={type}: {message}` - decode failure reason
+  - `[ImgNullStream] {url}` - ImageLoader returned null
+  - `[ImgFallbackUri] {url}` - falling back to UriSource
+  - `[ImgSkipSvg] {url}` - SVG skipped (no SvgImageSource support)
+  - `[ImgLoadExc] {url} ex={type}: {message}` - unexpected exception
 
 ---
 
-### 2. Styled error pages
-**Before:** Network errors returned `<!-- Resource load failed: {url} : {msg} -->` — rendered as invisible HTML comment or plain text.
+## 2. Placeholder Logic Fix
 
-**After:** Full inline HTML page with dark theme, centered card, red error heading, message, and URL:
-```html
-<!DOCTYPE html>
-<html><head><style>
-  body { font-family: Segoe UI, sans-serif; background: #1e1e1e; color: #ccc; ... }
-  h1 { color: #ff5555; }
-  .url { color: #777; font-size: 12px; }
-</style></head><body>
-  <div><div class=icon>⚠</div><h1>Page Load Failed</h1><p>{message}</p><p class=url>{url}</p></div>
-</body></html>
+### Problem
+- When images failed to load, alt text "Image" was displayed instead of a placeholder
+- Generic alt="Image" is not useful; placeholders are better visual indicators
+
+### Fix — DomBasicRenderer.cs
+- **Block context (`MakeImageAsync`)**: Always shows `[img]` placeholder (80×60) when all candidates fail. If alt text exists and is NOT "Image", includes truncated alt text in placeholder.
+- **Inline context (`AppendInline`)**: Always shows `?` placeholder (40×30) with meaningful alt text if different from "Image".
+
+```csharp
+var placeholderText = "[img]";
+if (!string.IsNullOrWhiteSpace(alt) && !alt.Equals("Image", StringComparison.OrdinalIgnoreCase))
+{
+    placeholderText = alt.Length > 20 ? alt.Substring(0, 20) + "..." : alt;
+}
 ```
 
 ---
 
-### 3. URL autocomplete
-- `BrowserHost.GetHistoryUrls()` returns all visited URLs (from `_history` list, up to 50)
-- `Omnibox.TextChanged` filters history by substring match (case-insensitive, min 2 chars)
-- Matching URLs shown in a `ListView` positioned above the bottom bar
-- Tapping a suggestion navigates immediately
-- List auto-hides when text is cleared or no matches
+## 3. File Locking Cleanup Fix
 
-Positioned after the bottom bar in Z-order so it renders on top.
+### Problem
+- Semaphore cleanup logic had incorrect condition (`!_fileLocks.TryGetValue` always false)
+- Could cause race conditions or memory leaks
 
----
-
-### 4. Swipe left/right navigation
-- `ContentArea.ManipulationMode="TranslateX"` enables horizontal gesture detection
-- `ContentArea_ManipulationDelta`:
-  - Swipe right > 80px → GoBack
-  - Swipe left > 80px → GoForward
-- Does not conflict with vertical scroll (ScrollViewer handles vertical separately)
+### Fix — ResourceManager.cs
+- Simplified cleanup: only remove semaphore if uncontested (`CurrentCount == 1`) and still in dictionary
+- Removed unused `_fileLockCleanup` lock object
 
 ---
 
-### 5. Reading mode
-New overlay panel (`ReadingOverlay`) accessible from a button in Settings:
-- Extracts page text via `BrowserHost.GetTextContent()` (strips script, style, etc.)
-- Displays on cream background (`#F5F0E8`) with dark text (`#333333`)
-- Font size: A− / A+ buttons (range 10–36px, step 2, default 16px)
-- Close button returns to normal view
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `Engine/DomBasicRenderer.cs` | Image diagnostics + placeholder logic fix |
+| `Engine/ResourceManager.cs` | File locking cleanup fix |
 
 ---
 
-### 6. Loading spinner (already wired)
-`_browser.LoadingChanged` was already connected to `LoadingOverlay` + `ProgressRing` from earlier phases. Verified functional.
+## Build Result
+
+```
+WEBVIEW -> bin\ARM\Debug\WEBVIEW.exe
+WEBVIEW -> AppPackages\WEBVIEW_0.8.0.0_Debug_Test\WEBVIEW_0.8.0.0_arm_Debug.appxbundle
+```
+
+**0 errors**, 7 pre-existing warnings.
 
 ---
 
-## Build result
-- **0 errors expected** (UWP requires VS)
-- **~140 lines changed** across 4 files
+## Known Limitations
 
-## Next
-Phase 6 (ES Modules) — turn NiL.JS into a real module loader for `import`/`export` support.
+- **SVG icons**: UWP's `BitmapImage` cannot decode SVG files. Weather icons (`.svg`) will show `[img]` placeholders unless `SvgImageSource` is available on the platform.
+- **elementSize=NaNxNaN**: Still persisting in logs; needs separate investigation.
+
+---
+
+## Next Steps
+
+1. Test with new diagnostic logs to identify exact image loading failures
+2. Investigate `elementSize=NaNxNaN` root cause
+3. Consider adding SVG support via `SvgImageSource` if available on target platform
+
+---
+
+*Session 2.17 — 2026-05-18*

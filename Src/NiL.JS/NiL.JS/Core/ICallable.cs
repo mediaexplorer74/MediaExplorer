@@ -1,4 +1,4 @@
-﻿using NiL.JS.BaseLibrary;
+using NiL.JS.BaseLibrary;
 
 namespace NiL.JS.Core;
 

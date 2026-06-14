@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Linq;
 using NiL.JS.Core;
 using NiL.JS.Core.Interop;

@@ -1,72 +1,87 @@
-# Summary_2_12 — Phase 12 (AI Integration: DeepSeek via OpenRouter)
+# Summary 2.18 — Image Test Page + Diagnostics Ready
 
-## Goal
-Add an AI button to the AppBar that sends current page content to DeepSeek (via OpenRouter API) and displays a summary in a slide-up overlay.
-
-## Changes
-
-### Files modified
-- `Engine\OpenRouterClient.cs` — new file, static HTTP client for OpenRouter API
-- `MainPage.xaml` — AI button (+1 column), AI overlay panel, API key field in Settings
-- `MainPage.xaml.cs` — AI button handler, key persistence, overlay show/hide/copy
+**Session date:** 2026-05-18
+**Build:** 0.8.0.0 x64 Debug — ✅ 0 errors
 
 ---
 
-### 1. OpenRouterClient.cs (new)
-Static class with a single `SummarizeAsync(apiKey, pageText)` method:
-- POST to `https://openrouter.ai/api/v1/chat/completions`
-- Model: `deepseek/deepseek-chat` (DeepSeek V3, cheapest on OpenRouter)
-- System prompt: "Summarize in 3-5 concise bullet points"
-- Temperature 0.3, max 500 tokens
-- Parses JSON response via `Windows.Data.Json` (no Newtonsoft dependency)
-- Returns summary string or error message
+## 1. Welcome Page Updated
 
-**Cost per call:** ~$0.0018 (3000 input + 150 output tokens)
+### Added Image Rendering Test Section
+- **7 test cases** added to `welcome.html` (startup page)
+- Tests cover: remote PNG, remote JPG, data URI, broken images, inline images, SVG
+- Color-coded headers for easy identification
+- Instructions to check debug output for diagnostic logs
+
+### Test Cases
+| # | Test | Expected Result |
+|---|------|-----------------|
+| 1 | Remote PNG (Wikipedia Logo) | Image displayed |
+| 2 | Remote JPG (Test Pattern) | Image displayed |
+| 3 | Data URI (Red Pixel) | Red square displayed |
+| 4 | Broken Image (alt text) | Placeholder with alt text |
+| 5 | Broken Image (alt="Image") | `[img]` placeholder |
+| 6 | Inline Image in Text | Image inline with text |
+| 7 | SVG Image | `[img]` placeholder (no SVG support) |
 
 ---
 
-### 2. MainPage.xaml changes
+## 2. Diagnostic Logs to Watch For
 
-**AppBar** (6 columns):
-| Col | Button | Glyph |
-|-----|--------|-------|
-| 0 | Back | `SymbolIcon Back` |
-| 1 | Forward | `SymbolIcon Forward` |
-| 2 | URL omnibox | — |
-| 3 | Go | `&#xE721;` |
-| **4** | **AI** (new) | `&#xE8F1;` |
-| 5 | Settings | `&#xE713;` |
+When testing, look for these entries in debug output:
 
-**AI overlay panel:**
-- Title bar ("Thinking..." / "AI Summary")
-- Scrollable TextBlock for result
-- Copy button + Close button
+- `[MakeImage] START tag=img` - MakeImageAsync called
+- `[MakeImage] candidates=N` - URI candidates found
+- `[ImgTry] {url}` - Attempting to load image
+- `[ImgTryStream] {url} len=X` - Stream received from ImageLoader
+- `[ImgLoadOK] {url}` - Image decoded successfully ✅
+- `[ImgLoadFail] {url} ex=...` - Image decode failed ❌
+- `[ImgNullStream] {url}` - ImageLoader returned null
+- `[ImgFallbackUri] {url}` - Falling back to UriSource
+- `[ImgSkipSvg] {url}` - SVG skipped (no SvgImageSource)
+- `[ImgLoadExc] {url} ex=...` - Unexpected exception
 
-**Settings overlay** — added before Clear Cache:
+---
+
+## 3. Previous Fixes (from 2.16-2.17)
+
+- `imgLoader` wired to `_resources.FetchImageAsync` in MainPage.xaml.cs
+- Per-file locking in ResourceManager.cs (fixes "file is in use" errors)
+- Image placeholders for failed loads (`[img]` instead of "Image" text)
+- Removed problematic `Seek(0)` call that caused ArgumentException
+- File locking cleanup simplified
+
+---
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `Html/welcome.html` | Added Image Rendering Test section with 7 test cases |
+| `Assets/test.html` | Created standalone test file (for reference) |
+
+---
+
+## Build Result
+
 ```
-OpenRouter API Key
-[TextBox: sk-or-v1-...]
+WEBVIEW -> bin\x64\Debug\WEBVIEW.exe
+WEBVIEW -> AppPackages\WEBVIEW_0.8.0.0_Debug_Test\WEBVIEW_0.8.0.0_x64_Debug.appxbundle
 ```
 
----
-
-### 3. MainPage.xaml.cs changes
-
-| Method | Role |
-|--------|------|
-| `AiButton_Click` | Load key → extract page text via `BrowserHost.GetTextContent()` (fallback: `LiteElement.CollectText()`) → truncate at 16KB → call OpenRouter → show result |
-| `ShowAiResult(text, isLoading)` | Toggle AI overlay, set title/result text, manage copy button visibility |
-| `AiCloseButton_Click` | Hide overlay |
-| `AiCopyButton_Click` | Copy result to clipboard via `DataPackage` |
-| `LoadAiKey` / `SaveAiKey` | Persist key in `ApplicationData.LocalSettings["OpenRouterKey"]` |
-
-**Text extraction** uses `_browser.GetTextContent()` which already walks `LiteElement.SelfAndDescendants()` collecting text — no new DOM traversal code needed.
+**0 errors**, 7 pre-existing warnings.
 
 ---
 
-## Build result
-- **0 errors expected** (UWP requires VS)
-- **~95 lines added** across 3 files (new `OpenRouterClient.cs` + ~50 lines XAML + ~45 lines C#)
+## Next Steps for Testing
 
-## Next
-Phase 11 (UI Polish) — loading spinner, swipe nav, reading mode, URL autocomplete, error page styling, clear cache button.
+1. **Sync**: Copy `!OpenCode\WEBVIEW` → `!Browsers\WEBVIEW`
+2. **Rebuild** in VS (x64 Debug)
+3. **Launch** app (welcome page loads automatically)
+4. **Scroll down** to "Image Rendering Test" section
+5. **Check debug output** for diagnostic logs
+6. **Report**: Which images load, which show placeholders, any errors
+
+---
+
+*Session 2.18 — 2026-05-18*

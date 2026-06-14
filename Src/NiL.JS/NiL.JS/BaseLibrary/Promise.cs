@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Linq;
 using System.Runtime.ExceptionServices;
@@ -375,12 +375,6 @@ public sealed class Promise
 
     private static Task<JSValue> fromResult(JSValue arg)
     {
-#if NET40
-        var task = new Task<JSValue>(new Func<JSValue>(() => arg));
-        task.Start();
-        return task;
-#else
         return Task<JSValue>.FromResult(arg);
-#endif
     }
 }

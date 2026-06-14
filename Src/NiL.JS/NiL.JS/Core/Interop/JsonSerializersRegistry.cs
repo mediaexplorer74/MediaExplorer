@@ -4,9 +4,7 @@ using System.Reflection;
 
 namespace NiL.JS.Core.Interop;
 
-#if !NETCORE
 [Serializable]
-#endif
 public class JsonSerializersRegistry
 {
     private readonly List<JsonSerializer> _serializers;

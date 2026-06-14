@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -350,7 +350,7 @@ namespace BrowserCore.Engine
             if (string.IsNullOrWhiteSpace(selector)) return new LiteElement[0];
             selector = selector.Trim();
 
-            // Very small subset – mirrors what JavaScriptEngine.JsDocument supports
+            // Very small subset � mirrors what JavaScriptEngine.JsDocument supports
             if (selector.StartsWith("#"))
             {
                 var id = selector.Substring(1);

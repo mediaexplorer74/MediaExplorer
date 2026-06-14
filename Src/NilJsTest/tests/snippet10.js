@@ -1,0 +1,1 @@
+var link=document.createElement('link'); link;

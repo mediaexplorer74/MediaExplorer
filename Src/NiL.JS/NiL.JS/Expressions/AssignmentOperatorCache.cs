@@ -1,12 +1,10 @@
-п»їusing System;
+using System;
 using System.Collections.Generic;
 using NiL.JS.Core;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class AssignmentOperatorCache : Expression
 {
     private JSValue secondResult;
@@ -100,7 +98,7 @@ public sealed class AssignmentOperatorCache : Expression
 
     public override bool Build(ref CodeNode _this, int expressionDepth, int scopeLevel, Dictionary<string, VariableDescriptor> variables, CodeContext codeContext, InternalCompilerMessageCallback message, FunctionInfo stats, Options opts)
     {
-        // second Р±СѓРґРµРј РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ РєР°Рє С„Р»Р°Рі isVisited
+        // second будем использовать как флаг isVisited
         if (_right != null)
             return false;
 

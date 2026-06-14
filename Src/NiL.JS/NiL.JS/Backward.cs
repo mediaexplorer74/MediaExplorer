@@ -1,10 +1,9 @@
-Ôªøusing System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
 
-#if NET461 || NETSTANDARD1_4
 namespace System.Runtime.CompilerServices
 {
     [CLSCompliant(false)]
@@ -50,7 +49,6 @@ namespace System
         }
     }
 }
-#endif
 
 namespace NiL.JS.Backward
 {
@@ -104,16 +102,11 @@ namespace NiL.JS.Backward
                 return MemberTypes.Field;
             if (self is MethodInfo)
                 return MemberTypes.Method;
-#if !NET40
             if (self is TypeInfo)
                 return MemberTypes.TypeInfo;
-#else
-            if (self is Type)
-                return MemberTypes.TypeInfo;
-#endif
             if (self is PropertyInfo)
                 return MemberTypes.Property;
-            return MemberTypes.Custom; // —á—ë—Ç —Å–≤–æ—ë, –ø—É—Å–∫–∞–π —Å–∞–º–∏ —Ä–∞–∑–±–∏—Ä–∞—é—Ç—Å—è
+            return MemberTypes.Custom; // ˜∏Ú Ò‚Ó∏, ÔÛÒÍ‡È Ò‡ÏË ‡Á·Ë‡˛ÚÒˇ
         }
 
         private static readonly Type[] _Types =
@@ -139,49 +132,10 @@ namespace NiL.JS.Backward
                 typeof(string)
             };
 
-#if !NETSTANDARD1_4
-        internal static TypeCode GetTypeCode(this Type type)
-        {
-            if (type == null)
-                return TypeCode.Empty;
 
-            if (type.GetTypeInfo().IsClass)
-            {
-                if (type == _Types[2])
-                    return (TypeCode)2; // Database null value
-
-                if (type == typeof(string))
-                    return TypeCode.String;
-
-                return TypeCode.Object;
-            }
-
-            for (var i = 3; i < _Types.Length; i++)
-            {
-                if (_Types[i] == type)
-                    return (TypeCode)i;
-            }
-
-            return TypeCode.Object;
-        }
-#endif
-
-#if !NET40 && !NETSTANDARD1_4
-        internal static Type GetInterface(this Type type, string name)
-        {
-            foreach (var i in type.GetTypeInfo().ImplementedInterfaces)
-            {
-                if (i.FullName.Contains(name))
-                    return i;
-            }
-
-            return null;
-        }
-#endif
     }
 }
 
-#if NETSTANDARD1_4
 namespace System.Reflection.Emit
 {
     public static class TypeBuilderPolyfill
@@ -189,32 +143,8 @@ namespace System.Reflection.Emit
         public static Type CreateType(this TypeBuilder builder) => builder.CreateTypeInfo().AsType();
     }
 }
-#endif
 
-#if NET461
-namespace System
-{
-    public struct ValueTuple<T1, T2, T3, T4, T5>
-    {
-        public T1 Item1;
-        public T2 Item2;
-        public T3 Item3;
-        public T4 Item4;
-        public T5 Item5;
 
-        public ValueTuple(T1 item1, T2 item2, T3 item3, T4 item4, T5 item5)
-        {
-            Item1 = item1;
-            Item2 = item2;
-            Item3 = item3;
-            Item4 = item4;
-            Item5 = item5;
-        }
-    }
-}
-#endif
-
-#if NET40_OR_GREATER || NETSTANDARD1_4
 namespace System.Diagnostics.CodeAnalysis
 {
     [AttributeUsage(AttributeTargets.Parameter, Inherited = false)]
@@ -238,7 +168,6 @@ namespace NiL.JS.Backward
 }
 
 
-#if NETSTANDARD1_4
 namespace System
 {
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Enum | AttributeTargets.Delegate, Inherited = false)]
@@ -666,7 +595,6 @@ namespace System.Reflection
     }
 
 }
-#endif
 
 namespace Microsoft.CSharp.RuntimeBinder
 {
@@ -732,4 +660,3 @@ namespace Microsoft.CSharp.RuntimeBinder
         public static CallSiteBinder UnaryOperation(CSharpBinderFlags flags, ExpressionType operation, Type context, IEnumerable<CSharpArgumentInfo> argumentInfo);
     }*/
 }
-#endif

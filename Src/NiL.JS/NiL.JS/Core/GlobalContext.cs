@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -7,9 +7,6 @@ using NiL.JS.BaseLibrary;
 using NiL.JS.Core.Functions;
 using NiL.JS.Core.Interop;
 using NiL.JS.Extensions;
-#if !NETSTANDARD1_4
-using System.Dynamic;
-#endif
 using System.Threading.Tasks;
 using System.Runtime.ExceptionServices;
 
@@ -37,9 +34,7 @@ public enum MarshalinOptions
     DictionaryAsObject = 1 << 0,
 }
 
-#if !NETCORE
 [Serializable]
-#endif
 public sealed class GlobalContext : Context
 {
     internal JSObject _globalPrototype;
@@ -137,9 +132,7 @@ public sealed class GlobalContext : Context
             DefineConstructor(typeof(Set));
 
             DefineConstructor(typeof(Debug));
-#if !PORTABLE
             DefineVariable("console").Assign(ProxyValue(new JSConsole()));
-#endif
 
             #region Base Functions
             DefineVariable("eval").Assign(new EvalFunction());
@@ -155,9 +148,6 @@ public sealed class GlobalContext : Context
             DefineVariable("parseFloat").Assign(new ExternalFunction(GlobalFunctions.parseFloat));
             DefineVariable("parseInt").Assign(new ExternalFunction(GlobalFunctions.parseInt));
             #endregion
-#if DEV
-            DefineVariable("__pinvoke").Assign(new ExternalFunction(GlobalFunctions.__pinvoke));
-#endif
             #region Consts
             _variables["undefined"] = JSValue.undefined;
             _variables["Infinity"] = Number.POSITIVE_INFINITY;
@@ -344,11 +334,7 @@ public sealed class GlobalContext : Context
             if (jsvalue != null)
                 return jsvalue;
         }
-#if PORTABLE || NETCORE || NETSTANDARD1_4
         switch (value.GetType().GetTypeCode())
-#else
-        switch (Type.GetTypeCode(value.GetType()))
-#endif
         {
             case TypeCode.Boolean:
             {
@@ -509,15 +495,6 @@ public sealed class GlobalContext : Context
                 {
                     return new NativeList(value as IList) { _objectPrototype = GetPrototype(typeof(NativeList)) };
                 }
-#if !NETSTANDARD1_4
-                else if (value is ExpandoObject)
-                {
-                    return new DictionaryWrapper<string, object>(value as ExpandoObject)
-                    {
-                        _objectPrototype = GetPrototype(typeof(DictionaryWrapper<string, object>))
-                    };
-                }
-#endif
                 else if ((MarshalingOptions & MarshalinOptions.DictionaryAsObject) != 0
                     && value is IEnumerable
                     && (value is IDictionary || value.GetType().GetInterfaces().Any(x => x.IsConstructedGenericType && x.GetGenericTypeDefinition() == typeof(IDictionary<,>))))
@@ -559,14 +536,12 @@ public sealed class GlobalContext : Context
                     (value as Task).ContinueWith(task => result.Start());
                     return new ObjectWrapper(new Promise(result), GetPrototype(typeof(Promise)));
                 }
-#if !NET40
                 else if (value is IEnumerable && NativeReadOnlyListCtors.IsReadOnlyList(value))
                 {
                     var result = NativeReadOnlyListCtors.Create(value);
                     result._objectPrototype = GetPrototype(result.GetType());
                     return result;
                 }
-#endif
                 else
                 {
                     return new ObjectWrapper(value, value != null ? GetPrototype(value.GetType()) : null);

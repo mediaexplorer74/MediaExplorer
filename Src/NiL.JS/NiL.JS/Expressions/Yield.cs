@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using NiL.JS.BaseLibrary;
 using NiL.JS.Core;
@@ -7,9 +7,7 @@ using NiL.JS.Extensions;
 
 namespace NiL.JS.Expressions;
 
-#if !(PORTABLE || NETCORE)
 [Serializable]
-#endif
 public sealed class Yield : Expression
 {
     private bool _reiterate;

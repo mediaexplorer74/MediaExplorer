@@ -1,4 +1,4 @@
-﻿using NiL.JS.BaseLibrary;
+using NiL.JS.BaseLibrary;
 using NiL.JS.Core.Interop;
 using NiL.JS.Expressions;
 

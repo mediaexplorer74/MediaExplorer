@@ -1,4 +1,3 @@
-﻿#if !NET35
 
 using System.Collections.Generic;
 using System.Linq.Expressions;
@@ -21,4 +20,3 @@ internal sealed class TreeBuildingState
     }
 }
 
-#endif
