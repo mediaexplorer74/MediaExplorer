@@ -126,6 +126,12 @@ namespace BrowserCore.Engine.Core
 
         private void OnSizeChanged(object sender, SizeChangedEventArgs e)
         {
+            // Clear all active elements so UpdateView repositions everything
+            foreach (var kv in _activeElements)
+            {
+                _canvas.Children.Remove(kv.Value);
+            }
+            _activeElements.Clear();
             UpdateView();
         }
 
@@ -166,6 +172,7 @@ namespace BrowserCore.Engine.Core
                 if (!newVisible.Contains(kv.Key))
                     toRemove.Add(kv.Key);
             }
+            DevToolsLogger.Log("[DIAG:VR] UpdateView active=" + _activeElements.Count + " newVisible=" + newVisible.Count + " toRemove=" + toRemove.Count + " scrollY=" + verticalOffset.ToString("F0") + " visRect=" + visibleRect.ToString());
             for (int i = 0; i < toRemove.Count; i++)
             {
                 var node = toRemove[i];
@@ -193,6 +200,7 @@ namespace BrowserCore.Engine.Core
                 if (!_activeElements.ContainsKey(node))
                     PlaceVisualOnCanvas(node);
             }
+            DevToolsLogger.Log("[DIAG:VR] UpdateView FINAL active=" + _activeElements.Count + " canvasChildren=" + _canvas.Children.Count);
 
             // Load / cancel images based on final visible set
             ProcessLazyImages(newVisible);
@@ -1298,6 +1306,46 @@ namespace BrowserCore.Engine.Core
                 if (type == "email") tb.PlaceholderText = string.IsNullOrEmpty(tb.PlaceholderText) ? "email" : tb.PlaceholderText;
                 if (type == "tel") tb.PlaceholderText = string.IsNullOrEmpty(tb.PlaceholderText) ? "phone" : tb.PlaceholderText;
                 if (type == "url") tb.PlaceholderText = string.IsNullOrEmpty(tb.PlaceholderText) ? "url" : tb.PlaceholderText;
+
+                // Enter key submits the parent form
+                tb.KeyDown += (s, ke) =>
+                {
+                    if (ke.Key != Windows.System.VirtualKey.Enter) return;
+                    try
+                    {
+                        // Sync TextBox value back to DOM so CollectFormData reads current value
+                        if (box.Node?.Attr != null)
+                            box.Node.Attr["value"] = tb.Text ?? "";
+
+                        var cur = box.Parent;
+                        while (cur != null)
+                        {
+                            if (cur.Node?.Tag != null && cur.Node.Tag.Equals("FORM", StringComparison.OrdinalIgnoreCase))
+                            {
+                                string formAction = cur.Node.Attr != null && cur.Node.Attr.ContainsKey("action") ? cur.Node.Attr["action"] : "";
+                                string formMethod = cur.Node.Attr != null && cur.Node.Attr.ContainsKey("method") ? cur.Node.Attr["method"].ToUpperInvariant() : "GET";
+                                var formData = new List<Tuple<string, string>>();
+                                CollectFormData(cur, formData, null, null);
+                                var pairs = new List<string>();
+                                foreach (var kv in formData)
+                                    if (!string.IsNullOrEmpty(kv.Item1))
+                                        pairs.Add(Uri.EscapeDataString(kv.Item1) + "=" + Uri.EscapeDataString(kv.Item2 ?? ""));
+                                string targetUrl = formAction;
+                                if (string.IsNullOrEmpty(targetUrl)) targetUrl = _baseUri?.ToString() ?? "";
+                                else try { targetUrl = new Uri(_baseUri, formAction).ToString(); } catch { }
+                                string qs = string.Join("&", pairs);
+                                if (formMethod == "GET" && !string.IsNullOrEmpty(qs))
+                                    targetUrl += (targetUrl.Contains("?") ? "&" : "?") + qs;
+                                if (!string.IsNullOrEmpty(targetUrl))
+                                    _onNavigate?.Invoke(new Uri(targetUrl));
+                                break;
+                            }
+                            cur = cur.Parent;
+                        }
+                    }
+                    catch { }
+                };
+
                 return tb;
             }
         }

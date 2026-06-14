@@ -902,30 +902,44 @@ namespace BrowserCore.Engine.Core
                 for (int c = 0; c < TableCols; c++)
                 {
                     if (!TableOccupied[r, c]) continue;
-                    // Find the cell at this position
-                    int childIdx = -1;
+                    // Find the cell at this position — check direct children AND children inside TR
+                    RenderObject cell = null;
                     for (int i = 0; i < Children.Count; i++)
                     {
                         var child = Children[i];
                         var childTag = child.Node?.Tag?.ToUpperInvariant();
-                        if (childTag != "TD" && childTag != "TH") continue;
-                        // Find which grid position this child maps to
-                        // by checking its stored table placement
-                        if (child.TableRow == r && child.TableCol == c)
+                        if (childTag == "TD" || childTag == "TH")
                         {
-                            childIdx = i;
-                            break;
+                            if (child.TableRow == r && child.TableCol == c) { cell = child; break; }
+                        }
+                        else if (childTag == "TR" && child.Children != null)
+                        {
+                            for (int j = 0; j < child.Children.Count; j++)
+                            {
+                                var inner = child.Children[j];
+                                var innerTag = inner.Node?.Tag?.ToUpperInvariant();
+                                if ((innerTag == "TD" || innerTag == "TH") && inner.TableRow == r && inner.TableCol == c)
+                                {
+                                    cell = inner;
+                                    break;
+                                }
+                            }
+                            if (cell != null) break;
                         }
                     }
-                    if (childIdx < 0) continue;
-                    var cell = Children[childIdx];
+                    if (cell == null) continue;
                     int cs = cell.TableColSpan > 0 ? cell.TableColSpan : 1;
                     int rs = cell.TableRowSpan > 0 ? cell.TableRowSpan : 1;
 
                     double availW = 0;
                     for (int cc = c; cc < Math.Min(c + cs, TableCols); cc++)
                         availW += colWidths[cc] + gap;
-                    if (availW <= 0) availW = contentWidth / Math.Max(1, TableCols) * cs;
+                    if (availW <= 0)
+                    {
+                        // Measure with intrinsic width first, then cap at contentWidth
+                        cell.Layout(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                        availW = Math.Min(cell.Bounds.Width + 8, contentWidth / Math.Max(1, TableCols) * cs);
+                    }
 
                     cell.Layout(new Size(availW, double.PositiveInfinity));
                     double cellH = cell.Bounds.Height;
@@ -962,10 +976,11 @@ namespace BrowserCore.Engine.Core
                 double scale = contentWidth / totalW;
                 for (int c = 0; c < TableCols; c++) colWidths[c] *= scale;
             }
-            else if (totalW < contentWidth && TableCols > 0)
+            else if (totalW < contentWidth && TableCols > 0 && totalW > 0)
             {
-                double extra = (contentWidth - totalW) / TableCols;
-                for (int c = 0; c < TableCols; c++) colWidths[c] += extra;
+                double extra = contentWidth - totalW;
+                for (int c = 0; c < TableCols; c++)
+                    colWidths[c] += extra * (colWidths[c] / totalW);
             }
 
             // Pass 2: position cells
@@ -974,10 +989,21 @@ namespace BrowserCore.Engine.Core
                 for (int c = 0; c < TableCols; c++)
                 {
                     if (!TableOccupied[r, c]) continue;
-                    var cell = Children.FirstOrDefault(ch =>
-                        ch.Node?.Tag != null &&
-                        (ch.Node.Tag.ToUpperInvariant() == "TD" || ch.Node.Tag.ToUpperInvariant() == "TH") &&
-                        ch.TableRow == r && ch.TableCol == c);
+                    RenderObject cell = null;
+                    foreach (var ch in Children)
+                    {
+                        var tag = ch.Node?.Tag?.ToUpperInvariant();
+                        if ((tag == "TD" || tag == "TH") && ch.TableRow == r && ch.TableCol == c) { cell = ch; break; }
+                        if (tag == "TR" && ch.Children != null)
+                        {
+                            foreach (var inner in ch.Children)
+                            {
+                                var itag = inner.Node?.Tag?.ToUpperInvariant();
+                                if ((itag == "TD" || itag == "TH") && inner.TableRow == r && inner.TableCol == c) { cell = inner; break; }
+                            }
+                            if (cell != null) break;
+                        }
+                    }
                     if (cell == null) continue;
 
                     int cs = cell.TableColSpan > 0 ? cell.TableColSpan : 1;
@@ -1006,6 +1032,7 @@ namespace BrowserCore.Engine.Core
 
             double totalHeight = 0;
             for (int r = 0; r < TableRows; r++) totalHeight += rowHeights[r] + gap;
+            DevToolsLogger.Log("[DIAG:TABLE] rows=" + TableRows + " cols=" + TableCols + " contentW=" + contentWidth.ToString("F0") + " totalH=" + totalHeight.ToString("F0") + " colW=[" + string.Join(",", colWidths.Select(x => x.ToString("F0"))) + "]");
             return totalHeight;
         }
 

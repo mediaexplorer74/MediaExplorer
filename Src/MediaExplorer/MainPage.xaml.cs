@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using Windows.Foundation;
@@ -48,7 +49,7 @@ namespace WEBVIEW
         //   "https://developer.mozilla.org"     — MDN (flexbox-heavy)
         //   "https://getbootstrap.com"          — Bootstrap docs
         //   "https://github.com"                — GitHub (complex)
-        private const string TEST_URL = "https://reddit.com";
+        private const string TEST_URL = "https://news.ycombinator.com";
         // ═════════════════════════════════════════════════════════
 
         // Card mode (Phase S/T) — narrow viewport card stack
@@ -152,16 +153,12 @@ namespace WEBVIEW
             }
             catch { }
 
-            if (GoButton != null) GoButton.Click += GoButton_Click;
             if (Omnibox != null) Omnibox.KeyDown += Omnibox_KeyDown;
             if (BackButton != null) BackButton.Click += BackButton_Click;
             if (ForwardButton != null) ForwardButton.Click += ForwardButton_Click;
-            if (SettingsButton != null) SettingsButton.Click += SettingsButton_Click;
-            if (AiButton != null) AiButton.Click += AiButton_Click;
-            if (SnapshotButton != null) SnapshotButton.Click += SnapshotButton_Click;
-            if (CopyButton != null) CopyButton.Click += CopyButton_Click;
-            if (AiCloseButton != null) AiCloseButton.Click += AiCloseButton_Click;
-            if (AiCopyButton != null) AiCopyButton.Click += AiCopyButton_Click;
+            if (HubOpenButton != null) HubOpenButton.Click += HubOpenButton_Click;
+            if (HubCloseButton != null) HubCloseButton.Click += HubCloseButton_Click;
+            if (HubBackButton != null) HubBackButton.Click += HubBackButton_Click;
             if (ReaderCloseButton != null) ReaderCloseButton.Click += ReaderCloseButton_Click;
             if (ContentArea != null) ContentArea.ManipulationDelta += ContentArea_ManipulationDelta;
 
@@ -406,7 +403,7 @@ namespace WEBVIEW
                 if (elapsed.TotalMilliseconds >= 500)
                 {
                     // Long press � reuse existing AiOverlay + OpenRouter summary
-                    AiButton_Click(null, null);
+                    HubOpenButton_Click(null, null);
                 }
             }
         }
@@ -583,6 +580,7 @@ namespace WEBVIEW
         {
             _currentUri = uri;
             if (uri == null) return;
+            RecordHistory(uri.AbsoluteUri, null);
             Ui(() => { try { if (Omnibox != null) Omnibox.Text = uri.AbsoluteUri; } catch { } });
         }
 
@@ -947,7 +945,6 @@ namespace WEBVIEW
                         ContentHost.Children.Add(element);
                         _activeVisual = element;
                         _activeVisualIndex = ContentHost.Children.IndexOf(element);
-                        System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady ADDED idx=" + _activeVisualIndex + " children=" + ContentHost.Children.Count);
                         ApplyAppBarMode();
                         if (!_suppressRepaintHandler && (_browser.RenderMode == "Poor" || _browser.RenderMode == "Asceti"))
                             StartReadingMode();
@@ -2570,16 +2567,7 @@ namespace WEBVIEW
             try
             {
                 var s = Windows.Storage.ApplicationData.Current.LocalSettings;
-                bool showSnapshot = true;
-                bool showCopy = true;
-                if (s.Values.TryGetValue("ShowSnapshot", out var v1) && v1 is bool b1)
-                    showSnapshot = b1;
-                if (s.Values.TryGetValue("ShowCopy", out var v2) && v2 is bool b2)
-                    showCopy = b2;
-                if (SnapshotButton != null)
-                    SnapshotButton.Visibility = showSnapshot ? Visibility.Visible : Visibility.Collapsed;
-                if (CopyButton != null)
-                    CopyButton.Visibility = showCopy ? Visibility.Visible : Visibility.Collapsed;
+                // Snapshot/Copy buttons moved to Hub — no visibility toggling needed
             }
             catch { }
         }
@@ -3215,14 +3203,181 @@ namespace WEBVIEW
             catch { }
         }
 
-        private async void AiButton_Click(object sender, RoutedEventArgs e)
+        private void HubOpenButton_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                ExpandBar();
+                ShowHubMain();
+                if (HubOverlay != null) HubOverlay.Visibility = Visibility.Visible;
+                if (HubEbookLabel != null) HubEbookLabel.Text = _browser?.RenderMode ?? "Rich";
+            }
+            catch { }
+        }
 
+        private void HubCloseButton_Click(object sender, RoutedEventArgs e)
+        {
+            try { if (HubOverlay != null) HubOverlay.Visibility = Visibility.Collapsed; } catch { }
+        }
+
+        private void HubBackButton_Click(object sender, RoutedEventArgs e)
+        {
+            ShowHubMain();
+        }
+
+        private void ShowHubMain()
+        {
+            try
+            {
+                if (HubMenuView != null) HubMenuView.Visibility = Visibility.Visible;
+                if (HubFavoritesView != null) HubFavoritesView.Visibility = Visibility.Collapsed;
+                if (HubHistoryView != null) HubHistoryView.Visibility = Visibility.Collapsed;
+                if (HubTitle != null) HubTitle.Text = "AI Hub";
+                if (HubBackButton != null) HubBackButton.Visibility = Visibility.Collapsed;
+                if (HubCloseButton != null) HubCloseButton.Visibility = Visibility.Visible;
+            }
+            catch { }
+        }
+
+        private void HubItem_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var btn = sender as Button;
+                var tag = btn?.Tag as string;
+                if (string.IsNullOrEmpty(tag)) return;
+
+                switch (tag)
+                {
+                    case "Favorites":
+                        ShowHubFavorites();
+                        break;
+                    case "History":
+                        ShowHubHistory();
+                        break;
+                    case "Reading":
+                        HubCloseButton_Click(null, null);
+                        StartReadingMode();
+                        break;
+                    case "AISummary":
+                        HubCloseButton_Click(null, null);
+                        RunAiSummary();
+                        break;
+                    case "Screenshot":
+                        HubCloseButton_Click(null, null);
+                        SnapshotButton_Click(null, null);
+                        break;
+                    case "CopyText":
+                        HubCloseButton_Click(null, null);
+                        CopyButton_Click(null, null);
+                        break;
+                    case "Ebook":
+                        CycleEbookMode();
+                        break;
+                    case "DevTools":
+                        HubCloseButton_Click(null, null);
+                        ToggleDevTools();
+                        break;
+                    case "Settings":
+                        HubCloseButton_Click(null, null);
+                        Frame.Navigate(typeof(SettingsPage));
+                        break;
+                }
+            }
+            catch { }
+        }
+
+        private void ShowHubFavorites()
+        {
+            try
+            {
+                if (HubMenuView != null) HubMenuView.Visibility = Visibility.Collapsed;
+                if (HubFavoritesView != null) HubFavoritesView.Visibility = Visibility.Visible;
+                if (HubHistoryView != null) HubHistoryView.Visibility = Visibility.Collapsed;
+                if (HubTitle != null) HubTitle.Text = "Favorites";
+                if (HubBackButton != null) HubBackButton.Visibility = Visibility.Visible;
+                if (HubCloseButton != null) HubCloseButton.Visibility = Visibility.Collapsed;
+                BuildHubFavoritesList();
+            }
+            catch { }
+        }
+
+        private void ShowHubHistory()
+        {
+            try
+            {
+                if (HubMenuView != null) HubMenuView.Visibility = Visibility.Collapsed;
+                if (HubFavoritesView != null) HubFavoritesView.Visibility = Visibility.Collapsed;
+                if (HubHistoryView != null) HubHistoryView.Visibility = Visibility.Visible;
+                if (HubTitle != null) HubTitle.Text = "History";
+                if (HubBackButton != null) HubBackButton.Visibility = Visibility.Visible;
+                if (HubCloseButton != null) HubCloseButton.Visibility = Visibility.Collapsed;
+                BuildHubHistoryList();
+            }
+            catch { }
+        }
+
+        private void BuildHubFavoritesList()
+        {
+            if (HubFavoritesList == null) return;
+            HubFavoritesList.Children.Clear();
+            var favs = LoadFavorites();
+            if (favs.Count == 0)
+            {
+                HubFavoritesList.Children.Add(new TextBlock { Text = "No favorites yet.\nTap ⭐ in AI Hub to add the current page.", Foreground = new SolidColorBrush(Windows.UI.Colors.Gray), FontSize = 14, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 16, 0, 0) });
+                return;
+            }
+            foreach (var fav in favs)
+            {
+                var item = new Button { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0x33, 0x33, 0x33)), BorderThickness = new Thickness(0), Margin = new Thickness(0, 0, 0, 2), Padding = new Thickness(12, 10, 12, 10) };
+                var tb = new TextBlock { Text = fav.Title ?? fav.Url, Foreground = new SolidColorBrush(Windows.UI.Colors.White), FontSize = 14, TextTrimming = TextTrimming.CharacterEllipsis };
+                item.Content = tb;
+                var url = fav.Url;
+                item.Click += (s, e) => { HubCloseButton_Click(null, null); NavigateAsync(url); };
+                HubFavoritesList.Children.Add(item);
+            }
+        }
+
+        private void BuildHubHistoryList()
+        {
+            if (HubHistoryList == null) return;
+            HubHistoryList.Children.Clear();
+            var history = LoadHistory();
+            if (history.Count == 0)
+            {
+                HubHistoryList.Children.Add(new TextBlock { Text = "No history yet.", Foreground = new SolidColorBrush(Windows.UI.Colors.Gray), FontSize = 14, Margin = new Thickness(0, 16, 0, 0) });
+                return;
+            }
+            foreach (var entry in history.Take(30))
+            {
+                var item = new Button { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0x33, 0x33, 0x33)), BorderThickness = new Thickness(0), Margin = new Thickness(0, 0, 0, 2), Padding = new Thickness(12, 10, 12, 10) };
+                var panel = new StackPanel();
+                panel.Children.Add(new TextBlock { Text = entry.Title ?? entry.Url, Foreground = new SolidColorBrush(Windows.UI.Colors.White), FontSize = 14, TextTrimming = TextTrimming.CharacterEllipsis });
+                panel.Children.Add(new TextBlock { Text = entry.Url, Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0x88, 0x88, 0x88)), FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 0) });
+                item.Content = panel;
+                var url = entry.Url;
+                item.Click += (s, e) => { HubCloseButton_Click(null, null); NavigateAsync(url); };
+                HubHistoryList.Children.Add(item);
+            }
+        }
+
+        private void CycleEbookMode()
+        {
+            try
+            {
+                var current = _browser?.RenderMode ?? "Rich";
+                string next = current == "Rich" ? "Poor" : current == "Poor" ? "Asceti" : "Rich";
+                RenderMode = next;
+                if (HubEbookLabel != null) HubEbookLabel.Text = next;
+                UpdateStatusMessage("E-book mode: " + next);
+            }
+            catch { }
+        }
+
+        private async void RunAiSummary()
+        {
+            try
+            {
                 var key = LoadAiKey();
-
                 string pageText;
                 try
                 {
@@ -3231,79 +3386,49 @@ namespace WEBVIEW
                         textContent = _welcomeEngine.GetActiveDom()?.CollectText(true);
                     pageText = textContent ?? string.Empty;
                 }
-                catch
-                {
-                    pageText = string.Empty;
-                }
+                catch { pageText = string.Empty; }
 
                 if (string.IsNullOrWhiteSpace(pageText))
                 {
-                    ShowAiResult("No page content to analyze. Navigate to a page first.", false);
+                    ShowAiResult("No page content to analyze.", false);
                     return;
                 }
 
                 if (string.IsNullOrWhiteSpace(key))
                 {
-                    var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage();
-                    pkg.SetText(pageText);
-                    Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
-
-                    SnapshotButton_Click(null, null);
-
-                    ShowAiResult("No API key set — copied page text to clipboard and saved screenshot.\n\nOpen Settings → Advanced → OpenRouter API Key for AI summaries.", false);
+                    ShowAiResult("No API key set. Open Settings → Advanced → OpenRouter API Key.", false);
                     return;
                 }
 
-                if (pageText.Length > 16000)
-                    pageText = pageText.Substring(0, 16000) + "\n[truncated]";
-
+                if (pageText.Length > 16000) pageText = pageText.Substring(0, 16000) + "\n[truncated]";
                 ShowAiResult("Analyzing page content...", true);
                 var summary = await OpenRouterClient.SummarizeAsync(key, pageText);
                 ShowAiResult(summary, false);
             }
-            catch (Exception ex)
-            {
-                ShowAiResult($"Error: {ex.Message}", false);
-            }
+            catch (Exception ex) { ShowAiResult("Error: " + ex.Message, false); }
         }
 
         private void ShowAiResult(string text, bool isLoading)
         {
             Ui(() =>
             {
-                if (AiOverlay != null)
+                try
                 {
-                    AiOverlay.Visibility = Visibility.Visible;
-                    _suppressBarCollapse = true;
+                    if (HubMenuView != null) HubMenuView.Visibility = Visibility.Collapsed;
+                    if (HubFavoritesView != null) HubFavoritesView.Visibility = Visibility.Collapsed;
+                    if (HubHistoryView != null) HubHistoryView.Visibility = Visibility.Collapsed;
+                    if (HubTitle != null) HubTitle.Text = isLoading ? "Thinking..." : "AI Summary";
+                    if (HubBackButton != null) HubBackButton.Visibility = Visibility.Visible;
+                    if (HubCloseButton != null) HubCloseButton.Visibility = Visibility.Collapsed;
+                    if (HubOverlay != null) HubOverlay.Visibility = Visibility.Visible;
+
+                    // Show result in a scrollable text block inside hub content
+                    var contentGrid = HubOverlay?.FindName("HubPanel") as FrameworkElement;
+                    // For simplicity, reuse toast for now — will build proper panel later
+                    ShowToast(text);
                 }
-                if (AiResultText != null)
-                    AiResultText.Text = text ?? string.Empty;
-                if (AiTitleText != null)
-                    AiTitleText.Text = isLoading ? "Thinking..." : "AI Summary";
-                if (AiCopyButton != null)
-                    AiCopyButton.Visibility = isLoading ? Visibility.Collapsed : Visibility.Visible;
+                catch { }
             });
-        }
-
-        private void AiCloseButton_Click(object sender, RoutedEventArgs e)
-        {
-            try { if (AiOverlay != null) AiOverlay.Visibility = Visibility.Collapsed; _suppressBarCollapse = false; } catch { }
-        }
-
-        private void AiCopyButton_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                var text = AiResultText?.Text;
-                if (!string.IsNullOrWhiteSpace(text))
-                {
-                    var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage();
-                    pkg.SetText(text);
-                    Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
-                    UpdateStatusMessage("Summary copied to clipboard.");
-                }
-            }
-            catch { }
         }
 
         // --- DevTools ---
@@ -3483,6 +3608,128 @@ namespace WEBVIEW
                         sb.Append(DumpDomTree(child, depth + 1));
             }
             return sb.ToString();
+        }
+
+        // --- ToggleDevTools ---
+        private void ToggleDevTools()
+        {
+            DevToolsEnabled = !DevToolsEnabled;
+        }
+
+        // --- History ---
+        private class HistoryEntry
+        {
+            public string Url { get; set; }
+            public string Title { get; set; }
+            public DateTime Timestamp { get; set; }
+        }
+
+        private List<HistoryEntry> LoadHistory()
+        {
+            try
+            {
+                var s = Windows.Storage.ApplicationData.Current.LocalSettings;
+                if (s.Values.TryGetValue("History", out var v) && v is string json && !string.IsNullOrWhiteSpace(json))
+                {
+                    var arr = Windows.Data.Json.JsonValue.Parse(json)?.GetArray();
+                    if (arr != null)
+                    {
+                        var list = new List<HistoryEntry>();
+                        for (int i = 0; i < Math.Min(arr.Count, 50); i++)
+                        {
+                            var obj = arr[i].GetObject();
+                            list.Add(new HistoryEntry
+                            {
+                                Url = obj.ContainsKey("url") ? obj.GetNamedString("url") : "",
+                                Title = obj.ContainsKey("title") ? obj.GetNamedString("title") : "",
+                                Timestamp = obj.ContainsKey("ts") ? DateTime.FromFileTimeUtc((long)obj.GetNamedNumber("ts")) : DateTime.MinValue
+                            });
+                        }
+                        return list;
+                    }
+                }
+            }
+            catch { }
+            return new List<HistoryEntry>();
+        }
+
+        private void RecordHistory(string url, string title)
+        {
+            try
+            {
+                var history = LoadHistory();
+                history.Insert(0, new HistoryEntry { Url = url, Title = title ?? url, Timestamp = DateTime.UtcNow });
+                if (history.Count > 100) history = history.Take(100).ToList();
+
+                var arr = new Windows.Data.Json.JsonArray();
+                foreach (var e in history)
+                {
+                    var obj = new Windows.Data.Json.JsonObject();
+                    obj.SetNamedValue("url", Windows.Data.Json.JsonValue.CreateStringValue(e.Url ?? ""));
+                    obj.SetNamedValue("title", Windows.Data.Json.JsonValue.CreateStringValue(e.Title ?? ""));
+                    obj.SetNamedValue("ts", Windows.Data.Json.JsonValue.CreateNumberValue(e.Timestamp.ToFileTimeUtc()));
+                    arr.Add(obj);
+                }
+                Windows.Storage.ApplicationData.Current.LocalSettings.Values["History"] = arr.Stringify();
+            }
+            catch { }
+        }
+
+        // --- Favorites ---
+        private class FavoriteItem
+        {
+            public string Url { get; set; }
+            public string Title { get; set; }
+        }
+
+        private List<FavoriteItem> LoadFavorites()
+        {
+            try
+            {
+                var s = Windows.Storage.ApplicationData.Current.LocalSettings;
+                if (s.Values.TryGetValue("Favorites", out var v) && v is string json && !string.IsNullOrWhiteSpace(json))
+                {
+                    var arr = Windows.Data.Json.JsonValue.Parse(json)?.GetArray();
+                    if (arr != null)
+                    {
+                        var list = new List<FavoriteItem>();
+                        for (int i = 0; i < arr.Count; i++)
+                        {
+                            var obj = arr[i].GetObject();
+                            list.Add(new FavoriteItem
+                            {
+                                Url = obj.ContainsKey("url") ? obj.GetNamedString("url") : "",
+                                Title = obj.ContainsKey("title") ? obj.GetNamedString("title") : ""
+                            });
+                        }
+                        return list;
+                    }
+                }
+            }
+            catch { }
+            return new List<FavoriteItem>();
+        }
+
+        private void AddFavorite(string url, string title)
+        {
+            try
+            {
+                var favs = LoadFavorites();
+                if (favs.Any(f => f.Url == url)) return;
+                favs.Add(new FavoriteItem { Url = url, Title = title ?? url });
+
+                var arr = new Windows.Data.Json.JsonArray();
+                foreach (var f in favs)
+                {
+                    var obj = new Windows.Data.Json.JsonObject();
+                    obj.SetNamedValue("url", Windows.Data.Json.JsonValue.CreateStringValue(f.Url ?? ""));
+                    obj.SetNamedValue("title", Windows.Data.Json.JsonValue.CreateStringValue(f.Title ?? ""));
+                    arr.Add(obj);
+                }
+                Windows.Storage.ApplicationData.Current.LocalSettings.Values["Favorites"] = arr.Stringify();
+                UpdateStatusMessage("Added to favorites.");
+            }
+            catch { }
         }
     }
 }

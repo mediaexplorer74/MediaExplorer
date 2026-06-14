@@ -726,7 +726,7 @@ namespace BrowserCore.Engine
                     System.Diagnostics.Debug.WriteLine("[DIAG] BuildVisualTree Step2 Layout start size=" + viewSize.Width + "x" + viewSize.Height);
                     await Task.Run(() =>
                     {
-                        try { LayoutEngine.PerformLayout(layoutRoot, layoutSize); System.Diagnostics.Debug.WriteLine("[DIAG] BuildVisualTree Step2 Layout DONE"); }
+                        try { LayoutEngine.PerformLayout(layoutRoot, layoutSize); }
                         catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[DIAG] BuildVisualTree Step2 Layout EXC " + ex.Message); }
                     });
 
@@ -759,6 +759,8 @@ namespace BrowserCore.Engine
             }
             catch (Exception threadEx)
             {
+                            var errMsg = "[DIAG:RENDER] EXCEPTION: " + threadEx.GetType().Name + ": " + threadEx.Message;
+                System.Diagnostics.Debug.WriteLine(errMsg);
                 var disp = UiThreadHelper.TryGetDispatcher();
                 if (disp != null)
                 {
@@ -1696,7 +1698,8 @@ namespace BrowserCore.Engine
             try
             {
                 if (fe == null) return true;
-                // Deep inspect: if only canvases with no children or no text/images, treat as empty
+                if (fe is ScrollViewer sv && sv.Content is Canvas cv && cv.Width > 0 && cv.Height > 0) return false;
+                if (fe is Border b && b.Child is ScrollViewer sv2 && sv2.Content is Canvas cv2 && cv2.Width > 0 && cv2.Height > 0) return false;
                 return !HasMeaningfulContent(fe);
             }
             catch { return false; }

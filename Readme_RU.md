@@ -1,4 +1,4 @@
-# MediaExplorer 1.1.0 — dev branch
+# MediaExplorer 1.5.0 — ai_hub branch
 
 
 ![](/Images/logo.png)

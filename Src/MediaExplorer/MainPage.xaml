@@ -89,6 +89,45 @@
             </Setter>
         </Style>
 
+        <!-- Hub Menu Item Style -->
+        <Style x:Key="HubMenuItemStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Padding" Value="16,12"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter Content="{TemplateBinding Content}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
+                        </Border>
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal"/>
+                                <VisualState x:Name="PointerOver">
+                                    <Storyboard>
+                                        <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                                            <DiscreteObjectKeyFrame KeyTime="0" Value="#3D3D3D"/>
+                                        </ObjectAnimationUsingKeyFrames>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <Storyboard>
+                                        <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                                            <DiscreteObjectKeyFrame KeyTime="0" Value="#4D4D4D"/>
+                                        </ObjectAnimationUsingKeyFrames>
+                                    </Storyboard>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
     </Page.Resources>
 
     <Grid x:Name="RootGrid" Background="#202020">
@@ -190,10 +229,6 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
                     <!-- Back -->
@@ -220,29 +255,9 @@
                         </TextBox.InputScope>
                     </TextBox>
 
-                    <!-- Go -->
-                    <Button Grid.Column="3" x:Name="GoButton" Style="{StaticResource BarButtonStyle}" ToolTipService.ToolTip="Go" Margin="4,0,0,0">
-                        <FontIcon Glyph="&#xE721;" FontSize="14"/>
-                    </Button>
-
-                    <!-- AI -->
-                    <Button Grid.Column="4" x:Name="AiButton" Style="{StaticResource BarButtonStyle}" ToolTipService.ToolTip="Summarize with AI" Margin="2,0,0,0">
-                        <FontIcon Glyph="&#xE8F1;" FontSize="14"/>
-                    </Button>
-
-                    <!-- Settings -->
-                    <Button Grid.Column="5" x:Name="SettingsButton" Style="{StaticResource BarButtonStyle}" ToolTipService.ToolTip="Settings" Margin="2,0,0,0">
-                        <FontIcon Glyph="&#xE713;" FontSize="14"/>
-                    </Button>
-
-                    <!-- Snapshot -->
-                    <Button Grid.Column="6" x:Name="SnapshotButton" Style="{StaticResource BarButtonStyle}" ToolTipService.ToolTip="Snapshot (screenshot)" Margin="2,0,0,0">
-                        <FontIcon Glyph="&#xE722;" FontSize="14"/>
-                    </Button>
-
-                    <!-- Copy -->
-                    <Button Grid.Column="7" x:Name="CopyButton" Style="{StaticResource BarButtonStyle}" ToolTipService.ToolTip="Copy page text" Margin="2,0,0,0">
-                        <FontIcon Glyph="&#xE8C8;" FontSize="14"/>
+                    <!-- Menu (Hub) -->
+                    <Button Grid.Column="3" x:Name="HubOpenButton" Style="{StaticResource BarButtonStyle}" ToolTipService.ToolTip="Menu" Margin="4,0,0,0">
+                        <FontIcon Glyph="&#xE700;" FontSize="14"/>
                     </Button>
                 </Grid>
             </Border>
@@ -282,25 +297,112 @@
             </Border>
         </Grid>
 
-        <!-- ===== AI Overlay ===== -->
-        <Grid x:Name="AiOverlay" Grid.Row="1" Grid.RowSpan="2" Background="#E6000000" Visibility="Collapsed">
-            <Border Background="#2D2D2D" MaxWidth="500" MinWidth="280" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="16">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <TextBlock x:Name="AiTitleText" Text="AI Summary" FontSize="18" FontWeight="Bold" Foreground="White" Margin="0,0,0,12"/>
-                    <ScrollViewer Grid.Row="1" MaxHeight="400" Margin="0,0,0,12">
-                        <TextBlock x:Name="AiResultText" TextWrapping="Wrap" Foreground="#CCCCCC" FontSize="14" LineHeight="20"/>
-                    </ScrollViewer>
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button x:Name="AiCopyButton" Content="Copy" Margin="0,0,8,0" Click="AiCopyButton_Click"/>
-                        <Button x:Name="AiCloseButton" Content="Close" Click="AiCloseButton_Click"/>
-                    </StackPanel>
-                </Grid>
-            </Border>
+        <!-- ===== AI Hub (Dynamic Island) ===== -->
+        <Grid x:Name="HubOverlay" Grid.Row="1" Grid.RowSpan="2" Background="#E6000000" Visibility="Collapsed" IsHitTestVisible="True">
+            <Grid x:Name="HubPanel" VerticalAlignment="Bottom" HorizontalAlignment="Stretch"
+                  MaxHeight="520" Margin="0">
+                <Border x:Name="HubBorder" Background="#2D2D2D" CornerRadius="16,16,0,0" Padding="0"
+                        MaxWidth="500" HorizontalAlignment="Center" Width="480">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Hub Header (always visible) -->
+                        <Border Grid.Row="0" Background="#353535" CornerRadius="16,16,0,0" Padding="16,12">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="HubTitle" Text="AI Hub" FontSize="16" FontWeight="SemiBold" Foreground="White" VerticalAlignment="Center"/>
+                                <Button Grid.Column="1" x:Name="HubBackButton" Content="&#xE72B;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                        Background="Transparent" Foreground="#AAAAAA" BorderThickness="0" Padding="8,4"
+                                        Visibility="Collapsed" Click="HubBackButton_Click"/>
+                                <Button Grid.Column="1" x:Name="HubCloseButton" Content="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                        Background="Transparent" Foreground="#AAAAAA" BorderThickness="0" Padding="8,4"
+                                        Click="HubCloseButton_Click"/>
+                            </Grid>
+                        </Border>
+
+                        <!-- Hub Content (swaps between views) -->
+                        <Grid Grid.Row="1">
+                            <!-- View 1: Main Menu -->
+                            <StackPanel x:Name="HubMenuView" Visibility="Visible">
+                                <Button x:Name="HubItemFavorites" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="Favorites">
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#xE734;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#FFD700"/>
+                                        <TextBlock Grid.Column="1" Text="Favorites" Foreground="White" FontSize="14" VerticalAlignment="Center" Margin="0,0,0,0"/>
+                                    </Grid>
+                                </Button>
+                                <Button x:Name="HubItemHistory" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="History">
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#xE81C;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#88CCFF"/>
+                                        <TextBlock Grid.Column="1" Text="History" Foreground="White" FontSize="14" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Button>
+                                <Border Background="#444444" Height="1" Margin="16,4"/>
+                                <Button x:Name="HubItemReading" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="Reading">
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#AAFFAA"/>
+                                        <TextBlock Grid.Column="1" Text="Reading Mode" Foreground="White" FontSize="14" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Button>
+                                <Button x:Name="HubItemAiSummary" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="AISummary">
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#xE8F1;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#CCAAFF"/>
+                                        <TextBlock Grid.Column="1" Text="AI Summary" Foreground="White" FontSize="14" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Button>
+                                <Border Background="#444444" Height="1" Margin="16,4"/>
+                                <Button x:Name="HubItemScreenshot" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="Screenshot">
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#xE722;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#FFCC88"/>
+                                        <TextBlock Grid.Column="1" Text="Screenshot" Foreground="White" FontSize="14" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Button>
+                                <Button x:Name="HubItemCopyText" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="CopyText">
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#xE8C8;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#CCCCCC"/>
+                                        <TextBlock Grid.Column="1" Text="Copy Text" Foreground="White" FontSize="14" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Button>
+                                <Border Background="#444444" Height="1" Margin="16,4"/>
+                                <Button x:Name="HubItemEbook" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="Ebook">
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#xE774;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#88FFCC"/>
+                                        <TextBlock Grid.Column="1" Text="E-book Mode" Foreground="White" FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="HubEbookLabel" Grid.Column="2" Text="Rich" Foreground="#888888" FontSize="12" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                    </Grid>
+                                </Button>
+                                <Button x:Name="HubItemDevTools" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="DevTools">
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#xE70F;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#FF8888"/>
+                                        <TextBlock Grid.Column="1" Text="DevTools" Foreground="White" FontSize="14" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Button>
+                                <Button x:Name="HubItemSettings" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="Settings">
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#AAAAAA"/>
+                                        <TextBlock Grid.Column="1" Text="Settings" Foreground="White" FontSize="14" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Button>
+                            </StackPanel>
+
+                            <!-- View 2: Favorites sub-panel -->
+                            <ScrollViewer x:Name="HubFavoritesView" Visibility="Collapsed" Padding="16,8">
+                                <StackPanel x:Name="HubFavoritesList"/>
+                            </ScrollViewer>
+
+                            <!-- View 3: History sub-panel -->
+                            <ScrollViewer x:Name="HubHistoryView" Visibility="Collapsed" Padding="16,8">
+                                <StackPanel x:Name="HubHistoryList"/>
+                            </ScrollViewer>
+                        </Grid>
+                    </Grid>
+                </Border>
+            </Grid>
         </Grid>
 
         <!-- ===== Reading Mode Overlay ===== -->
