@@ -24,7 +24,7 @@ Get-Content "$env:LOCALAPPDATA\Packages\MediaExplorerV1p0_5gyrq6psz227t\LocalSta
 msbuild "Src\MediaExplorer\MediaExplorer.csproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /v:m; if ($?) { powershell -ExecutionPolicy Bypass -File "Src\MediaExplorer\DeployAndRun.ps1" -Platform x64; Start-Sleep -Seconds 150; Get-Process -Name "MediaExplorer" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Get-Content "$env:LOCALAPPDATA\Packages\MediaExplorerV1p0_5gyrq6psz227t\LocalState\Logger.txt" -Tail 80 }
 ```
 
-## Current State (June 12, 2026 — Session 6.15)
+## Current State (June 14, 2026 — Session 17)
 
 **Version**: 1.0.0.0, AUMID `MediaExplorerV1p0!App`, PackageFamilyName `MediaExplorerV1p0_5gyrq6psz227t`
 **Package Identity**: `MediaExplorerV1p0` (renamed from V0p57, new GUID, fresh install required)
@@ -83,27 +83,39 @@ https://nokiadesignarchive.aalto.fi/images/archive/{file}.jpg
 - Key prefixes: `[DIAG:DATA]`, `[DIAG:SYS]`, `[DIAG:ROUTE]`, `[DIAG:CARD]` — keep
 
 ### Files
-- `Src/MediaExplorer/Engine/JavaScriptEngine.cs` — data extraction, `globalThis.*` injection, SafeEval, `__storeData`
+- `Src/MediaExplorer/Engine/JavaScriptEngine.cs` — ES6+ polyfills, event system, fetch API, DOM manipulation, `globalThis.*` injection, SafeEval, `__storeData`
 - `Src/MediaExplorer/Engine/BrowserApi.cs` — `ExtractEntriesJson()`, `ExtractCollectionsJson()`, `ExtractStoriesJson()`
-- `Src/MediaExplorer/Engine/DomBasicRenderer.cs` — stable text/image/link renderer — **core**
-- `Src/MediaExplorer/Engine/CustomHtmlEngine.cs` — ScheduleRepaintFromJs, DispatchRepaintAsync
-- `Src/MediaExplorer/MainPage.xaml.cs` — card mode, navigation UI, image URLs, link routing — **core**
+- `Src/MediaExplorer/Engine/DomBasicRenderer.cs` — stable text/image/link renderer
+- `Src/MediaExplorer/Engine/CustomHtmlEngine.cs` — RenderTreeBuilder → LayoutEngine → VirtualizingRenderer pipeline
+- `Src/MediaExplorer/Engine/Core/VirtualizingRenderer.cs` — XAML Canvas rendering, overflow:auto/scroll, sticky positioning, SVG→BitmapImage fallback
+- `Src/MediaExplorer/Engine/Core/RenderTreeBuilder.cs` — table grid layout, HTML attribute parsing, body display:none override
+- `Src/MediaExplorer/Engine/Core/RenderBox.cs` — table grid layout, flex/block/inline layout
+- `Src/MediaExplorer/MainPage.xaml.cs` — card mode, navigation UI, image URLs, link routing, **Reddit JSON API card mode**, Reddit comments view, score coloring
 - `Src/MediaExplorer/MainPage.xaml` — ScrollViewer CacheMode
 - `Src/MediaExplorer/Engine/DevToolsLogger.cs` — diagnostic logging
 
 ### Post-v1.0 Roadmap
 
-#### v1.0+ (next iteration)
-1. **After-collection-filter UX** — jump to first entry unique to filtered collection
-2. **Card polish** — entrance/exit transitions, image preloading, smoother swipe
-3. **Search/filter in category index** — text search across entry names/descriptions
-4. **SkiaSharp graph rendering** — `SKXamlCanvas` with `DrawCircle`/`DrawLine` — 60fps on GPU
-5. **Hybrid engine** — EdgeHTML for standard browsing, Custom engine for CSS/JS dev experiments
+#### v1.1 (current session)
+- Phase 3 (JS Engine): ES6 polyfills, DOM API, fetch, events, element.style ✅
+- Phase 4 (HTML & Media): table grid layout, select, iframe, srcset ✅
+- Phase 5 (Site Compatibility): Reddit JSON API, SVG fallback, body display override ✅
+- Settings re-navigation fix ✅
+- Reddit score coloring (orange/red/gray) ✅
+- Reddit comments view (fetches comments.json, nested indentation) ✅
+- Reddit image loading (HttpClient, graceful 403 fallback) ✅
+- Nav bar spacing fix ✅
+- Phase 5 testing: TodoMVC ⚠️, MDN ❌, Bootstrap 4 ✅, 4pda.to ✅
 
-#### v1.1+ (future)
-6. **E-book modes** — Poor (ascii), Rich (text+CSS), Asceti (minimal)
-7. **Performance tuning** — focus on Lumia 640 (1GB) perf, reduce memory
-8. **Orphaned ideas** — Sass preprocessing, markdown-to-html, service-worker-like caching
+#### v1.2 (next iteration)
+1. **Site compatibility hardening** — more Phase 5 sites, React SPA detection
+2. **Performance tuning** — focus on Lumia 640 (1GB) perf, reduce memory
+3. **SkiaSharp graph rendering** — прикольная тема, но лучше в v2.0
+4. **E-book modes** — Poor/Rich/Asceti — превратить текущий Render mode, упразднить JS enabler в settings
+5. **markdown-to-html** — полезная фича
+
+#### v2.0 (long-term)
+1. **Dzen.ru OAuth2** — Yandex OAuth Authorization Code flow, token storage, login UI, authenticated API access
 
 ### Commands
 ```powershell

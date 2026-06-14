@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
 using Windows.Foundation;
@@ -47,7 +48,7 @@ namespace WEBVIEW
         //   "https://developer.mozilla.org"     — MDN (flexbox-heavy)
         //   "https://getbootstrap.com"          — Bootstrap docs
         //   "https://github.com"                — GitHub (complex)
-        private const string TEST_URL = "https://en.m.wikipedia.org/wiki/Main_Page";
+        private const string TEST_URL = "https://reddit.com";
         // ═════════════════════════════════════════════════════════
 
         // Card mode (Phase S/T) — narrow viewport card stack
@@ -116,6 +117,7 @@ namespace WEBVIEW
         private string _pageTitle;
         private bool _loadProgressActive = false;
         private bool _navigationComplete;
+        private bool _initialNavigationDone;
         public MainPage()
         {
             InitializeComponent();
@@ -325,6 +327,14 @@ namespace WEBVIEW
             {
                 System.Diagnostics.Debug.WriteLine("NAVTEST FAIL: " + ex.Message);
             }
+
+            // Skip re-navigation if already loaded (e.g. returning from Settings page)
+            if (_initialNavigationDone)
+            {
+                System.Diagnostics.Debug.WriteLine("[DIAG] OnNavigatedTo SKIP — already navigated");
+                return;
+            }
+            _initialNavigationDone = true;
 
             // Priority: TEST_URL constant > launch args > env var > saved home page
             if (!string.IsNullOrWhiteSpace(TEST_URL))
@@ -743,6 +753,27 @@ namespace WEBVIEW
             }
             ClearStartupStatus();
             ResetContentHost();
+
+            // Phase 5: Reddit JSON API — intercept reddit.com URLs
+            if (IsRedditUrl(address) || address.Contains("reddit.com"))
+            {
+                DevToolsLogger.Log("[DIAG:REDDIT] Intercepted: " + address);
+                if (await TryLoadRedditJsonAsync(address))
+                {
+                    _cardMode = true;
+                    _redditCardMode = true;
+                    _currentCardIndex = 0;
+                    Ui(() =>
+                    {
+                        ContentHost.Children.Clear();
+                        ContentHost.Children.Add(BuildRedditCardPanel());
+                    });
+                    UpdateStatusMessage("");
+                    return;
+                }
+                DevToolsLogger.Log("[DIAG:REDDIT] JSON failed, falling back to HTML");
+            }
+
             try
             {
                 await _browser.NavigateAsync(address);
@@ -1085,6 +1116,173 @@ namespace WEBVIEW
             object v;
             if (d.TryGetValue(key, out v) && v is List<object> list) return list;
             return null;
+        }
+
+        private bool _redditCardMode;
+        private string _redditAfter = "";
+        private string _redditBaseUrl = "";
+        private bool _redditLoadingMore;
+
+        private static bool IsRedditUrl(string address)
+        {
+            if (string.IsNullOrEmpty(address)) return false;
+            return address.Contains("reddit.com");
+        }
+
+        private static string ToRedditJsonUrl(string address)
+        {
+            var url = address.TrimEnd('/');
+            if (!url.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            {
+                // For bare reddit.com (no path), append / before .json
+                var uri = new Uri(url);
+                if (string.IsNullOrEmpty(uri.AbsolutePath) || uri.AbsolutePath == "/")
+                    url = url + "/.json";
+                else
+                    url = url + ".json";
+            }
+            return url;
+        }
+
+        private async Task<bool> TryLoadRedditJsonAsync(string address, bool append = false)
+        {
+            try
+            {
+                string jsonUrl;
+                if (append && !string.IsNullOrEmpty(_redditAfter))
+                    jsonUrl = ToRedditJsonUrl(_redditBaseUrl) + "?after=" + _redditAfter;
+                else
+                {
+                    _redditBaseUrl = address;
+                    jsonUrl = ToRedditJsonUrl(address);
+                }
+
+                System.Diagnostics.Debug.WriteLine("[DIAG:REDDIT] Fetching " + jsonUrl);
+                DevToolsLogger.Log("[DIAG:REDDIT] Fetch " + jsonUrl);
+
+                var http = new HttpClient();
+                http.DefaultRequestHeaders.Add("User-Agent", "MediaExplorer/1.0 (Windows Phone)");
+                var resp = await http.GetAsync(new Uri(jsonUrl));
+                if (!resp.IsSuccessStatusCode)
+                {
+                    DevToolsLogger.Log("[DIAG:REDDIT] HTTP " + (int)resp.StatusCode);
+                    return false;
+                }
+                var body = await resp.Content.ReadAsStringAsync();
+                var json = Windows.Data.Json.JsonValue.Parse(body);
+                if (json == null || json.ValueType != JsonValueType.Object) return false;
+
+                var root = json.GetObject();
+                if (!root.ContainsKey("data")) return false;
+                var data = root.GetNamedObject("data");
+                if (!data.ContainsKey("children")) return false;
+                var children = data.GetNamedArray("children");
+
+                if (!append)
+                {
+                    _entryCards.Clear();
+                    _redditCardMode = true;
+                    _filterCollectionId = null;
+                    _backupEntryCards = null;
+                }
+
+                for (int i = 0; i < children.Count; i++)
+                {
+                    var child = children[i].GetObject();
+                    if (!child.ContainsKey("data")) continue;
+                    var post = child.GetNamedObject("data");
+
+                    var card = new Dictionary<string, object>();
+                    string postId = GetJsonStr(post, "name", "");
+                    card["id"] = postId;
+                    card["title"] = GetJsonStr(post, "title", "Untitled");
+                    card["type"] = GetJsonStr(post, "link_flair_text", "");
+                    card["author"] = GetJsonStr(post, "author", "[deleted]");
+                    card["subreddit"] = GetJsonStr(post, "subreddit", "");
+                    card["score"] = (int)post.GetNamedNumber("score", 0);
+                    card["num_comments"] = (int)post.GetNamedNumber("num_comments", 0);
+                    card["domain"] = GetJsonStr(post, "domain", "");
+                    card["url"] = GetJsonStr(post, "url", "");
+                    card["permalink"] = "https://old.reddit.com" + GetJsonStr(post, "permalink", "");
+                    card["created_utc"] = GetJsonNumber(post, "created_utc", 0);
+
+                    string selftext = GetJsonStr(post, "selftext", "");
+                    if (selftext.Length > 500) selftext = selftext.Substring(0, 500) + "...";
+                    card["description"] = selftext;
+
+                    string thumb = GetJsonStr(post, "thumbnail", "");
+                    if (thumb.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                        card["file"] = thumb;
+                    else if (thumb.StartsWith("//"))
+                        card["file"] = "https:" + thumb;
+
+                    if (!card.ContainsKey("file") && post.ContainsKey("preview"))
+                    {
+                        try
+                        {
+                            var preview = post.GetNamedObject("preview");
+                            if (preview.ContainsKey("images"))
+                            {
+                                var images = preview.GetNamedArray("images");
+                                if (images.Count > 0)
+                                {
+                                    var img0 = images[0].GetObject();
+                                    if (img0.ContainsKey("source"))
+                                    {
+                                        var src = img0.GetNamedObject("source");
+                                        string imgurl = GetJsonStr(src, "url", "");
+                                        if (!string.IsNullOrEmpty(imgurl))
+                                        {
+                                            imgurl = System.Net.WebUtility.HtmlDecode(imgurl);
+                                            if (imgurl.StartsWith("//")) imgurl = "https:" + imgurl;
+                                            card["file"] = imgurl;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+
+                    double utc = GetJsonNumber(post, "created_utc", 0);
+                    if (utc > 0)
+                    {
+                        var dt = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(utc);
+                        card["start"] = dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm") + " • " +
+                                        card["author"] + " • " +
+                                        card["score"] + " pts • " +
+                                        card["num_comments"] + " comments";
+                    }
+
+                    _entryCards.Add(card);
+                }
+
+                _redditAfter = GetJsonStr(data, "after", "");
+                DevToolsLogger.Log("[DIAG:REDDIT] Loaded " + _entryCards.Count + " posts, after=" + _redditAfter);
+                return _entryCards.Count > 0;
+            }
+            catch (Exception ex)
+            {
+                DevToolsLogger.Log("[DIAG:REDDIT] Error: " + ex.Message);
+                System.Diagnostics.Debug.WriteLine("[DIAG:REDDIT] Error: " + ex.Message);
+                return false;
+            }
+        }
+
+        private static string GetJsonStr(Windows.Data.Json.JsonObject obj, string key, string fallback)
+        {
+            if (!obj.ContainsKey(key)) return fallback;
+            var v = obj.GetNamedValue(key);
+            if (v == null || v.ValueType == JsonValueType.Null) return fallback;
+            return v.GetString();
+        }
+
+        private static double GetJsonNumber(Windows.Data.Json.JsonObject obj, string key, double fallback)
+        {
+            if (!obj.ContainsKey(key)) return fallback;
+            var v = obj.GetNamedValue(key);
+            if (v == null || v.ValueType == JsonValueType.Null) return fallback;
+            return v.GetNumber();
         }
 
         private void ShowCardMode(bool enable, bool showIndex = false)
@@ -1486,6 +1684,411 @@ namespace WEBVIEW
             }
 
             return grid;
+        }
+
+        private UIElement BuildRedditCardPanel()
+        {
+            var root = new Grid { Background = new SolidColorBrush(Color.FromArgb(255, 20, 20, 25)) };
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 0: header
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 1: card
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 2: nav bar
+
+            // Header: subreddit name + post count
+            var header = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(12, 8, 8, 4)
+            };
+            var subName = _entryCards.Count > 0 ? DictStr(_entryCards[0], "subreddit", "") : "";
+            header.Children.Add(new TextBlock
+            {
+                Text = "r/" + subName + " \u2022 " + _entryCards.Count + " posts",
+                FontSize = 16,
+                FontWeight = Windows.UI.Text.FontWeights.Bold,
+                Foreground = new SolidColorBrush(Color.FromArgb(220, 255, 100, 0))
+            });
+            Grid.SetRow(header, 0);
+            root.Children.Add(header);
+
+            // Card content
+            var cardBorder = new Border
+            {
+                Margin = new Thickness(8, 0, 8, 0),
+                Background = new SolidColorBrush(Color.FromArgb(255, 30, 30, 35)),
+                CornerRadius = new CornerRadius(8),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch
+            };
+            cardBorder.Child = BuildRedditCardContent(_currentCardIndex);
+            Grid.SetRow(cardBorder, 1);
+            root.Children.Add(cardBorder);
+
+            // Nav bar
+            int total = _entryCards.Count;
+            var navBar = new Grid();
+            navBar.Margin = new Thickness(12, 0, 12, 0);
+            navBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            navBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            navBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            navBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            navBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var counter = new TextBlock
+            {
+                Text = (_currentCardIndex + 1) + " / " + total,
+                FontSize = 14,
+                Foreground = new SolidColorBrush(Colors.Gray),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(counter, 2);
+            navBar.Children.Add(counter);
+
+            void AddNavBtn(string text, int col, Action onClick)
+            {
+                var btn = new TextBlock { Text = text, FontSize = 16, Foreground = new SolidColorBrush(Color.FromArgb(200, 100, 180, 255)), VerticalAlignment = VerticalAlignment.Center };
+                btn.Tapped += (s, e) => { e.Handled = true; onClick(); };
+                Grid.SetColumn(btn, col);
+                navBar.Children.Add(btn);
+            }
+            AddNavBtn("\u00AB", 0, () => { _currentCardIndex = 0; UpdateRedditCard(); });
+            AddNavBtn("\u2039", 1, () => { if (_currentCardIndex > 0) { _currentCardIndex--; UpdateRedditCard(); } });
+            AddNavBtn("\u203A", 3, () =>
+            {
+                if (_currentCardIndex < total - 1) { _currentCardIndex++; UpdateRedditCard(); }
+                else if (!string.IsNullOrEmpty(_redditAfter) && !_redditLoadingMore) { var _ = RedditLoadMore(); }
+            });
+            AddNavBtn("\u00BB", 4, () =>
+            {
+                if (_currentCardIndex < total - 1) { _currentCardIndex = total - 1; UpdateRedditCard(); }
+                else if (!string.IsNullOrEmpty(_redditAfter) && !_redditLoadingMore) { var _ = RedditLoadMore(); }
+            });
+
+            Grid.SetRow(navBar, 2);
+            root.Children.Add(navBar);
+
+            return root;
+        }
+
+        private void UpdateRedditCard()
+        {
+            Ui(() =>
+            {
+                ContentHost.Children.Clear();
+                ContentHost.Children.Add(BuildRedditCardPanel());
+            });
+        }
+
+        private async Task RedditLoadMore()
+        {
+            _redditLoadingMore = true;
+            UpdateRedditCard();
+            try
+            {
+                if (await TryLoadRedditJsonAsync(_redditBaseUrl, append: true))
+                {
+                    _currentCardIndex = _entryCards.Count - 25;
+                    if (_currentCardIndex < 0) _currentCardIndex = 0;
+                    UpdateRedditCard();
+                }
+            }
+            finally { _redditLoadingMore = false; }
+        }
+
+        private async Task LoadRedditImageAsync(Image img, string url)
+        {
+            try
+            {
+                var http = new System.Net.Http.HttpClient();
+                http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36");
+                var resp = await http.GetAsync(new Uri(url));
+                resp.EnsureSuccessStatusCode();
+                var stream = await resp.Content.ReadAsStreamAsync();
+                var mem = new MemoryStream();
+                await stream.CopyToAsync(mem);
+                mem.Position = 0;
+                var bmp = new BitmapImage();
+                await bmp.SetSourceAsync(mem.AsRandomAccessStream());
+                img.Source = bmp;
+                DevToolsLogger.Log("[DIAG:REDDIT:IMG] OK " + url.Substring(0, Math.Min(80, url.Length)));
+            }
+            catch (Exception)
+            {
+                img.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private async Task LoadRedditComments(string commentsUrl)
+        {
+            try
+            {
+                Ui(() =>
+                {
+                    ContentHost.Children.Clear();
+                    ContentHost.Children.Add(new TextBlock
+                    {
+                        Text = "Loading comments...",
+                        Foreground = new SolidColorBrush(Colors.Gray),
+                        Margin = new Thickness(16),
+                        HorizontalAlignment = HorizontalAlignment.Center
+                    });
+                });
+
+                var http = new System.Net.Http.HttpClient();
+                http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+                var resp = await http.GetAsync(new Uri(commentsUrl));
+                resp.EnsureSuccessStatusCode();
+                var json = await resp.Content.ReadAsStringAsync();
+                var arr = Windows.Data.Json.JsonArray.Parse(json);
+
+                var commentsPanel = new StackPanel { Margin = new Thickness(12) };
+
+                // Back button
+                var backBtn = new TextBlock
+                {
+                    Text = "\u2190 Back to post",
+                    FontSize = 14,
+                    Foreground = new SolidColorBrush(Color.FromArgb(220, 100, 180, 255)),
+                    Margin = new Thickness(0, 0, 0, 12)
+                };
+                backBtn.Tapped += (s, e) => { e.Handled = true; UpdateRedditCard(); };
+                commentsPanel.Children.Add(backBtn);
+
+                // Parse comments (listing[1].data.children)
+                if (arr.Count >= 2)
+                {
+                    var commentsListing = arr[1].GetObject();
+                    var commentsData = commentsListing.GetNamedObject("data");
+                    var children = commentsData.GetNamedArray("children");
+                    int shown = 0;
+                    foreach (var child in children)
+                    {
+                        if (shown >= 50) break;
+                        var obj = child.GetObject();
+                        if (obj.ContainsKey("kind") && obj.GetNamedString("kind") == "t1")
+                        {
+                            var cdata = obj.GetNamedObject("data");
+                            string author = GetJsonStr(cdata, "author", "");
+                            string body = GetJsonStr(cdata, "body", "");
+                            int cScore = GetJsonInt(cdata, "score", 0);
+                            int depth = GetJsonInt(cdata, "depth", 0);
+                            if (string.IsNullOrEmpty(body)) continue;
+
+                            var indent = new Border
+                            {
+                                Padding = new Thickness(8, 6, 8, 6),
+                                BorderBrush = new SolidColorBrush(Color.FromArgb(80, 100, 180, 255)),
+                                BorderThickness = new Thickness(2, 0, 0, 0),
+                                Margin = new Thickness(depth * 16, 0, 0, 4)
+                            };
+                            var cBody = new StackPanel();
+                            cBody.Children.Add(new TextBlock
+                            {
+                                Text = (cScore >= 0 ? "\u25B2 " : "\u25BC ") + cScore + "  \u2022  u/" + author,
+                                FontSize = 11,
+                                Foreground = new SolidColorBrush(cScore > 0 ? Color.FromArgb(255, 255, 140, 0) : cScore < 0 ? Color.FromArgb(255, 220, 60, 60) : Color.FromArgb(180, 150, 150, 150))
+                            });
+                            cBody.Children.Add(new TextBlock
+                            {
+                                Text = body,
+                                FontSize = 13,
+                                Foreground = new SolidColorBrush(Color.FromArgb(220, 200, 200, 200)),
+                                TextWrapping = TextWrapping.Wrap,
+                                LineHeight = 18
+                            });
+                            indent.Child = cBody;
+                            commentsPanel.Children.Add(indent);
+                            shown++;
+                        }
+                    }
+                }
+
+                Ui(() =>
+                {
+                    ContentHost.Children.Clear();
+                    var sv = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+                    sv.Content = commentsPanel;
+                    ContentHost.Children.Add(sv);
+                });
+            }
+            catch (Exception ex)
+            {
+                DevToolsLogger.Log("[DIAG:REDDIT:COMMENTS] FAIL " + ex.Message);
+                UpdateRedditCard();
+            }
+        }
+
+        private static int GetJsonInt(Windows.Data.Json.JsonObject obj, string key, int def)
+        {
+            if (!obj.ContainsKey(key)) return def;
+            try { return (int)obj.GetNamedNumber(key); } catch { return def; }
+        }
+
+        private UIElement BuildRedditCardContent(int index)
+        {
+            if (index < 0 || index >= _entryCards.Count)
+                return new TextBlock { Text = "No more posts", Foreground = new SolidColorBrush(Colors.Gray) };
+
+            var card = _entryCards[index];
+            string title = DictStr(card, "title", "Untitled");
+            string author = DictStr(card, "author", "[deleted]");
+            string selftext = DictStr(card, "description", "");
+            string thumb = DictStr(card, "file", "");
+            string permalink = DictStr(card, "permalink", "");
+            string url = DictStr(card, "url", "");
+            string domain = DictStr(card, "domain", "");
+            string flair = DictStr(card, "type", "");
+            int score = card.ContainsKey("score") ? Convert.ToInt32(card["score"]) : 0;
+            int comments = card.ContainsKey("num_comments") ? Convert.ToInt32(card["num_comments"]) : 0;
+            string dateStr = DictStr(card, "start", "");
+
+            var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+            var panel = new StackPanel { Margin = new Thickness(16), Width = 340 };
+
+            // Flair badge
+            if (!string.IsNullOrEmpty(flair))
+            {
+                panel.Children.Add(new Border
+                {
+                    Background = new SolidColorBrush(Color.FromArgb(255, 80, 120, 200)),
+                    CornerRadius = new CornerRadius(4),
+                    Padding = new Thickness(8, 2, 8, 2),
+                    Margin = new Thickness(0, 0, 0, 6),
+                    Child = new TextBlock { Text = flair, FontSize = 11, Foreground = new SolidColorBrush(Colors.White) }
+                });
+            }
+
+            // Title
+            panel.Children.Add(new TextBlock
+            {
+                Text = title,
+                FontSize = 18,
+                FontWeight = Windows.UI.Text.FontWeights.Bold,
+                Foreground = new SolidColorBrush(Colors.White),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+
+            // Meta line: △score • author • comments
+            var scoreColor = score > 0 ? Color.FromArgb(255, 255, 140, 0) :
+                             score < 0 ? Color.FromArgb(255, 220, 60, 60) :
+                             Color.FromArgb(180, 150, 150, 150);
+            var scoreBlock = new TextBlock
+            {
+                Text = "\u25B2 " + score,
+                FontSize = 12,
+                Foreground = new SolidColorBrush(scoreColor),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var authorBlock = new TextBlock
+            {
+                Text = "  \u2022  " + author,
+                FontSize = 12,
+                Foreground = new SolidColorBrush(Color.FromArgb(180, 180, 180, 180)),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var commentsBtn = new TextBlock
+            {
+                Text = "  \u2022  " + comments + " comments",
+                FontSize = 12,
+                Foreground = new SolidColorBrush(Color.FromArgb(220, 100, 180, 255)),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            if (comments > 0 && !string.IsNullOrEmpty(permalink))
+            {
+                string commentsUrl = "https://old.reddit.com" + permalink + ".json";
+                commentsBtn.Tapped += async (s, e) =>
+                {
+                    e.Handled = true;
+                    await LoadRedditComments(commentsUrl);
+                };
+            }
+            var metaRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+            metaRow.Children.Add(scoreBlock);
+            metaRow.Children.Add(authorBlock);
+            metaRow.Children.Add(commentsBtn);
+            panel.Children.Add(metaRow);
+
+            // External link domain
+            if (!string.IsNullOrEmpty(url) && !string.IsNullOrEmpty(domain) && !domain.StartsWith("self."))
+            {
+                var linkBtn = new TextBlock
+                {
+                    Text = "\uD83D\uDD17 " + domain,
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(Color.FromArgb(220, 100, 180, 255)),
+                    Margin = new Thickness(0, 0, 0, 8)
+                };
+                linkBtn.Tapped += async (s, e) =>
+                {
+                    e.Handled = true;
+                    try { await Windows.System.Launcher.LaunchUriAsync(new Uri(url)); } catch { }
+                };
+                panel.Children.Add(linkBtn);
+            }
+
+            // Thumbnail — load via HttpClient to avoid preview.redd.it User-Agent block
+            if (!string.IsNullOrEmpty(thumb) && thumb.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    var img = new Image
+                    {
+                        Stretch = Stretch.Uniform,
+                        MaxHeight = 200,
+                        Margin = new Thickness(0, 0, 0, 8),
+                        HorizontalAlignment = HorizontalAlignment.Center
+                    };
+                    panel.Children.Add(img);
+                    var capturedThumb = thumb;
+                    var _ = LoadRedditImageAsync(img, capturedThumb);
+                }
+                catch (Exception ex) { DevToolsLogger.Log("[DIAG:REDDIT:IMG] EX thumb=" + thumb + " err=" + ex.Message); }
+            }
+
+            // Self text
+            if (!string.IsNullOrEmpty(selftext))
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = selftext,
+                    FontSize = 14,
+                    Foreground = new SolidColorBrush(Color.FromArgb(220, 200, 200, 200)),
+                    TextWrapping = TextWrapping.Wrap,
+                    LineHeight = 20,
+                    Margin = new Thickness(0, 0, 0, 8)
+                });
+            }
+
+            // View on Reddit button
+            if (!string.IsNullOrEmpty(permalink))
+            {
+                var permBtn = new Border
+                {
+                    BorderBrush = new SolidColorBrush(Color.FromArgb(200, 255, 100, 0)),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(4),
+                    Padding = new Thickness(12, 6, 12, 6),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 8, 0, 0)
+                };
+                permBtn.Child = new TextBlock
+                {
+                    Text = "View on Reddit",
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(Colors.White)
+                };
+                string capturedUrl = permalink;
+                permBtn.Tapped += async (s, e) =>
+                {
+                    e.Handled = true;
+                    try { await Windows.System.Launcher.LaunchUriAsync(new Uri(capturedUrl)); } catch { }
+                };
+                panel.Children.Add(permBtn);
+            }
+
+            scroll.Content = panel;
+            return scroll;
         }
 
         private void NavCard(int direction)

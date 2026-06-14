@@ -31,6 +31,7 @@ namespace BrowserCore.Engine
         public string Overflow { get; set; }
         public string OverflowX { get; set; }
         public string OverflowY { get; set; }
+        public string BorderCollapse { get; set; } // "separate" (default) or "collapse"
         public string Visibility { get; set; } // "visible" (default), "hidden", "collapse"
         public string Float { get; set; } // "none", "left", "right"
         public string Clear { get; set; } // "none", "left", "right", "both"

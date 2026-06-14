@@ -131,6 +131,19 @@ namespace BrowserCore.Engine.Core
                         box.AddChild(arrowNode);
                     }
                 }
+
+                // Compute table grid structure for TABLE elements
+                if (tag == "TABLE")
+                {
+                    ComputeTableGrid(box);
+
+                    // Apply border-collapse: collapse
+                    var borderCollapse = box.Style?.BorderCollapse ?? "";
+                    if (string.Equals(borderCollapse, "collapse", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ApplyBorderCollapse(box);
+                    }
+                }
             }
 
             return renderNode;
@@ -176,6 +189,15 @@ namespace BrowserCore.Engine.Core
                 else if (tag == "CENTER") { box.Style.Display = "block"; }
                 else if (tag == "INPUT" || tag == "BUTTON" || tag == "SELECT" || tag == "IMG" || tag == "TEXTAREA")
                     box.Style.Display = "inline-block";
+                else if (tag == "IFRAME")
+                {
+                    box.Style.Display = "block";
+                    box.Style.BackgroundColor = Windows.UI.Color.FromArgb(255, 240, 240, 240);
+                    if (box.Style.BorderThickness == default(Windows.UI.Xaml.Thickness))
+                        box.Style.BorderThickness = new Windows.UI.Xaml.Thickness(1);
+                    if (!box.Style.BorderBrushColor.HasValue)
+                        box.Style.BorderBrushColor = Windows.UI.Color.FromArgb(255, 200, 200, 200);
+                }
                 else if (tag == "A" || tag == "SPAN" || tag == "B" || tag == "I" || tag == "STRONG" || tag == "EM" || tag == "LABEL" || tag == "CODE" || tag == "TH" || tag == "TD")
                 {
                     if (tag == "TH" || tag == "TD")
@@ -205,6 +227,9 @@ namespace BrowserCore.Engine.Core
                     !string.Equals(parentBox.Style.Display, "flex", StringComparison.OrdinalIgnoreCase))
                     box.Style.Display = "inline";
             }
+
+            if (tag == "BODY" && string.Equals(box.Style.Display, "none", StringComparison.OrdinalIgnoreCase))
+                box.Style.Display = "block";
 
             if (IsZero(box.Style.Margin))
             {
@@ -347,6 +372,188 @@ namespace BrowserCore.Engine.Core
                     else if (a == "left" || a == "justify") box.Style.TextAlign = Windows.UI.Xaml.TextAlignment.Left;
                 }
             }
+        }
+
+        private static void ComputeTableGrid(RenderBox tableBox)
+        {
+            if (tableBox == null || tableBox.Children == null || tableBox.Children.Count == 0) return;
+
+            var rows = new List<List<RenderObject>>();
+            foreach (var child in tableBox.Children)
+            {
+                var childTag = child.Node?.Tag?.ToUpperInvariant();
+                if (childTag == "TR")
+                {
+                    var trChildren = new List<RenderObject>();
+                    if (child.Children != null)
+                    {
+                        foreach (var td in child.Children)
+                        {
+                            var tdTag = td.Node?.Tag?.ToUpperInvariant();
+                            if (tdTag == "TD" || tdTag == "TH")
+                                trChildren.Add(td);
+                        }
+                    }
+                    if (trChildren.Count > 0) rows.Add(trChildren);
+                }
+                else if (childTag == "THEAD" || childTag == "TBODY" || childTag == "TFOOT")
+                {
+                    if (child.Children != null)
+                    {
+                        foreach (var tr in child.Children)
+                        {
+                            if (tr.Node?.Tag?.ToUpperInvariant() == "TR")
+                            {
+                                var trChildren = new List<RenderObject>();
+                                if (tr.Children != null)
+                                {
+                                    foreach (var td in tr.Children)
+                                    {
+                                        var tdTag = td.Node?.Tag?.ToUpperInvariant();
+                                        if (tdTag == "TD" || tdTag == "TH")
+                                            trChildren.Add(td);
+                                    }
+                                }
+                                if (trChildren.Count > 0) rows.Add(trChildren);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (rows.Count == 0) return;
+
+            int rowCount = rows.Count;
+            int maxCols = 0;
+            foreach (var r in rows)
+            {
+                int sum = 0;
+                foreach (var c in r)
+                {
+                    int cs = GetIntAttr(c, "colspan", 1);
+                    sum += cs;
+                }
+                if (sum > maxCols) maxCols = sum;
+            }
+            if (maxCols == 0) return;
+
+            var occ = new bool[rowCount, maxCols];
+            tableBox.TableRows = rowCount;
+            tableBox.TableCols = maxCols;
+            tableBox.TableOccupied = occ;
+            tableBox.TableColSpans = new int[rowCount, maxCols];
+            tableBox.TableRowSpans = new int[rowCount, maxCols];
+
+            for (int r = 0; r < rowCount; r++)
+            {
+                int cIndex = 0;
+                foreach (var cell in rows[r])
+                {
+                    int colspan = GetIntAttr(cell, "colspan", 1);
+                    int rowspan = GetIntAttr(cell, "rowspan", 1);
+
+                    while (cIndex < maxCols && occ[r, cIndex]) cIndex++;
+                    if (cIndex >= maxCols) cIndex = maxCols - 1;
+
+                    cell.TableRow = r;
+                    cell.TableCol = cIndex;
+                    cell.TableColSpan = Math.Max(1, Math.Min(colspan, maxCols - cIndex));
+                    cell.TableRowSpan = Math.Max(1, Math.Min(rowspan, rowCount - r));
+
+                    for (int rr = r; rr < r + rowspan && rr < rowCount; rr++)
+                        for (int cc = cIndex; cc < cIndex + colspan && cc < maxCols; cc++)
+                            occ[rr, cc] = true;
+
+                    cIndex += colspan;
+                }
+            }
+        }
+
+        private static void ApplyBorderCollapse(RenderBox tableBox)
+        {
+            if (tableBox?.Children == null) return;
+
+            // Remove table-level padding/margin for collapsed borders
+            if (tableBox.Style != null)
+            {
+                tableBox.Style.Padding = new Windows.UI.Xaml.Thickness(0);
+            }
+
+            // Apply 1px border to all cells and remove cell-level margins
+            foreach (var child in tableBox.Children)
+            {
+                var tag = child.Node?.Tag?.ToUpperInvariant();
+                if (tag == "TR")
+                {
+                    if (child.Children != null)
+                    {
+                        foreach (var cell in child.Children)
+                        {
+                            var cellTag = cell.Node?.Tag?.ToUpperInvariant();
+                            if (cellTag == "TD" || cellTag == "TH")
+                            {
+                                if (cell.Style != null)
+                                {
+                                    cell.Style.Margin = new Windows.UI.Xaml.Thickness(0);
+                                    cell.Style.Padding = new Windows.UI.Xaml.Thickness(4, 2, 4, 2);
+                                    if (cell.Style.BorderThickness == default(Windows.UI.Xaml.Thickness))
+                                    {
+                                        cell.Style.BorderThickness = new Windows.UI.Xaml.Thickness(1);
+                                    }
+                                    if (!cell.Style.BorderBrushColor.HasValue)
+                                    {
+                                        cell.Style.BorderBrushColor = Windows.UI.Color.FromArgb(255, 180, 180, 180);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                else if (tag == "THEAD" || tag == "TBODY" || tag == "TFOOT")
+                {
+                    if (child.Children != null)
+                    {
+                        foreach (var tr in child.Children)
+                        {
+                            if (tr.Children != null)
+                            {
+                                foreach (var cell in tr.Children)
+                                {
+                                    var cellTag = cell.Node?.Tag?.ToUpperInvariant();
+                                    if (cellTag == "TD" || cellTag == "TH")
+                                    {
+                                        if (cell.Style != null)
+                                        {
+                                            cell.Style.Margin = new Windows.UI.Xaml.Thickness(0);
+                                            cell.Style.Padding = new Windows.UI.Xaml.Thickness(4, 2, 4, 2);
+                                            if (cell.Style.BorderThickness == default(Windows.UI.Xaml.Thickness))
+                                            {
+                                                cell.Style.BorderThickness = new Windows.UI.Xaml.Thickness(1);
+                                            }
+                                            if (!cell.Style.BorderBrushColor.HasValue)
+                                            {
+                                                cell.Style.BorderBrushColor = Windows.UI.Color.FromArgb(255, 180, 180, 180);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private static int GetIntAttr(RenderObject node, string attrName, int defaultVal)
+        {
+            if (node?.Node?.Attr == null) return defaultVal;
+            string val;
+            if (node.Node.Attr.TryGetValue(attrName, out val) && !string.IsNullOrWhiteSpace(val))
+            {
+                int result;
+                if (int.TryParse(val.Trim(), out result) && result > 0) return result;
+            }
+            return defaultVal;
         }
 
         private static Windows.UI.Color? TryParseHtmlColor(string value)

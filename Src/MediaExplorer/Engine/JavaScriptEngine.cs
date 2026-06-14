@@ -333,6 +333,11 @@ namespace BrowserCore.Engine
         // ---- Phase 1/2/3 state ----
         private readonly Dictionary<string, List<string>> _evtDoc = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, List<string>> _evtWin = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        // JSValue-based event listeners (NiL.JS path) — store actual callback objects
+        private readonly System.Collections.Generic.List<JSValue> _evtDocCallbacks = new System.Collections.Generic.List<JSValue>();
+        private readonly System.Collections.Generic.List<JSValue> _evtWinCallbacks = new System.Collections.Generic.List<JSValue>();
+        private readonly System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<JSValue>> _evtDocCallbacksByType = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<JSValue>>(StringComparer.OrdinalIgnoreCase);
+        private readonly System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<JSValue>> _evtWinCallbacksByType = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<JSValue>>(StringComparer.OrdinalIgnoreCase);
         // (MiniJs event listeners removed — DISABLED since migration to MiniRunner)
 
     // Track stopPropagation requests inside a single handler execution (JS-0 allowlist)
@@ -358,11 +363,21 @@ namespace BrowserCore.Engine
         {
             try
             {
+                // Fire string-based JS-0 callbacks
                 List<string> list; if (_evtDoc.TryGetValue(evt, out list) && list != null)
                 {
                     foreach (var fn in list.ToArray())
                     {
                         EnqueueMicrotask(() => { try { RunInline(fn + "({ type:'" + evt + "', target:'document' })", _ctx, evt, "document"); } catch { /* swallow */ } });
+                    }
+                }
+                // Fire JSValue-based callbacks (NiL.JS path)
+                System.Collections.Generic.List<JSValue> cbList;
+                if (_evtDocCallbacksByType.TryGetValue(evt, out cbList) && cbList != null)
+                {
+                    foreach (var cb in cbList.ToArray())
+                    {
+                        EnqueueMicrotask(() => { try { InvokeJsCallback(cb, evt, "document"); } catch { } });
                     }
                 }
             }
@@ -374,6 +389,7 @@ namespace BrowserCore.Engine
         {
             try
             {
+                // Fire string-based JS-0 callbacks
                 List<string> list; if (_evtWin.TryGetValue(evt, out list) && list != null)
                 {
                     foreach (var fn in list.ToArray())
@@ -381,8 +397,33 @@ namespace BrowserCore.Engine
                         EnqueueMicrotask(() => { try { RunInline(fn + "({ type:'" + evt + "', target:'window' })", _ctx, evt, "window"); } catch { /* swallow */ } });
                     }
                 }
+                // Fire JSValue-based callbacks (NiL.JS path)
+                System.Collections.Generic.List<JSValue> cbList;
+                if (_evtWinCallbacksByType.TryGetValue(evt, out cbList) && cbList != null)
+                {
+                    foreach (var cb in cbList.ToArray())
+                    {
+                        EnqueueMicrotask(() => { try { InvokeJsCallback(cb, evt, "window"); } catch { } });
+                    }
+                }
             }
             catch { /* swallow */ }
+        }
+
+        /// <summary>Invoke a JSValue callback with a serialized event object. Casts to NiL.JS Function and calls it.</summary>
+        private void InvokeJsCallback(JSValue callback, string eventType, string target)
+        {
+            if (callback == null || callback.IsNull) return;
+            try
+            {
+                var fn = callback as NiL.JS.BaseLibrary.Function;
+                if (fn != null)
+                {
+                    var evtObj = JSValue.Marshal(new { type = eventType, target = target, currentTarget = target, preventDefault = new Func<Arguments, JSValue>(a => JSValue.Undefined), stopPropagation = new Func<Arguments, JSValue>(a => JSValue.Undefined) });
+                    fn.Call(evtObj, new Arguments { evtObj });
+                }
+            }
+            catch { }
         }
 
         // intervals & rAF
@@ -2427,6 +2468,65 @@ if (mHrefSet.Success)
                 }
             }
             catch { return null; }
+
+        }
+
+        /// <summary>Fetch with method, body, and headers. Returns (body, statusCode, responseHeaders).</summary>
+        private async Task<Tuple<string, int, System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>>>> FetchWithMethodAsync(
+            Uri uri, string method, string body, System.Collections.Generic.Dictionary<string, string> requestHeaders)
+        {
+            try
+            {
+                using (var handler = CreateManagedHandler(uri))
+                using (var client = new System.Net.Http.HttpClient(handler))
+                {
+                    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows Phone 8.1; ARM; Trident/7.0; Touch; rv:11.0; IEMobile/11.0; NOKIA; Lumia 520) like Gecko");
+
+                    // Add custom headers
+                    if (requestHeaders != null)
+                    {
+                        foreach (var kvp in requestHeaders)
+                        {
+                            try { client.DefaultRequestHeaders.TryAddWithoutValidation(kvp.Key, kvp.Value); } catch { }
+                        }
+                    }
+
+                    System.Net.Http.HttpResponseMessage response;
+                    if (string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(method, "PUT", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(method, "PATCH", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var content = new System.Net.Http.StringContent(body ?? "", System.Text.Encoding.UTF8,
+                            requestHeaders != null && requestHeaders.ContainsKey("Content-Type") ? requestHeaders["Content-Type"] : "application/x-www-form-urlencoded");
+                        response = await client.SendAsync(new System.Net.Http.HttpRequestMessage(new System.Net.Http.HttpMethod(method), uri) { Content = content });
+                    }
+                    else if (string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase))
+                    {
+                        response = await client.SendAsync(new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Delete, uri));
+                    }
+                    else
+                    {
+                        response = await client.GetAsync(uri);
+                    }
+
+                    var responseBody = await response.Content.ReadAsStringAsync();
+                    var respHeaders = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var header in response.Headers)
+                    {
+                        respHeaders[header.Key] = new System.Collections.Generic.List<string>(header.Value);
+                    }
+                    foreach (var header in response.Content.Headers)
+                    {
+                        respHeaders[header.Key] = new System.Collections.Generic.List<string>(header.Value);
+                    }
+
+                    return Tuple.Create(responseBody, (int)response.StatusCode, respHeaders);
+                }
+            }
+            catch (Exception ex)
+            {
+                return Tuple.Create(ex.Message, 0, new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>>(StringComparer.OrdinalIgnoreCase));
+            }
         }
 
         private class HostWindow
@@ -2443,9 +2543,51 @@ if (mHrefSet.Success)
             public void stop() { }
             public void focus() { }
             public void blur() { }
-            public void addEventListener(string type, JSValue callback) { }
-            public void removeEventListener(string type, JSValue callback) { }
-            public bool dispatchEvent(JSValue e) { return false; }
+            public void addEventListener(string type, JSValue callback, JSValue options)
+            {
+                if (string.IsNullOrEmpty(type) || callback == null || callback.IsNull) return;
+                System.Collections.Generic.List<JSValue> list;
+                if (!_engine._evtWinCallbacksByType.TryGetValue(type, out list) || list == null)
+                { list = new System.Collections.Generic.List<JSValue>(); _engine._evtWinCallbacksByType[type] = list; }
+                if (!list.Contains(callback)) list.Add(callback);
+            }
+            public void removeEventListener(string type, JSValue callback)
+            {
+                if (string.IsNullOrEmpty(type) || callback == null) return;
+                System.Collections.Generic.List<JSValue> list;
+                if (_engine._evtWinCallbacksByType.TryGetValue(type, out list) && list != null)
+                    list.Remove(callback);
+            }
+            public bool dispatchEvent(JSValue e)
+            {
+                try
+                {
+                    if (e == null || e.IsNull) return false;
+                    var type = "";
+                    try { type = e.ValueType == JSValueType.Object ? (e["type"]?.ToString() ?? "") : e.ToString(); } catch { }
+                    if (string.IsNullOrEmpty(type)) return false;
+                    // Fire JSValue callbacks
+                    System.Collections.Generic.List<JSValue> list;
+                    if (_engine._evtWinCallbacksByType.TryGetValue(type, out list) && list != null)
+                    {
+                        foreach (var cb in list.ToArray())
+                        {
+                            try { _engine.EnqueueMicrotask(() => { try { _engine.InvokeJsCallback(cb, type, "window"); } catch { } }); } catch { }
+                        }
+                    }
+                    // Also fire string-based callbacks
+                    List<string> strList;
+                    if (_engine._evtWin.TryGetValue(type, out strList) && strList != null)
+                    {
+                        foreach (var fn in strList.ToArray())
+                        {
+                            try { _engine.EnqueueMicrotask(() => { try { _engine.RunInline(fn + "({type:'" + type + "'})", _engine._ctx, type, "window"); } catch { } }); } catch { }
+                        }
+                    }
+                }
+                catch { }
+                return true;
+            }
             public JSValue getComputedStyle(JSValue el)
             {
                 try
@@ -2463,12 +2605,30 @@ if (mHrefSet.Success)
                         dict["visibility"] = css.Visibility ?? "visible";
                         dict["opacity"] = css.Opacity?.ToString("0.##") ?? "1";
                         dict["overflow"] = css.Overflow ?? "visible";
+                        dict["overflow-x"] = css.Overflow ?? "visible";
+                        dict["overflow-y"] = css.Overflow ?? "visible";
                         dict["transform"] = css.Transform ?? "none";
+                        dict["transform-origin"] = "50% 50%";
                         dict["z-index"] = css.ZIndex?.ToString() ?? "auto";
                         dict["width"] = css.Width.HasValue ? css.Width.Value.ToString("0.##") + "px" : "auto";
                         dict["height"] = css.Height.HasValue ? css.Height.Value.ToString("0.##") + "px" : "auto";
+                        dict["min-width"] = css.MinWidth.HasValue ? css.MinWidth.Value.ToString("0.##") + "px" : "0";
+                        dict["min-height"] = css.MinHeight.HasValue ? css.MinHeight.Value.ToString("0.##") + "px" : "0";
+                        dict["max-width"] = css.MaxWidth.HasValue ? css.MaxWidth.Value.ToString("0.##") + "px" : "none";
+                        dict["max-height"] = css.MaxHeight.HasValue ? css.MaxHeight.Value.ToString("0.##") + "px" : "none";
                         dict["color"] = css.ForegroundColor.HasValue ? string.Format("#{0:X2}{1:X2}{2:X2}", css.ForegroundColor.Value.R, css.ForegroundColor.Value.G, css.ForegroundColor.Value.B) : "#000";
                         dict["font-size"] = css.FontSize.HasValue ? css.FontSize.Value.ToString("0.##") + "px" : "16px";
+                        dict["font-weight"] = css.FontWeight.HasValue ? (css.FontWeight.Value.Weight > 600 ? "bold" : "normal") : "normal";
+                        dict["font-style"] = css.FontStyle.HasValue && css.FontStyle.Value == Windows.UI.Text.FontStyle.Italic ? "italic" : "normal";
+                        dict["font-family"] = css.FontFamilyName ?? "serif";
+                        dict["line-height"] = css.LineHeight.HasValue ? css.LineHeight.Value.ToString("0.##") : "normal";
+                        dict["text-align"] = css.TextAlign.HasValue ? css.TextAlign.Value.ToString().ToLowerInvariant() : "start";
+                        dict["text-decoration"] = css.TextDecoration ?? "none";
+                        dict["text-transform"] = css.TextTransform ?? "none";
+                        dict["text-overflow"] = css.TextOverflow ?? "clip";
+                        dict["white-space"] = css.WhiteSpace ?? "normal";
+                        dict["word-wrap"] = "normal";
+                        dict["letter-spacing"] = css.LetterSpacing.HasValue ? css.LetterSpacing.Value.ToString("0.##") + "px" : "normal";
                         dict["margin-top"] = css.Margin.Top.ToString("0.##") + "px";
                         dict["margin-right"] = css.Margin.Right.ToString("0.##") + "px";
                         dict["margin-bottom"] = css.Margin.Bottom.ToString("0.##") + "px";
@@ -2481,7 +2641,43 @@ if (mHrefSet.Success)
                         dict["border-right-width"] = css.BorderThickness.Right.ToString("0.##") + "px";
                         dict["border-bottom-width"] = css.BorderThickness.Bottom.ToString("0.##") + "px";
                         dict["border-left-width"] = css.BorderThickness.Left.ToString("0.##") + "px";
+                        var borderColor = css.BorderBrushColor ?? (css.BorderBrush is Windows.UI.Xaml.Media.SolidColorBrush sb ? sb.Color : (Windows.UI.Color?)null);
+                        var borderHex = borderColor.HasValue ? string.Format("#{0:X2}{1:X2}{2:X2}", borderColor.Value.R, borderColor.Value.G, borderColor.Value.B) : "transparent";
+                        dict["border-top-color"] = borderHex;
+                        dict["border-right-color"] = borderHex;
+                        dict["border-bottom-color"] = borderHex;
+                        dict["border-left-color"] = borderHex;
+                        dict["border-top-style"] = css.BorderStyle ?? "none";
+                        dict["border-right-style"] = css.BorderStyle ?? "none";
+                        dict["border-bottom-style"] = css.BorderStyle ?? "none";
+                        dict["border-left-style"] = css.BorderStyle ?? "none";
+                        dict["border-top-left-radius"] = css.BorderRadius.TopLeft.ToString("0.##") + "px";
+                        dict["border-top-right-radius"] = css.BorderRadius.TopRight.ToString("0.##") + "px";
+                        dict["border-bottom-right-radius"] = css.BorderRadius.BottomRight.ToString("0.##") + "px";
+                        dict["border-bottom-left-radius"] = css.BorderRadius.BottomLeft.ToString("0.##") + "px";
                         dict["background-color"] = css.BackgroundColor.HasValue ? string.Format("#{0:X2}{1:X2}{2:X2}", css.BackgroundColor.Value.R, css.BackgroundColor.Value.G, css.BackgroundColor.Value.B) : "transparent";
+                        dict["background-image"] = css.BackgroundImageUrl ?? "none";
+                        dict["background-position"] = css.BackgroundPosition ?? "0% 0%";
+                        dict["background-repeat"] = css.BackgroundRepeat ?? "repeat";
+                        dict["background-size"] = css.BackgroundSize ?? "auto";
+                        dict["flex-direction"] = css.FlexDirection ?? "row";
+                        dict["flex-wrap"] = css.FlexWrap ?? "nowrap";
+                        dict["justify-content"] = css.JustifyContent ?? "flex-start";
+                        dict["align-items"] = css.AlignItems ?? "stretch";
+                        dict["align-self"] = "auto";
+                        dict["flex-grow"] = css.FlexGrow?.ToString("0.##") ?? "0";
+                        dict["flex-shrink"] = css.FlexShrink?.ToString("0.##") ?? "1";
+                        dict["flex-basis"] = css.FlexBasis.HasValue ? css.FlexBasis.Value.ToString("0.##") + "px" : "auto";
+                        dict["gap"] = css.Gap.HasValue ? css.Gap.Value.ToString("0.##") + "px" : "0";
+                        dict["grid-template-columns"] = css.GridTemplateColumns ?? "none";
+                        dict["grid-template-rows"] = css.GridTemplateRows ?? "none";
+                        dict["pointer-events"] = "auto";
+                        dict["cursor"] = "auto";
+                        dict["list-style-type"] = "disc";
+                        dict["table-layout"] = "auto";
+                        dict["border-collapse"] = "separate";
+                        dict["caption-side"] = "top";
+                        dict["empty-cells"] = "show";
                     }
                     return JSValue.Marshal(dict);
                 }
@@ -2548,42 +2744,8 @@ if (mHrefSet.Success)
             }
             private bool MatchesSelector(LiteElement el, string selector)
             {
-                if (string.IsNullOrEmpty(selector)) return false;
-                selector = selector.Trim();
-                
-                // Simple tag selector: link, div, etc.
-                if (!selector.Contains('[') && !selector.Contains('.') && !selector.Contains('#'))
-                    return string.Equals(el.Tag, selector, StringComparison.OrdinalIgnoreCase);
-                
-                // Attribute selector: link[rel="modulepreload"]
-                var bracketOpen = selector.IndexOf('[');
-                if (bracketOpen >= 0)
-                {
-                    var tagPart = selector.Substring(0, bracketOpen);
-                    if (!string.IsNullOrEmpty(tagPart) && !string.Equals(el.Tag, tagPart, StringComparison.OrdinalIgnoreCase))
-                        return false;
-                    
-                    var bracketClose = selector.IndexOf(']', bracketOpen);
-                    if (bracketClose < 0) return false;
-                    
-                    var attrExpr = selector.Substring(bracketOpen + 1, bracketClose - bracketOpen - 1);
-                    var eqPos = attrExpr.IndexOf('=');
-                    if (eqPos >= 0)
-                    {
-                        var attrName = attrExpr.Substring(0, eqPos).Trim();
-                        var attrValue = attrExpr.Substring(eqPos + 1).Trim('"', '\'', ' ');
-                        if (el.Attr == null) return false;
-                        string actualValue;
-                        return el.Attr.TryGetValue(attrName, out actualValue) && actualValue == attrValue;
-                    }
-                    else
-                    {
-                        var attrName = attrExpr.Trim();
-                        return el.Attr != null && el.Attr.ContainsKey(attrName);
-                    }
-                }
-                
-                return false;
+                if (string.IsNullOrEmpty(selector) || el == null) return false;
+                return JsDocument.MatchesSimpleSelector(el, selector.Trim());
             }
             public JSValue createElement(string tag)
             {
@@ -2691,6 +2853,37 @@ if (mHrefSet.Success)
             public void writeln(string html) { }
             public object importNode(object node, bool deep) { return null; }
             public object adoptNode(object node) { return null; }
+            public void appendChild(object child)
+            {
+                var j = child as JsDomNodeBase;
+                if (j == null || _engine._domRoot == null) return;
+                _engine._domRoot.Children.Add(j._node);
+                try { lock (_engine._mutationLock) { _engine._pendingMutations.Add(new InternalMutationRecord { Type = "childList", Target = _engine._domRoot, Added = new List<LiteElement> { j._node } }); } } catch { }
+                _engine.RequestRepaint();
+            }
+            public void removeChild(object child)
+            {
+                var j = child as JsDomNodeBase;
+                if (j == null || _engine._domRoot == null) return;
+                _engine._domRoot.Children.Remove(j._node);
+                try { lock (_engine._mutationLock) { _engine._pendingMutations.Add(new InternalMutationRecord { Type = "childList", Target = _engine._domRoot, Removed = new List<LiteElement> { j._node } }); } } catch { }
+                _engine.RequestRepaint();
+            }
+            public void insertBefore(object newChild, object refChild)
+            {
+                var jNew = newChild as JsDomNodeBase;
+                var jRef = refChild as JsDomNodeBase;
+                if (jNew == null || _engine._domRoot == null) return;
+                if (jRef == null) { _engine._domRoot.Children.Add(jNew._node); }
+                else
+                {
+                    var idx = _engine._domRoot.Children.IndexOf(jRef._node);
+                    if (idx < 0) _engine._domRoot.Children.Add(jNew._node);
+                    else _engine._domRoot.Children.Insert(idx, jNew._node);
+                }
+                try { lock (_engine._mutationLock) { _engine._pendingMutations.Add(new InternalMutationRecord { Type = "childList", Target = _engine._domRoot, Added = new List<LiteElement> { jNew._node } }); } } catch { }
+                _engine.RequestRepaint();
+            }
             public object createDocumentFragment()
             {
                 return new JsDomElement(_engine, new LiteElement("#document-fragment"));
@@ -2712,7 +2905,22 @@ if (mHrefSet.Success)
                 var doc = new JsDocument(_engine, _engine._domRoot);
                 return doc.querySelector(selector);
             }
-            public object getElementsByName(string name) { return new object[0]; }
+            public object getElementsByName(string name)
+            {
+                if (_engine._domRoot == null || string.IsNullOrEmpty(name)) return new object[0];
+                var list = new List<object>();
+                foreach (var n in _engine._domRoot.Descendants())
+                {
+                    if (n.IsText) continue;
+                    if (n.Attr != null)
+                    {
+                        string v;
+                        if (n.Attr.TryGetValue("name", out v) && string.Equals(v, name, StringComparison.Ordinal))
+                            list.Add(new JsDomElement(_engine, n));
+                    }
+                }
+                return list.ToArray();
+            }
             public object[] getElementsByClassName(string className)
             {
                 if (_engine._domRoot == null || string.IsNullOrEmpty(className)) return new object[0];
@@ -2731,6 +2939,41 @@ if (mHrefSet.Success)
             }
             public object[] getElementsByTagNameNS(string ns, string tag) { return new object[0]; }
             public object getElementByIdNS(string ns, string id) { return null; }
+            public void addEventListener(string type, JSValue callback, JSValue options)
+            {
+                if (string.IsNullOrEmpty(type) || callback == null || callback.IsNull) return;
+                System.Collections.Generic.List<JSValue> list;
+                if (!_engine._evtDocCallbacksByType.TryGetValue(type, out list) || list == null)
+                { list = new System.Collections.Generic.List<JSValue>(); _engine._evtDocCallbacksByType[type] = list; }
+                if (!list.Contains(callback)) list.Add(callback);
+            }
+            public void removeEventListener(string type, JSValue callback)
+            {
+                if (string.IsNullOrEmpty(type) || callback == null) return;
+                System.Collections.Generic.List<JSValue> list;
+                if (_engine._evtDocCallbacksByType.TryGetValue(type, out list) && list != null)
+                    list.Remove(callback);
+            }
+            public bool dispatchEvent(JSValue e)
+            {
+                try
+                {
+                    if (e == null || e.IsNull) return false;
+                    var type = "";
+                    try { type = e.ValueType == JSValueType.Object ? (e["type"]?.ToString() ?? "") : e.ToString(); } catch { }
+                    if (string.IsNullOrEmpty(type)) return false;
+                    System.Collections.Generic.List<JSValue> list;
+                    if (_engine._evtDocCallbacksByType.TryGetValue(type, out list) && list != null)
+                    {
+                        foreach (var cb in list.ToArray())
+                        {
+                            try { _engine.EnqueueMicrotask(() => { try { _engine.InvokeJsCallback(cb, type, "document"); } catch { } }); } catch { }
+                        }
+                    }
+                }
+                catch { }
+                return true;
+            }
         }
 
         private class HostConsole
@@ -3087,8 +3330,52 @@ if (mHrefSet.Success)
             _nil.DefineVariable("AbortController").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { signal = JSValue.Marshal(new { aborted = JSValue.Marshal(false) }), abort = new Func<Arguments, JSValue>(e => JSValue.Undefined) }))));
 
             // CustomEvent / Event stubs
-            _nil.DefineVariable("Event").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { type = JSValue.Marshal(""), target = JSValue.Null, currentTarget = JSValue.Null, preventDefault = new Func<Arguments, JSValue>(e => JSValue.Undefined), stopPropagation = new Func<Arguments, JSValue>(e => JSValue.Undefined) }))));
-            _nil.DefineVariable("CustomEvent").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { type = JSValue.Marshal(""), detail = JSValue.Null, target = JSValue.Null, currentTarget = JSValue.Null, preventDefault = new Func<Arguments, JSValue>(e => JSValue.Undefined), stopPropagation = new Func<Arguments, JSValue>(e => JSValue.Undefined) }))));
+            _nil.DefineVariable("Event").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a =>
+            {
+                var type = a.Length > 0 ? a[0].ToString() : "";
+                var obj = JSValue.Marshal(new { });
+                obj["type"] = JSValue.Marshal(type);
+                obj["target"] = JSValue.Null;
+                obj["currentTarget"] = JSValue.Null;
+                obj["bubbles"] = JSValue.Marshal(false);
+                obj["cancelable"] = JSValue.Marshal(false);
+                obj["defaultPrevented"] = JSValue.Marshal(false);
+                obj["preventDefault"] = JSValue.Marshal(new Func<Arguments, JSValue>(e => JSValue.Undefined));
+                obj["stopPropagation"] = JSValue.Marshal(new Func<Arguments, JSValue>(e => JSValue.Undefined));
+                obj["stopImmediatePropagation"] = JSValue.Marshal(new Func<Arguments, JSValue>(e => JSValue.Undefined));
+                obj["composed"] = JSValue.Marshal(false);
+                obj["timeStamp"] = JSValue.Marshal((double)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalMilliseconds);
+                return obj;
+            })));
+            _nil.DefineVariable("CustomEvent").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a =>
+            {
+                var type = a.Length > 0 ? a[0].ToString() : "";
+                var detail = a.Length > 1 ? a[1] : JSValue.Null;
+                var obj = JSValue.Marshal(new { });
+                obj["type"] = JSValue.Marshal(type);
+                obj["detail"] = detail;
+                obj["target"] = JSValue.Null;
+                obj["currentTarget"] = JSValue.Null;
+                var bubbles = false; var cancelable = false;
+                try
+                {
+                    if (a.Length > 2 && a[2] != null && a[2].ValueType == JSValueType.Object)
+                    {
+                        var bv = a[2]["bubbles"]; if (bv != null && !bv.IsNull && bv.ValueType == JSValueType.Boolean) bubbles = (double)bv.Value != 0;
+                        var cv = a[2]["cancelable"]; if (cv != null && !cv.IsNull && cv.ValueType == JSValueType.Boolean) cancelable = (double)cv.Value != 0;
+                    }
+                }
+                catch { }
+                obj["bubbles"] = JSValue.Marshal(bubbles);
+                obj["cancelable"] = JSValue.Marshal(cancelable);
+                obj["defaultPrevented"] = JSValue.Marshal(false);
+                obj["preventDefault"] = JSValue.Marshal(new Func<Arguments, JSValue>(e => JSValue.Undefined));
+                obj["stopPropagation"] = JSValue.Marshal(new Func<Arguments, JSValue>(e => JSValue.Undefined));
+                obj["stopImmediatePropagation"] = JSValue.Marshal(new Func<Arguments, JSValue>(e => JSValue.Undefined));
+                obj["composed"] = JSValue.Marshal(false);
+                obj["timeStamp"] = JSValue.Marshal((double)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalMilliseconds);
+                return obj;
+            })));
             _nil.DefineVariable("MessageEvent").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { data = JSValue.Null, origin = JSValue.Marshal(""), source = JSValue.Null }))));
 
             // Image / HTMLImageElement stub
@@ -3110,37 +3397,126 @@ if (mHrefSet.Success)
             _nil.DefineVariable("HTMLDocument").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { }))));
             _nil.DefineVariable("Option").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new { value = JSValue.Marshal(""), text = JSValue.Marshal("") }))));
 
-            // Expose fetch API (returns proper HostPromise)
+            // Expose fetch API (returns proper HostPromise — supports GET/POST/PUT/PATCH/DELETE)
 
             _nil.DefineVariable("fetch").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
             {
                 if (args.Length == 0) return JSValue.Undefined;
-                var url = args[0].ToString();
+
+                // Parse arguments: fetch(url) or fetch(url, options) or fetch(request)
+                string url = null;
+                string method = "GET";
+                string body = null;
+                var headers = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                var arg0 = args[0];
+                if (arg0 != null && arg0.ValueType == JSValueType.Object)
+                {
+                    // fetch(new Request(url, options)) or fetch({url, method, ...})
+                    try { url = arg0["url"]?.ToString() ?? arg0["href"]?.ToString() ?? arg0.ToString(); } catch { url = arg0.ToString(); }
+                    try { var m = arg0["method"]; if (m != null && !m.IsNull && m.ValueType != JSValueType.Undefined) method = m.ToString().ToUpperInvariant(); } catch { }
+                    try { var b = arg0["body"]; if (b != null && !b.IsNull && b.ValueType != JSValueType.Undefined) body = b.ToString(); } catch { }
+                    try
+                    {
+                        var h = arg0["headers"];
+                        if (h != null && !h.IsNull && h.ValueType == JSValueType.Object)
+                        {
+                            // Headers object or plain object
+                            var hStr = h.ToString();
+                            if (!string.IsNullOrEmpty(hStr) && hStr != "[object Object]")
+                            {
+                                // Try to iterate as object
+                                var hDict = SafeEval("(function(){var r={};try{var h=" + JsEscape(hStr, '\'') + ";for(var k in h)r[k]=h[k];}catch(e){}return r;})()");
+                                if (hDict != null && hDict.ValueType == JSValueType.Object)
+                                {
+                                    // Can't easily iterate NiL object keys from C#, so parse the string
+                                }
+                            }
+                            // Fallback: if headers is a Headers object with .get()
+                            try { var ct = h["Content-Type"]; if (ct != null && !ct.IsNull) headers["Content-Type"] = ct.ToString(); } catch { }
+                        }
+                    }
+                    catch { }
+                }
+                else
+                {
+                    url = arg0?.ToString();
+                }
+
+                // Parse options object (2nd arg)
+                if (args.Length > 1 && args[1] != null && args[1].ValueType == JSValueType.Object)
+                {
+                    var opts = args[1];
+                    try { var m = opts["method"]; if (m != null && !m.IsNull && m.ValueType != JSValueType.Undefined) method = m.ToString().ToUpperInvariant(); } catch { }
+                    try { var b = opts["body"]; if (b != null && !b.IsNull && b.ValueType != JSValueType.Undefined) body = b.ToString(); } catch { }
+                    try
+                    {
+                        var h = opts["headers"];
+                        if (h != null && !h.IsNull && h.ValueType == JSValueType.Object)
+                        {
+                            try { var ct = h["Content-Type"]; if (ct != null && !ct.IsNull) headers["Content-Type"] = ct.ToString(); } catch { }
+                            try { var ak = h["Accept"]; if (ak != null && !ak.IsNull) headers["Accept"] = ak.ToString(); } catch { }
+                        }
+                    }
+                    catch { }
+                }
+
+                if (string.IsNullOrEmpty(url)) return JSValue.Undefined;
                 var uri = Resolve(_ctx?.BaseUri, url);
                 if (uri == null) return JSValue.Undefined;
                 var capturedUri = uri;
+                var capturedMethod = method;
+                var capturedBody = body;
+                var capturedHeaders = headers;
 
                 // Create a pending HostPromise
-
-var promise = new JsMiniRunner.HostPromise { E = this, State = 0, Value = JsMiniRunner.JsVal.Null() };
+                var promise = new JsMiniRunner.HostPromise { E = this, State = 0, Value = JsMiniRunner.JsVal.Null() };
 
                 // Perform async fetch and settle the promise
                 Task.Run(async () =>
                 {
                     try
                     {
-                        var result = await FetchAsync(capturedUri, null).ConfigureAwait(false);
+                        var result = await FetchWithMethodAsync(capturedUri, capturedMethod, capturedBody, capturedHeaders).ConfigureAwait(false);
                         var resp = JSValue.Marshal(new { });
-                        resp["ok"] = JSValue.Marshal(true);
-                        resp["status"] = JSValue.Marshal(200);
-                        resp["statusText"] = JSValue.Marshal("OK");
-                        resp["text"] = JSValue.Marshal(new Func<Arguments, JSValue>(b => JSValue.Marshal(result ?? "")));
+                        resp["ok"] = JSValue.Marshal(result.Item2 >= 200 && result.Item2 < 300);
+                        resp["status"] = JSValue.Marshal(result.Item2);
+                        resp["statusText"] = JSValue.Marshal(result.Item2 >= 200 && result.Item2 < 300 ? "OK" : "Error");
+                        resp["text"] = JSValue.Marshal(new Func<Arguments, JSValue>(b => JSValue.Marshal(result.Item1 ?? "")));
                         resp["json"] = JSValue.Marshal(new Func<Arguments, JSValue>(b =>
                         {
-                            try { return SafeEval("JSON.parse(" + JsEscape(result ?? "{}", '\'') + ")"); }
+                            try { return SafeEval("JSON.parse(" + JsEscape(result.Item1 ?? "{}", '\'') + ")"); }
                             catch { return JSValue.Null; }
                         }));
-                        resp["headers"] = JSValue.Marshal(new { get = new Func<Arguments, JSValue>(h => JSValue.Marshal("text/plain")) });
+                        resp["arrayBuffer"] = JSValue.Marshal(new Func<Arguments, JSValue>(b => JSValue.Marshal(new byte[0])));
+                        resp["blob"] = resp["arrayBuffer"];
+                        resp["clone"] = JSValue.Marshal(new Func<Arguments, JSValue>(b => resp));
+                        // Real headers object
+                        var respHeaders = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        if (result.Item3 != null)
+                        {
+                            foreach (var kvp in result.Item3)
+                            {
+                                if (!string.IsNullOrEmpty(kvp.Key))
+                                    respHeaders[kvp.Key] = string.Join(", ", kvp.Value);
+                            }
+                        }
+                        var headersObj = JSValue.Marshal(new { });
+                        headersObj["get"] = JSValue.Marshal(new Func<Arguments, JSValue>(h =>
+                        {
+                            var name = h.Length > 0 ? h[0].ToString() : "";
+                            string val;
+                            return respHeaders.TryGetValue(name, out val) ? JSValue.Marshal(val) : JSValue.Null;
+                        }));
+                        headersObj["has"] = JSValue.Marshal(new Func<Arguments, JSValue>(h =>
+                        {
+                            var name = h.Length > 0 ? h[0].ToString() : "";
+                            return JSValue.Marshal(respHeaders.ContainsKey(name));
+                        }));
+                        headersObj["entries"] = JSValue.Marshal(new Func<Arguments, JSValue>(h => JSValue.Marshal(new object[0])));
+                        headersObj["keys"] = JSValue.Marshal(new Func<Arguments, JSValue>(h => JSValue.Marshal(new object[0])));
+                        headersObj["values"] = JSValue.Marshal(new Func<Arguments, JSValue>(h => JSValue.Marshal(new object[0])));
+                        resp["headers"] = headersObj;
 
                         promise.State = 1; // fulfilled
                         promise.Value = new JsMiniRunner.JsVal { Obj = resp };
@@ -3152,6 +3528,7 @@ var promise = new JsMiniRunner.HostPromise { E = this, State = 0, Value = JsMini
                         errResp["status"] = JSValue.Marshal(0);
                         errResp["statusText"] = JSValue.Marshal("Error");
                         errResp["text"] = JSValue.Marshal(new Func<Arguments, JSValue>(b => JSValue.Marshal(ex.Message ?? "")));
+                        errResp["headers"] = JSValue.Marshal(new { get = new Func<Arguments, JSValue>(h => JSValue.Null) });
 
                         promise.State = -1; // rejected
                         promise.Value = new JsMiniRunner.JsVal { Obj = errResp };
@@ -3165,6 +3542,68 @@ var promise = new JsMiniRunner.HostPromise { E = this, State = 0, Value = JsMini
 
                 // Return the promise object to JavaScript
                 return JSValue.Marshal(promise);
+            })));
+
+            // Request constructor stub
+            _nil.DefineVariable("Request").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
+            {
+                var url = args.Length > 0 ? args[0]?.ToString() ?? "" : "";
+                var obj = JSValue.Marshal(new { });
+                obj["url"] = JSValue.Marshal(url);
+                obj["method"] = JSValue.Marshal(args.Length > 1 && args[1] != null ? (args[1]["method"]?.ToString() ?? "GET") : "GET");
+                obj["headers"] = args.Length > 1 && args[1] != null ? args[1]["headers"] ?? JSValue.Marshal(new { }) : JSValue.Marshal(new { });
+                obj["body"] = args.Length > 1 && args[1] != null ? args[1]["body"] ?? JSValue.Null : JSValue.Null;
+                return obj;
+            })));
+
+            // Headers constructor
+            _nil.DefineVariable("Headers").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
+            {
+                var store = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                // Initialize from object argument
+                if (args.Length > 0 && args[0] != null && args[0].ValueType == JSValueType.Object)
+                {
+                    try
+                    {
+                        var init = args[0];
+                        // Try common header names
+                        string[] commonHeaders = { "Content-Type", "Accept", "Authorization", "X-Requested-With", "Cache-Control", "Pragma", "Origin", "Referer", "User-Agent" };
+                        foreach (var h in commonHeaders)
+                        {
+                            try { var v = init[h]; if (v != null && !v.IsNull && v.ValueType != JSValueType.Undefined) store[h] = v.ToString(); } catch { }
+                        }
+                    }
+                    catch { }
+                }
+                var headers = JSValue.Marshal(new { });
+                headers["append"] = JSValue.Marshal(new Func<Arguments, JSValue>(a =>
+                {
+                    if (a.Length >= 2) { var k = a[0].ToString(); var v = a[1].ToString(); string existing; if (store.TryGetValue(k, out existing)) store[k] = existing + ", " + v; else store[k] = v; }
+                    return JSValue.Undefined;
+                }));
+                headers["delete"] = JSValue.Marshal(new Func<Arguments, JSValue>(a =>
+                {
+                    if (a.Length >= 1) store.Remove(a[0].ToString());
+                    return JSValue.Undefined;
+                }));
+                headers["get"] = JSValue.Marshal(new Func<Arguments, JSValue>(a =>
+                {
+                    string v; return a.Length >= 1 && store.TryGetValue(a[0].ToString(), out v) ? JSValue.Marshal(v) : JSValue.Null;
+                }));
+                headers["has"] = JSValue.Marshal(new Func<Arguments, JSValue>(a =>
+                {
+                    return a.Length >= 1 ? JSValue.Marshal(store.ContainsKey(a[0].ToString())) : JSValue.Marshal(false);
+                }));
+                headers["set"] = JSValue.Marshal(new Func<Arguments, JSValue>(a =>
+                {
+                    if (a.Length >= 2) store[a[0].ToString()] = a[1].ToString();
+                    return JSValue.Undefined;
+                }));
+                headers["entries"] = JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new object[0])));
+                headers["keys"] = JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new object[0])));
+                headers["values"] = JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Marshal(new object[0])));
+                headers["forEach"] = JSValue.Marshal(new Func<Arguments, JSValue>(a => JSValue.Undefined));
+                return headers;
             })));
 
             // Expose Canvas API
@@ -3258,28 +3697,120 @@ var promise = new JsMiniRunner.HostPromise { E = this, State = 0, Value = JsMini
 
             // === Missing ES feature stubs (prevent InvalidOperationException on modern sites) ===
 
-            // WeakMap — simple dictionary-based implementation
+            // WeakMap — dictionary keyed by object identity (RuntimeHelpers.GetHashCode)
             _nil.DefineVariable("WeakMap").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
             {
-                var store = new Dictionary<string, object>();
+                var store = new Dictionary<int, JSValue>();
+                var keyList = new System.Runtime.CompilerServices.ConditionalWeakTable<object, JSValue>();
+                var reverseMap = new Dictionary<int, object>();
                 return JSValue.Marshal(new
                 {
-                    set = new Func<Arguments, JSValue>(a => { try { if (a.Length >= 2) store["v"] = a[1]; } catch { /* swallow */ } return JSValue.Undefined; }),
-                    get = new Func<Arguments, JSValue>(a => { try { if (a.Length >= 1 && store.TryGetValue("v", out var v)) return v as JSValue ?? JSValue.Undefined; } catch { /* swallow */ } return JSValue.Undefined; }),
-                    has = new Func<Arguments, JSValue>(a => { try { return JSValue.Marshal(store.ContainsKey("v")); } catch { /* swallow */ } return JSValue.Marshal(false); }),
-                    delete = new Func<Arguments, JSValue>(a => { try { return JSValue.Marshal(store.Remove("v")); } catch { /* swallow */ } return JSValue.Marshal(false); })
+                    set = new Func<Arguments, JSValue>(a =>
+                    {
+                        try
+                        {
+                            if (a.Length >= 2 && a[0] != null && !a[0].IsNull && a[0].ValueType == JSValueType.Object)
+                            {
+                                var key = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(a[0]);
+                                store[key] = a[1];
+                                reverseMap[key] = a[0];
+                            }
+                        }
+                        catch { /* swallow */ }
+                        return JSValue.Undefined;
+                    }),
+                    get = new Func<Arguments, JSValue>(a =>
+                    {
+                        try
+                        {
+                            if (a.Length >= 1 && a[0] != null && !a[0].IsNull && a[0].ValueType == JSValueType.Object)
+                            {
+                                var key = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(a[0]);
+                                JSValue v;
+                                if (store.TryGetValue(key, out v)) return v;
+                            }
+                        }
+                        catch { /* swallow */ }
+                        return JSValue.Undefined;
+                    }),
+                    has = new Func<Arguments, JSValue>(a =>
+                    {
+                        try
+                        {
+                            if (a.Length >= 1 && a[0] != null && !a[0].IsNull && a[0].ValueType == JSValueType.Object)
+                            {
+                                var key = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(a[0]);
+                                return JSValue.Marshal(store.ContainsKey(key));
+                            }
+                        }
+                        catch { /* swallow */ }
+                        return JSValue.Marshal(false);
+                    }),
+                    delete = new Func<Arguments, JSValue>(a =>
+                    {
+                        try
+                        {
+                            if (a.Length >= 1 && a[0] != null && !a[0].IsNull && a[0].ValueType == JSValueType.Object)
+                            {
+                                var key = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(a[0]);
+                                reverseMap.Remove(key);
+                                return JSValue.Marshal(store.Remove(key));
+                            }
+                        }
+                        catch { /* swallow */ }
+                        return JSValue.Marshal(false);
+                    })
                 });
             })));
 
-            // WeakSet
+            // WeakSet — set of objects keyed by identity
             _nil.DefineVariable("WeakSet").Assign(JSValue.Marshal(new Func<Arguments, JSValue>(args =>
             {
-                var store = new HashSet<string>();
+                var store = new HashSet<int>();
+                var reverseMap = new Dictionary<int, object>();
                 return JSValue.Marshal(new
                 {
-                    add = new Func<Arguments, JSValue>(a => { try { store.Add("v"); } catch { /* swallow */ } return JSValue.Undefined; }),
-                    has = new Func<Arguments, JSValue>(a => { try { return JSValue.Marshal(store.Contains("v")); } catch { /* swallow */ } return JSValue.Marshal(false); }),
-                    delete = new Func<Arguments, JSValue>(a => { try { return JSValue.Marshal(store.Remove("v")); } catch { /* swallow */ } return JSValue.Marshal(false); })
+                    add = new Func<Arguments, JSValue>(a =>
+                    {
+                        try
+                        {
+                            if (a.Length >= 1 && a[0] != null && !a[0].IsNull && a[0].ValueType == JSValueType.Object)
+                            {
+                                var key = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(a[0]);
+                                store.Add(key);
+                                reverseMap[key] = a[0];
+                            }
+                        }
+                        catch { /* swallow */ }
+                        return JSValue.Undefined;
+                    }),
+                    has = new Func<Arguments, JSValue>(a =>
+                    {
+                        try
+                        {
+                            if (a.Length >= 1 && a[0] != null && !a[0].IsNull && a[0].ValueType == JSValueType.Object)
+                            {
+                                var key = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(a[0]);
+                                return JSValue.Marshal(store.Contains(key));
+                            }
+                        }
+                        catch { /* swallow */ }
+                        return JSValue.Marshal(false);
+                    }),
+                    delete = new Func<Arguments, JSValue>(a =>
+                    {
+                        try
+                        {
+                            if (a.Length >= 1 && a[0] != null && !a[0].IsNull && a[0].ValueType == JSValueType.Object)
+                            {
+                                var key = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(a[0]);
+                                reverseMap.Remove(key);
+                                return JSValue.Marshal(store.Remove(key));
+                            }
+                        }
+                        catch { /* swallow */ }
+                        return JSValue.Marshal(false);
+                    })
                 });
             })));
 
@@ -4079,6 +4610,37 @@ if (!Object.assign) Object.assign = function(t){for(var i=1;i<arguments.length;i
 if (!Object.fromEntries) Object.fromEntries = function(e){var r={}; try { e.forEach(function(kv){ r[kv[0]] = kv[1]; }); } catch(e) { } return r};
 if (!Array.prototype.flat) Array.prototype.flat = function(d){d=void 0===d?1:d;return this.reduce(function(a,v){return a.concat(Array.isArray(v)&&d>0?v.flat(d-1):[v])},[])};
 if (!Array.prototype.flatMap) Array.prototype.flatMap = function(f){var t=this;return this.reduce(function(a,v,i){return a.concat(f.call(t,v,i,this))},[])};
+// Array.prototype.at — ES2022
+if (!Array.prototype.at) Array.prototype.at = function(i){var l=this.length;var idx=i<0?l+i:i;return idx>=0&&idx<l?this[idx]:undefined};
+// String.prototype.at — ES2022
+if (!String.prototype.at) String.prototype.at = function(i){var l=this.length;var idx=i<0?l+i:i;return idx>=0&&idx<l?this[idx]:undefined};
+// Object.hasOwn — ES2022
+if (!Object.hasOwn) Object.hasOwn = function(o,p){return Object.prototype.hasOwnProperty.call(o,p)};
+// Array.prototype.findLast — ES2023
+if (!Array.prototype.findLast) Array.prototype.findLast = function(f,t){for(var i=this.length-1;i>=0;i--){if(f.call(t,this[i],i,this))return this[i]}return undefined};
+// Array.prototype.findLastIndex — ES2023
+if (!Array.prototype.findLastIndex) Array.prototype.findLastIndex = function(f,t){for(var i=this.length-1;i>=0;i--){if(f.call(t,this[i],i,this))return i}return -1};
+// String.prototype.padStart — ES2017
+if (!String.prototype.padStart) String.prototype.padStart = function(l,p){p=p||' ';var s=this;while(s.length<l)s=p+s;return s};
+// String.prototype.padEnd — ES2017
+if (!String.prototype.padEnd) String.prototype.padEnd = function(l,p){p=p||' ';var s=this;while(s.length<l)s=s+p;return s};
+// structuredClone — basic (deep copy via JSON)
+if (typeof structuredClone === 'undefined') { try { structuredClone = function(v){return JSON.parse(JSON.stringify(v))}; } catch(e) {} }
+// Promise.allSettled — ES2020
+if (typeof Promise !== 'undefined' && !Promise.allSettled) { Promise.allSettled = function(ps){return Promise.all(ps.map(function(p){return Promise.resolve(p).then(function(v){return {status:'fulfilled',value:v}},function(e){return {status:'rejected',reason:e}})}))}; }
+// Array.prototype.includes — ES2016
+if (!Array.prototype.includes) Array.prototype.includes = function(v,f){var a=this;var l=a.length;var i=f||0;for(;i<l;i++){if(a[i]===v||(a[i]!==a[i]&&v!==v))return true}return false};
+// Object.entries — ES2017
+if (!Object.entries) Object.entries = function(o){var r=[];for(var k in o)if(Object.prototype.hasOwnProperty.call(o,k))r.push([k,o[k]]);return r};
+// Object.values — ES2017
+if (!Object.values) Object.values = function(o){var r=[];for(var k in o)if(Object.prototype.hasOwnProperty.call(o,k))r.push(o[k]);return r};
+// Number.isNaN — ES2015
+if (!Number.isNaN) Number.isNaN = function(v){return typeof v === 'number' && v !== v};
+// Number.isFinite — ES2015
+if (!Number.isFinite) Number.isFinite = function(v){return typeof v === 'number' && isFinite(v)};
+// Number.parseInt / Number.parseFloat — ES2015
+if (!Number.parseInt) Number.parseInt = parseInt;
+if (!Number.parseFloat) Number.parseFloat = parseFloat;
 ");
             }
             catch { System.Diagnostics.Debug.WriteLine("[NiLJS] Polyfill injection failed"); }
@@ -9378,7 +9940,149 @@ public bool Execute(string code)
                 }
                 if (obj.Obj is HostStyle)
                 {
-                    if (name == "setProperty") { var hs = (HostStyle)obj.Obj; return new JsVal { Obj = new HostFunc(args => { string prop = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); string val = ToStr(args.Count > 1 ? args[1] : JsVal.Null()); try { if (!string.IsNullOrEmpty(hs.Id)) _e.TryUpdateInlineStyle(hs.Id, prop, val); else if (hs.Node != null) { var style = hs.Node.GetAttribute("style") ?? ""; var dict = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase); foreach (var part in style.Split(new[] {';'}, StringSplitOptions.RemoveEmptyEntries)) { var kv = part.Split(new[]{':'},2); if (kv.Length==2) dict[kv[0].Trim()] = kv[1].Trim(); } dict[prop]=val??""; var sb=new StringBuilder(); bool first=true; foreach(var kv in dict){ if(!first) sb.Append(';'); first=false; sb.Append(kv.Key).Append(':').Append(kv.Value);} hs.Node.SetAttribute("style", sb.ToString()); } } catch { /* swallow */ } return JsVal.Null(); }) }; }
+                    var hs = (HostStyle)obj.Obj;
+                    // cssText — get/set the full style attribute string
+                    if (name == "cssText")
+                    {
+                        return new JsVal
+                        {
+                            Obj = new HostFunc(args =>
+                            {
+                                if (args.Count > 0)
+                                {
+                                    // setter: set the entire style string
+                                    var val = ToStr(args[0]);
+                                    try
+                                    {
+                                        if (!string.IsNullOrEmpty(hs.Id)) _e.TryUpdateInlineStyle(hs.Id, "", val);
+                                        else if (hs.Node != null) hs.Node.SetAttribute("style", val ?? "");
+                                    }
+                                    catch { }
+                                    return JsVal.Null();
+                                }
+                                // getter: return the current style string
+                                string styleStr = "";
+                                try { if (hs.Node != null) styleStr = hs.Node.GetAttribute("style") ?? ""; } catch { }
+                                return JsVal.FromStr(styleStr);
+                            })
+                        };
+                    }
+                    // length — number of style declarations
+                    if (name == "length")
+                    {
+                        int count = 0;
+                        try
+                        {
+                            if (hs.Node != null)
+                            {
+                                var style = hs.Node.GetAttribute("style") ?? "";
+                                if (!string.IsNullOrWhiteSpace(style))
+                                    count = style.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Length;
+                            }
+                        }
+                        catch { }
+                        return JsVal.FromNum(count);
+                    }
+                    // item(index) — return the property name at index
+                    if (name == "item")
+                    {
+                        return new JsVal
+                        {
+                            Obj = new HostFunc(args =>
+                            {
+                                int idx = args.Count > 0 ? (int)args[0].Num : 0;
+                                try
+                                {
+                                    if (hs.Node != null)
+                                    {
+                                        var style = hs.Node.GetAttribute("style") ?? "";
+                                        var parts = style.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+                                        if (idx >= 0 && idx < parts.Length)
+                                        {
+                                            var kv = parts[idx].Split(new[] { ':' }, 2);
+                                            if (kv.Length >= 1) return JsVal.FromStr(kv[0].Trim());
+                                        }
+                                    }
+                                }
+                                catch { }
+                                return JsVal.Null();
+                            })
+                        };
+                    }
+                    // removeProperty(prop) — remove a property and return its old value
+                    if (name == "removeProperty")
+                    {
+                        return new JsVal
+                        {
+                            Obj = new HostFunc(args =>
+                            {
+                                var prop = ToStr(args.Count > 0 ? args[0] : JsVal.Null());
+                                string oldVal = "";
+                                try
+                                {
+                                    if (hs.Node != null)
+                                    {
+                                        var style = hs.Node.GetAttribute("style") ?? "";
+                                        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                                        foreach (var part in style.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                                        {
+                                            var kv = part.Split(new[] { ':' }, 2);
+                                            if (kv.Length == 2) dict[kv[0].Trim()] = kv[1].Trim();
+                                        }
+                                        if (dict.TryGetValue(prop, out oldVal)) dict.Remove(prop);
+                                        var sb = new StringBuilder();
+                                        bool first = true;
+                                        foreach (var kv2 in dict) { if (!first) sb.Append(';'); first = false; sb.Append(kv2.Key).Append(':').Append(kv2.Value); }
+                                        hs.Node.SetAttribute("style", sb.ToString());
+                                    }
+                                }
+                                catch { }
+                                return JsVal.FromStr(oldVal);
+                            })
+                        };
+                    }
+                    if (name == "setProperty") { return new JsVal { Obj = new HostFunc(args => { string prop = ToStr(args.Count > 0 ? args[0] : JsVal.Null()); string val = ToStr(args.Count > 1 ? args[1] : JsVal.Null()); try { if (!string.IsNullOrEmpty(hs.Id)) _e.TryUpdateInlineStyle(hs.Id, prop, val); else if (hs.Node != null) { var style = hs.Node.GetAttribute("style") ?? ""; var dict = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase); foreach (var part in style.Split(new[] {';'}, StringSplitOptions.RemoveEmptyEntries)) { var kv = part.Split(new[]{':'},2); if (kv.Length==2) dict[kv[0].Trim()] = kv[1].Trim(); } dict[prop]=val??""; var sb=new StringBuilder(); bool first=true; foreach(var kv in dict){ if(!first) sb.Append(';'); first=false; sb.Append(kv.Key).Append(':').Append(kv.Value);} hs.Node.SetAttribute("style", sb.ToString()); } } catch { /* swallow */ } return JsVal.Null(); }) }; }
+                    if (name == "getPropertyValue")
+                    {
+                        return new JsVal
+                        {
+                            Obj = new HostFunc(args =>
+                            {
+                                var prop = ToStr(args.Count > 0 ? args[0] : JsVal.Null());
+                                try
+                                {
+                                    if (hs.Node != null)
+                                    {
+                                        var style = hs.Node.GetAttribute("style") ?? "";
+                                        foreach (var part in style.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                                        {
+                                            var kv = part.Split(new[] { ':' }, 2);
+                                            if (kv.Length == 2 && string.Equals(kv[0].Trim(), prop, StringComparison.OrdinalIgnoreCase))
+                                                return JsVal.FromStr(kv[1].Trim());
+                                        }
+                                    }
+                                }
+                                catch { }
+                                return JsVal.FromStr("");
+                            })
+                        };
+                    }
+                    // Reading individual style properties (e.g., el.style.width)
+                    try
+                    {
+                        if (hs.Node != null)
+                        {
+                            var style = hs.Node.GetAttribute("style") ?? "";
+                            var propName = name.Replace("Float", "");
+                            foreach (var part in style.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                            {
+                                var kv = part.Split(new[] { ':' }, 2);
+                                if (kv.Length == 2 && string.Equals(kv[0].Trim(), propName, StringComparison.OrdinalIgnoreCase))
+                                    return JsVal.FromStr(kv[1].Trim());
+                            }
+                        }
+                    }
+                    catch { }
                     return JsVal.Null();
                 }
                 if (obj.Obj is HostClassList)
@@ -10145,81 +10849,249 @@ public bool Execute(string code)
 
             internal static bool MatchesSimpleSelector(LiteElement n, string sel)
             {
-                if (string.IsNullOrWhiteSpace(sel)) return false;
+                if (string.IsNullOrWhiteSpace(sel) || n == null) return false;
+                sel = sel.Trim();
 
-                // Adjacent sibling selector a + b or general sibling a ~ b
-                if (sel.Contains("+") || sel.Contains("~"))
+                // Handle :not() pseudo-class
+                if (sel.StartsWith(":not(", StringComparison.OrdinalIgnoreCase) && sel.EndsWith(")"))
                 {
-                    // handle e.g. "div + p" or "li ~ li"
+                    var inner = sel.Substring(5, sel.Length - 6).Trim();
+                    return !MatchesSimpleSelector(n, inner);
+                }
+
+                // Handle adjacent sibling: "a + b" or general sibling: "a ~ b"
+                if (sel.Contains(" + ") || sel.Contains(" ~ "))
+                {
                     var parts = sel.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
                     if (parts.Length == 3 && (parts[1] == "+" || parts[1] == "~"))
                     {
-                        var a = parts[0];
-                        var op = parts[1];
-                        var b = parts[2];
-                        // This function is called per candidate element 'n'   check if n matches 'b' and has preceding sibling matching 'a'
+                        var a = parts[0]; var op = parts[1]; var b = parts[2];
                         if (!MatchesSimpleSelector(n, b)) return false;
                         var parent = FindParent(n);
                         if (parent == null) return false;
                         var siblings = parent.Children;
                         int idx = siblings.IndexOf(n);
                         if (idx <= 0) return false;
-                        if (op == "+")
+                        if (op == "+") return MatchesSimpleSelector(siblings[idx - 1], a);
+                        for (int i = 0; i < idx; i++) if (MatchesSimpleSelector(siblings[i], a)) return true;
+                        return false;
+                    }
+                }
+
+                // Handle descendant selector with child combinator: "a > b"
+                // (not supported as a simple selector, skip gracefully)
+                if (sel.Contains(" > ")) return false;
+
+                // --- Parse compound selector: tag, #id, .class, [attr], :pseudo, or combination ---
+                string matchTag = null;
+                string matchId = null;
+                var matchClasses = new List<string>();
+                var matchAttrs = new List<AttrSelector>();
+                var matchPseudo = new List<string>();
+
+                // Split selector into parts by '#' '.' '[' ':'
+                // But we need to be careful: "#foo.bar" means tag=None id=foo class=bar
+                // "div.foo#bar" means tag=div class=foo id=bar
+                // ".foo.bar" means class=foo class=bar
+                // "div[data-x]" means tag=div attr=data-x
+                // "li:first-child" means tag=li pseudo=first-child
+                // "li:nth-child(2)" means tag=li pseudo:nth-child(2)
+                // "div:not(.hidden)" means tag=div pseudo:not(.hidden)
+
+                var idx2 = 0;
+                while (idx2 < sel.Length)
+                {
+                    var c = sel[idx2];
+                    if (c == '#')
+                    {
+                        // id
+                        idx2++;
+                        var start = idx2;
+                        while (idx2 < sel.Length && IsSelectorChar(sel[idx2])) idx2++;
+                        matchId = sel.Substring(start, idx2 - start);
+                    }
+                    else if (c == '.')
+                    {
+                        // class
+                        idx2++;
+                        var start = idx2;
+                        while (idx2 < sel.Length && IsSelectorChar(sel[idx2])) idx2++;
+                        matchClasses.Add(sel.Substring(start, idx2 - start));
+                    }
+                    else if (c == '[')
+                    {
+                        // attribute selector
+                        idx2++;
+                        var start = idx2;
+                        while (idx2 < sel.Length && sel[idx2] != ']') idx2++;
+                        var attrExpr = sel.Substring(start, idx2 - start);
+                        if (idx2 < sel.Length) idx2++; // skip ']'
+                        var eqPos = attrExpr.IndexOf('=');
+                        if (eqPos >= 0)
                         {
-                            var prev = siblings[idx - 1];
-                            return MatchesSimpleSelector(prev, a);
+                            var attrName = attrExpr.Substring(0, eqPos).Trim();
+                            var attrOp = "=";
+                            if (attrName.EndsWith("^")) { attrOp = "^="; attrName = attrName.TrimEnd('^'); }
+                            else if (attrName.EndsWith("$")) { attrOp = "$="; attrName = attrName.TrimEnd('$'); }
+                            else if (attrName.EndsWith("*")) { attrOp = "*="; attrName = attrName.TrimEnd('*'); }
+                            else if (attrName.EndsWith("~")) { attrOp = "~="; attrName = attrName.TrimEnd('~'); }
+                            else if (attrName.EndsWith("|")) { attrOp = "|="; attrName = attrName.TrimEnd('|'); }
+                            var attrVal = attrExpr.Substring(eqPos + 1).Trim('"', '\'', ' ');
+                            matchAttrs.Add(new AttrSelector { Name = attrName, Op = attrOp, Value = attrVal });
                         }
                         else
                         {
-                            for (int i = 0; i < idx; i++) if (MatchesSimpleSelector(siblings[i], a)) return true;
-                            return false;
+                            matchAttrs.Add(new AttrSelector { Name = attrExpr.Trim(), Op = null, Value = null });
                         }
                     }
+                    else if (c == ':')
+                    {
+                        // pseudo-class
+                        idx2++;
+                        var start = idx2;
+                        while (idx2 < sel.Length && sel[idx2] != '(' && sel[idx2] != '.' && sel[idx2] != '#' && sel[idx2] != '[' && sel[idx2] != ':' && sel[idx2] != ' ' && sel[idx2] != '+' && sel[idx2] != '~' && sel[idx2] != '>') idx2++;
+                        var pseudoName = sel.Substring(start, idx2 - start);
+                        if (idx2 < sel.Length && sel[idx2] == '(')
+                        {
+                            idx2++;
+                            var parenStart = idx2;
+                            int depth = 1;
+                            while (idx2 < sel.Length && depth > 0) { if (sel[idx2] == '(') depth++; if (sel[idx2] == ')') depth--; idx2++; }
+                            var pseudoArg = sel.Substring(parenStart, idx2 - parenStart - 1);
+                            matchPseudo.Add(pseudoName + "(" + pseudoArg + ")");
+                        }
+                        else
+                        {
+                            matchPseudo.Add(pseudoName);
+                        }
+                    }
+                    else if (matchTag == null && IsSelectorChar(c))
+                    {
+                        // tag name
+                        var start = idx2;
+                        while (idx2 < sel.Length && IsSelectorChar(sel[idx2])) idx2++;
+                        matchTag = sel.Substring(start, idx2 - start);
+                    }
+                    else
+                    {
+                        idx2++;
+                    }
                 }
 
-                // attribute selectors and tag
-                // supported forms:
-                // tag, tag[attr], tag[attr='val'], tag[attr^='val'], tag[attr$='val'], tag[attr*='val'], tag[attr~='val'], tag[attr|='val']
-                var m = System.Text.RegularExpressions.Regex.Match(sel,
-                    @"^(?:(?<tag>[a-zA-Z0-9_-]+))?(?:\[(?<attr>[a-zA-Z0-9_-]+)(?:(?<op>\^=|\$=|\*=|~=|\|=|=)(?:'(?<val1>[^']*)'|""(?<val2>[^""]*)""))?\])?$");
-                if (m.Success)
+                // Match tag
+                if (matchTag != null && !string.Equals(n.Tag, matchTag, StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                // Match id
+                if (matchId != null)
                 {
-                    var tag = m.Groups["tag"].Value;
-                    var attr = m.Groups["attr"].Value;
-                    var op = m.Groups["op"].Value;
-                    var val = m.Groups["val1"].Success ? m.Groups["val1"].Value : (m.Groups["val2"].Success ? m.Groups["val2"].Value : null);
-                    if (!string.IsNullOrEmpty(tag) && !string.Equals(n.Tag, tag, StringComparison.OrdinalIgnoreCase)) return false;
-                    if (string.IsNullOrEmpty(attr)) return true;
+                    string idVal;
+                    if (n.Attr == null || !n.Attr.TryGetValue("id", out idVal) || !string.Equals(idVal, matchId, StringComparison.Ordinal))
+                        return false;
+                }
+
+                // Match classes
+                foreach (var cls in matchClasses)
+                {
+                    string classVal;
+                    if (n.Attr == null || !n.Attr.TryGetValue("class", out classVal) || string.IsNullOrEmpty(classVal))
+                        return false;
+                    var parts = classVal.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    bool found = false;
+                    for (int i = 0; i < parts.Length; i++)
+                        if (string.Equals(parts[i], cls, StringComparison.Ordinal)) { found = true; break; }
+                    if (!found) return false;
+                }
+
+                // Match attributes
+                foreach (var attr in matchAttrs)
+                {
                     if (n.Attr == null) return false;
-                    string av; if (!n.Attr.TryGetValue(attr, out av)) return false;
-                    if (string.IsNullOrEmpty(op))
+                    string av;
+                    if (!n.Attr.TryGetValue(attr.Name, out av)) return false;
+                    if (attr.Op == null) continue; // presence check passed
+                    if (attr.Op == "=" && !string.Equals(av, attr.Value, StringComparison.Ordinal)) return false;
+                    if (attr.Op == "^=" && (av == null || !av.StartsWith(attr.Value, StringComparison.Ordinal))) return false;
+                    if (attr.Op == "$=" && (av == null || !av.EndsWith(attr.Value, StringComparison.Ordinal))) return false;
+                    if (attr.Op == "*=" && (av == null || av.IndexOf(attr.Value, StringComparison.Ordinal) < 0)) return false;
+                    if (attr.Op == "~=")
                     {
-                        // presence or exact match if value provided
-                        if (val == null) return !string.IsNullOrEmpty(av);
-                        return string.Equals(av, val, StringComparison.Ordinal);
+                        var parts = (av ?? "").Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                        bool found = false;
+                        for (int i = 0; i < parts.Length; i++)
+                            if (string.Equals(parts[i], attr.Value, StringComparison.Ordinal)) { found = true; break; }
+                        if (!found) return false;
                     }
-                    switch (op)
+                    if (attr.Op == "|=" && (av == null || (!string.Equals(av, attr.Value, StringComparison.Ordinal) && !av.StartsWith(attr.Value + "-", StringComparison.Ordinal)))) return false;
+                }
+
+                // Match pseudo-classes
+                foreach (var pseudo in matchPseudo)
+                {
+                    if (pseudo == "first-child")
                     {
-                        case "^=": return av != null && av.StartsWith(val, StringComparison.Ordinal);
-                        case "$=": return av != null && av.EndsWith(val, StringComparison.Ordinal);
-                        case "*=": return av != null && av.IndexOf(val, StringComparison.Ordinal) >= 0;
-                        case "~=":
-                            {
-                                var parts = (av ?? "").Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                                foreach (var p in parts) if (string.Equals(p, val, StringComparison.Ordinal)) return true;
-                                return false;
-                            }
-                        case "|=":
-                            return av != null && (string.Equals(av, val, StringComparison.Ordinal) || (av.StartsWith(val + "-", StringComparison.Ordinal)));
-                        case "=":
-                            return string.Equals(av, val, StringComparison.Ordinal);
-                        default:
-                            return false;
+                        var parent = FindParent(n);
+                        if (parent == null || parent.Children.Count == 0 || parent.Children[0] != n) return false;
+                    }
+                    else if (pseudo == "last-child")
+                    {
+                        var parent = FindParent(n);
+                        if (parent == null || parent.Children.Count == 0 || parent.Children[parent.Children.Count - 1] != n) return false;
+                    }
+                    else if (pseudo.StartsWith("nth-child("))
+                    {
+                        var arg = pseudo.Substring(10, pseudo.Length - 11).Trim();
+                        int nth;
+                        if (!int.TryParse(arg, out nth)) return false;
+                        var parent = FindParent(n);
+                        if (parent == null) return false;
+                        var childIdx = parent.Children.IndexOf(n) + 1; // 1-based
+                        if (childIdx != nth) return false;
+                    }
+                    else if (pseudo.StartsWith("nth-last-child("))
+                    {
+                        var arg = pseudo.Substring(15, pseudo.Length - 16).Trim();
+                        int nth;
+                        if (!int.TryParse(arg, out nth)) return false;
+                        var parent = FindParent(n);
+                        if (parent == null) return false;
+                        var childIdx = parent.Children.Count - parent.Children.IndexOf(n); // 1-based from end
+                        if (childIdx != nth) return false;
+                    }
+                    else if (pseudo == "empty")
+                    {
+                        if (n.Children.Count > 0) return false;
+                    }
+                    else if (pseudo.StartsWith(":not("))
+                    {
+                        var inner = pseudo.Substring(5, pseudo.Length - 6);
+                        if (MatchesSimpleSelector(n, inner)) return false;
+                    }
+                    // :hover, :focus, :active — always false in static rendering
+                    else if (pseudo == "hover" || pseudo == "focus" || pseudo == "active" || pseudo == "visited" || pseudo == "link")
+                    {
+                        return false;
+                    }
+                    // :root — match if parent is DOCUMENT
+                    else if (pseudo == "root")
+                    {
+                        return n.Parent != null && n.Parent.Tag == "#document";
                     }
                 }
 
-                // fallback: tag name only
-                return string.Equals(n.Tag, sel, StringComparison.OrdinalIgnoreCase);
+                return true;
+            }
+
+            private static bool IsSelectorChar(char c)
+            {
+                return char.IsLetterOrDigit(c) || c == '-' || c == '_';
+            }
+
+            private struct AttrSelector
+            {
+                public string Name;
+                public string Op; // =, ^=, $=, *=, ~=, |=, or null for presence
+                public string Value;
             }
 
             private static LiteElement FindParent(LiteElement n)

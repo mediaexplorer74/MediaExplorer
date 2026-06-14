@@ -1215,6 +1215,8 @@ namespace WEBVIEW.Engine
             css.Overflow = Safe(DictGet(css.Map, "overflow"));
             if (string.IsNullOrEmpty(css.Overflow)) css.Overflow = "visible";
 
+            css.BorderCollapse = Safe(DictGet(css.Map, "border-collapse"));
+
             css.TextDecoration = Safe(DictGet(css.Map, "text-decoration"));
             css.WhiteSpace = Safe(DictGet(css.Map, "white-space"));
             css.ListStyleType = Safe(DictGet(css.Map, "list-style-type"));

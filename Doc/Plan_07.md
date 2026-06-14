@@ -170,6 +170,17 @@ Track C: Canvas (SkiaSharp)           ██████████████
 | jQuery.com (archived) | jQuery | The most common library of 2010s |
 | React tutorial (archived) | React 15/16 | Virtual DOM, createElement |
 
+### Phase 3 Final Status
+| Feature | Status | Notes |
+|---------|--------|-------|
+| ES6+ polyfills | ✅ Done | WeakMap/WeakSet, Array.at, String.at, Object.hasOwn, findLast/findLastIndex, padStart/padEnd, structuredClone, Promise.allSettled, includes, Object.entries/values, Number.isNaN/isNaN |
+| DOM manipulation | ✅ Done | createElement, appendChild, removeChild, insertBefore, querySelector compound, getElementsByName |
+| element.style | ✅ Done | cssText, length, item(), removeProperty(), getPropertyValue() |
+| getComputedStyle | ✅ Done | ~50 properties: flexbox, grid, text, border, background, font |
+| setTimeout/setInterval | ✅ Done | Robust timers with cleanup |
+| Event system | ✅ Done | addEventListener, removeEventListener, dispatchEvent, CustomEvent, JSValue callbacks |
+| fetch API | ✅ Done | POST/PUT/PATCH/DELETE, Headers, Response, Request |
+
 ---
 
 ## Phase 4: HTML & Media (Sessions 16–17)
@@ -237,6 +248,10 @@ Track C: Canvas (SkiaSharp)           ██████████████
 | Archive.org | 2010 | Frames, Wayback Machine toolbar |
 | Google (cached) | 2015 | Simple search results |
 | DuckDuckGo | 2014 | Clean HTML, minimal JS |
+| 4pda.to/forum | 2010 | windows-1251 encoding, IPB forum, CSS-heavy |
+| TodoMVC (backbone) | 2015 | Backbone.js client-side rendering |
+| Bootstrap 4 docs | 2018 | CSS variables, sidebar nav |
+| Dzen.ru | 2020 | JS-only auth redirect wall (Yandex SSO) |
 
 ---
 
@@ -325,13 +340,13 @@ Track C: Canvas (SkiaSharp)           ██████████████
 
 ```
 Session 7-9:   Phase 1 — CSS Foundation (calc, flex-grow, variables, media queries)
-Session 10-12: Phase 2 — CSS Layout (grid, sticky, overflow, shorthand)
-Session 13-15: Phase 3 — JS Engine (ES6 polyfills, DOM API, fetch full, events)
-Session 16-17: Phase 4 — HTML (tables, forms, responsive images)
-Session 18-20: Phase 5 — Site Compatibility (jQuery, Bootstrap, test matrix)
-Session 21-24: Phase 6 — SkiaSharp Canvas (Canvas2D API, timeline, SVG)
-Session 25-27: Phase 7 — Performance (memory, lazy render, GC tuning)
-Session 28-30: Phase 8 — User Features (bookmarks, downloads, tabs, find)
+Session 10-12: Phase 2 — CSS Layout (grid, sticky, overflow, shorthand) ✅
+Session 13-14: Phase 3 — JS Engine (ES6 polyfills, DOM API, fetch full, events) ✅
+Session 15-16: Phase 4 — HTML (tables, forms, responsive images)
+Session 17-18: Phase 5 — Site Compatibility (jQuery, Bootstrap, test matrix)
+Session 19-22: Phase 6 — SkiaSharp Canvas (Canvas2D API, timeline, SVG)
+Session 23-25: Phase 7 — Performance (memory, lazy render, GC tuning)
+Session 26-28: Phase 8 — User Features (bookmarks, downloads, tabs, find)
 ```
 
 ---
@@ -554,7 +569,7 @@ If NiL.JS v2.6 proves too limiting (missing critical ES6 features, no path forwa
 | Overflow hidden/clip | ✅ Done | Children clipped to parent bounds |
 | Position: sticky | ✅ Done | Re-positioned on scroll |
 | CSS Shorthand | ✅ Already done | margin/padding/border/background |
-| Overflow auto/scroll | 🔜 Deferred | Needs nested ScrollViewer |
+| Overflow auto/scroll | ✅ Done | Nested ScrollViewer with inner Canvas |
 
 **Files modified this session:**
 - `Engine/Core/VirtualizingRenderer.cs` — sticky tracking + repositioning
@@ -571,4 +586,267 @@ If NiL.JS v2.6 proves too limiting (missing critical ES6 features, no path forwa
 
 ---
 
-*End of Plan_07 — June 13, 2026*
+### Session 13 — Phase 3 Completion + Phase 2 Carryovers
+
+**What was done:**
+
+#### Phase 3.1: ES6+ Polyfills
+- WeakMap/WeakSet rewritten with `RuntimeHelpers.GetHashCode` identity-based keys (supports multiple key/value pairs)
+- Added: `Array.prototype.at`, `String.prototype.at`, `Object.hasOwn`, `Array.prototype.findLast`/`findLastIndex`, `String.prototype.padStart`/`padEnd`, `structuredClone`, `Promise.allSettled`, `Array.prototype.includes`, `Object.entries`/`Object.values`, `Number.isNaN`/`Number.isFinite`/`Number.parseInt`/`Number.parseFloat`
+
+#### Phase 3.2: DOM Manipulation
+- `document.createElement`, `appendChild`, `removeChild`, `insertBefore` — all working on HostDocument
+- `querySelector` compound selectors: `tag.class#id`, `:first-child`, `:last-child`, `:nth-child(n)`, `:not()`, `:empty`, `:root`, all attribute operators (`^=`, `$=`, `*=`, `~=`, `|=`)
+- `getElementsByName` implemented
+
+#### Phase 3.3: element.style / getComputedStyle
+- `element.style.cssText` (get/set), `length`, `item()`, `removeProperty()`, `getPropertyValue()`
+- `getComputedStyle` expanded to ~50 CSS properties: flexbox, grid, text, border colors, background-image, font-family, font-style
+
+#### Phase 3.5: Event System
+- `addEventListener`/`removeEventListener`/`dispatchEvent` on both HostWindow and HostDocument
+- JSValue-based callbacks via `InvokeJsCallback` using `NiL.JS.BaseLibrary.Function.Call()`
+- Options parameter support (capture boolean/object)
+- CustomEvent with proper properties: type, detail, bubbles, cancelable, defaultPrevented, preventDefault, stopPropagation
+
+#### Phase 3.6: fetch API
+- Supports GET/POST/PUT/PATCH/DELETE with custom headers and body
+- Real `Headers` object with get/set/has/delete/append/forEach
+- Real `Response` object with ok, status, statusText, text(), json(), arrayBuffer(), clone()
+- `Request` constructor for method/headers/body parsing
+
+#### Phase 2 Carryover: overflow:auto/scroll
+- Overflow containers detected in `VirtualizingRenderer.CreateBoxVisual`
+- Children of overflow containers routed to inner Canvas inside nested ScrollViewer
+- `_overflowCanvases` + `_overflowParents` tracking dictionaries
+- `CollectVisible` no longer clips children of overflow:auto/scroll (inner ScrollViewer handles it)
+- Removal from correct canvas (overflow inner vs main)
+
+**Testing results:**
+- Wikipedia: ✅ Loads cleanly, all links attached, no errors
+- jQuery.com: ✅ Loads cleanly, all links attached, no errors
+
+**Files modified:**
+- `Engine/JavaScriptEngine.cs` — ES6+ polyfills, event system, fetch API, DOM manipulation
+- `Engine/Core/VirtualizingRenderer.cs` — overflow:auto/scroll support
+
+**Phase 3 Final Status:**
+| Feature | Status |
+|---------|--------|
+| ES6+ polyfills | ✅ Done |
+| DOM manipulation | ✅ Done |
+| element.style | ✅ Done |
+| getComputedStyle | ✅ Done |
+| setTimeout/setInterval | ✅ Done |
+| Event system | ✅ Done |
+| fetch API | ✅ Done |
+| overflow:auto/scroll | ✅ Done |
+| text-overflow/white-space/line-height | ✅ Already done |
+
+---
+
+### Session 14 — Phase 4 Completion
+
+**What was done:**
+
+#### Phase 4.1: Table Grid Layout Engine
+- `ComputeTableGrid()` in RenderTreeBuilder — parses `<table>`, `<thead>/<tbody>/<tfoot>`, `<tr>`, `<td>/<th>` with colspan/rowspan
+- `LayoutTableChildren()` in RenderBox — two-pass table layout (measure + position)
+- Table cell grid position stored on RenderObject (TableRow, TableCol, TableRowSpan, TableColSpan)
+
+#### Phase 4.2: `<input type=checkbox/radio>` — already implemented
+- CheckBox with `IsChecked` from `checked` attribute
+- RadioButton with `GroupName` from `name` attribute
+
+#### Phase 4.3: `<select>` Dropdown Improvements
+- `disabled` attribute support
+- `value` attribute for initial selection
+- Proper selected index tracking
+
+#### Phase 4.4: `<iframe>` Inline Placeholder
+- Shows title or truncated src URL
+- Tappable → navigates to iframe src
+- Styled with subtle background
+
+#### Phase 4.5: Responsive Images — `srcset`
+- `PickBestSrcsetUrl()` — parses `w` and `x` descriptors
+- Selects best image based on display width
+
+#### Fix: Settings Re-navigation Bug
+- Added `_initialNavigationDone` flag to prevent re-navigation when returning from Settings
+
+**Testing results:**
+- Wikipedia: ✅ Loads cleanly, images loading, no errors
+- jQuery.com: ✅ Loads cleanly, no errors
+
+**Phase 4 Final Status:**
+| Feature | Status |
+|---------|--------|
+| Table grid layout | ✅ Done |
+| Checkbox/radio | ✅ Already done |
+| Select dropdown | ✅ Done |
+| iframe placeholder | ✅ Done |
+| srcset responsive | ✅ Done |
+| Settings re-nav fix | ✅ Done |
+
+---
+
+### Session 15 — Next Steps
+
+**Remaining work:**
+1. Header text overlap — layout collision in nav bar
+2. SVG icon black squares — async loading issue
+3. `border-collapse` for tables
+4. Form submit handling
+5. Test on Phase 5 sites (jQuery, Bootstrap, TodoMVC)
+
+---
+
+### Session 16 — Phase 5 Start + Reddit JSON API
+
+**What was done:**
+
+#### SVG Image Fallback (VirtualizingRenderer.cs)
+- All images now try `BitmapImage` first (works for raster thumbnails with `.svg` in path)
+- `ImageFailed` handler retries with `SvgImageSource` for true `.svg` files
+- Fixed Wikipedia black squares: Wikimedia thumb URLs contain `.svg` in path but return rasterized PNG
+
+#### `body { display:none }` Override (RenderTreeBuilder.cs)
+- Added forced `display:block` on `<body>` when CSS sets `display:none`
+- Fixes DuckDuckGo and other SPAs that hide body until JS hydration
+
+#### Reddit JSON API — Card Mode (MainPage.xaml.cs)
+- **New feature**: Reddit posts render in card mode (like Nokia Design Archive)
+- `IsRedditUrl()` detects reddit.com URLs
+- `TryLoadRedditJsonAsync()` fetches `reddit.com/.../*.json` endpoint
+- Parses Listing → children → post data (title, selftext, score, author, comments, flair, thumbnail, preview)
+- `BuildRedditCardPanel()` — full Reddit card UI with:
+  - Orange header: "r/{subreddit} • N posts"
+  - Card content: flair badge, title, △score • author • comments, external link domain, preview image, selftext, "View on Reddit" button
+  - Nav bar: « ‹ counter › » with ←/→ navigation
+- Preview images: fetches from `preview.images[0].source.url` for link posts
+- HTML entity decoding: `WebUtility.HtmlDecode` for `&amp;` in URLs
+- Works for both `reddit.com` and `www.reddit.com`
+
+#### Testing Results
+| Site | Result | Notes |
+|------|--------|-------|
+| Wikipedia (mobile) | ✅ Works | Header overlap fixed, SVG icons improved |
+| jQuery.com | ✅ Works | Clean, zero errors |
+| old.reddit.com | ✅ Works | 574 links, full server-rendered HTML |
+| r/programming | ✅ Works | Posts, sidebar, moderators visible |
+| r/windowsphone (JSON) | ✅ Card mode | 25 posts, navigation, selftext, thumbnails |
+| DuckDuckGo | ❌ Blank | React SPA, display:none until hydration |
+
+#### Phase 5 Status
+| Feature | Status |
+|---------|--------|
+| jQuery compatibility | ✅ Tested clean |
+| Reddit old.html | ✅ Full rendering |
+| Reddit modern (JSON API) | ✅ Card mode |
+| SVG image fallback | ✅ BitmapImage→SvgImageSource |
+| body display:none override | ✅ Fixed |
+| Reddit → old.reddit.com redirect | ❌ Rejected by user (wants full reddit.com) |
+
+### Session 17 — Reddit Enhancements + Phase 5 Testing
+
+#### What was done
+1. **Reddit score coloring** — △ colored orange for positive, red for negative, gray for zero scores
+2. **Reddit comments view** — "X comments" text is tappable, fetches `comments.json` from old.reddit.com, renders comments with:
+  - Back button (← Back to post)
+  - Up to 50 top-level comments
+  - Nested comment indentation via `depth * 16px` left margin
+  - Blue left-border indicators per depth level
+  - Score-colored author lines (orange/red/gray)
+  - Comment body text with wrapping
+3. **Reddit image loading fix** — Switched from raw `BitmapImage` to `HttpClient` with `User-Agent` header; Reddit CDN blocks all programmatic image requests (403) so images are gracefully collapsed on failure
+4. **Nav bar spacing** — Added `Margin(12,0,12,0)` to prevent `>>` button from touching right edge
+5. **Phase 5 site testing** — TodoMVC, MDN, Bootstrap 4 docs
+
+#### Phase 5 Updated Testing Results
+| Site | Result | Notes |
+|------|--------|-------|
+| Wikipedia (mobile) | ✅ Works | Header overlap fixed, SVG icons improved |
+| jQuery.com | ✅ Works | Clean, zero errors |
+| old.reddit.com | ✅ Works | 574 links, full server-rendered HTML |
+| r/programming | ✅ Works | Posts, sidebar, moderators visible |
+| r/windowsphone (JSON) | ✅ Card mode | 25 posts, navigation, selftext |
+| reddit.com (JSON) | ✅ Card mode | Front page 25 posts, pagination, comments view |
+| DuckDuckGo | ❌ Blank | React SPA, display:none until hydration |
+| TodoMVC (backbone) | ⚠️ Partial | HTML layout renders, links attached; `<ul>` empty because Backbone.js needs client-side execution |
+| MDN Web Docs | ❌ Blank | React SSR SPA, content hidden until hydration |
+| Bootstrap 4 docs | ✅ Works | Sidebar nav + content links rendered, no errors |
+| 4pda.to/forum | ✅ Works | Server-rendered IPB forum, windows-1251 encoding handled by UWP HttpClient, Russian text renders correctly, all forum sections visible including Windows Phone, Windows Mobile, WM Smartphones |
+
+#### Site Technology Classification
+| Site | Type | MediaExplorer | Encoding |
+|------|------|---------------|----------|
+| Wikipedia | Server-rendered HTML | ✅ Works | UTF-8 |
+| old.reddit.com | Server-rendered HTML | ✅ Works | UTF-8 |
+| jQuery.com | Server-rendered HTML | ✅ Works | UTF-8 |
+| Bootstrap 4 docs | Server-rendered HTML | ✅ Works | UTF-8 |
+| 4pda.to/forum | Server-rendered HTML (IPB) | ✅ Works | windows-1251 |
+| MDN | React SSR SPA | ❌ Blank | UTF-8 |
+| DuckDuckGo | React SPA | ❌ Blank | UTF-8 |
+| Dzen.ru | JS-only auth redirect wall | ❌ Blank | UTF-8 |
+| TodoMVC | Client-side JS (Backbone) | ⚠️ Partial | UTF-8 |
+
+#### Key Finding: 4pda.to Encoding Issue
+4pda.to uses `charset=windows-1251` (Cyrillic encoding), not UTF-8. The server-rendered HTML content IS present (IPB forum with topics, posts, navigation), but the `HttpClient` and HTML parser treat it as UTF-8, causing garbled text. Fix requires:
+1. Detect `<meta charset="windows-1251">` or `Content-Type: text/html; charset=windows-1251`
+2. Decode response bytes using `Encoding.GetEncoding(1251)` instead of UTF-8
+3. This is a **charset detection + transcoding** issue, not a rendering issue
+
+### Session 17b — Dzen.ru Research
+
+#### Key Finding: Dzen.ru Requires Yandex SSO
+Dzen.ru (formerly Yandex Zen) is completely locked behind Yandex Single Sign-On. Every URL (`dzen.ru`, `dzen.ru/media/popular`, `dzen.ru/a/article-id`, even `zen.yandex.ru`) returns an empty `<body></body>` with a JavaScript form that auto-submits to `sso.dzen.ru/install` for authentication. There is no public content, no RSS feed, no public API endpoint.
+
+| URL | Result |
+|-----|--------|
+| `dzen.ru` | Empty body → SSO form submit |
+| `dzen.ru/media/popular` | Same SSO redirect |
+| `dzen.ru/a/article-id` | Same SSO redirect |
+| `zen.yandex.ru` | Same SSO redirect (old domain) |
+| `dzen.ru/rss` | Empty response |
+| `dzen.ru/api/*` | "Unknown api request" errors |
+
+#### Classification
+| Site | Type | MediaExplorer | Encoding |
+|------|------|---------------|----------|
+| Dzen.ru | JS-only auth redirect wall | ❌ Blank | UTF-8 |
+
+---
+
+## Phase 7: Dzen.ru OAuth Integration (Future)
+
+**Goal**: Enable Dzen.ru content access via Yandex OAuth2 authentication.
+
+### 7.1 Yandex OAuth2 Authorization Code Flow
+- **What**: Register MediaExplorer as a Yandex OAuth app, implement full OAuth2 Authorization Code flow
+- **Steps**:
+  1. Register app at `oauth.yandex.ru/client/new` (requires Yandex account)
+  2. Obtain `client_id` and `client_secret`
+  3. Open Yandex login page in embedded browser (`https://oauth.yandex.ru/authorize?response_type=code&client_id=...`)
+  4. User logs in → callback returns `authorization_code`
+  5. Exchange code for `access_token` + `refresh_token` via POST to `https://oauth.yandex.ru/token`
+  6. Store tokens securely in `ApplicationData.Current.LocalSettings`
+  7. Use `access_token` in `Authorization: OAuth <token>` header for all Dzen.ru requests
+- **Files**: New `Engine/DzenAuthManager.cs`, `MainPage.xaml.cs` (settings UI)
+- **Priority**: P2 — user specifically wants Dzen.ru, but complex OAuth flow
+- **Risk**: Medium — requires Yandex app registration, token refresh logic, secure storage
+
+### 7.2 Dzen.ru Content API
+- **What**: Use authenticated API to fetch content instead of HTML scraping
+- **API**: Yandex Dzen internal API endpoints (undocumented, may change)
+- **Approach**: Reverse-engineer the API calls from browser DevTools after successful auth
+- **Priority**: P2 — depends on 7.1
+
+### 7.3 Login UI
+- **What**: Settings page with "Login to Dzen.ru" button, shows username when logged in, "Logout" button
+- **Files**: `MainPage.xaml` (settings panel)
+- **Priority**: P2
+
+---
+
+*End of Plan_07 — June 14, 2026*

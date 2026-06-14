@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Windows.Foundation;
 using Windows.UI.Xaml;
 
@@ -9,6 +10,13 @@ namespace BrowserCore.Engine.Core
 {
     public class RenderBox : RenderObject
     {
+        // Table grid layout data (populated by RenderTreeBuilder for TABLE elements)
+        public int TableRows;
+        public int TableCols;
+        public bool[,] TableOccupied;  // [row,col] = true if cell occupied
+        public int[,] TableColSpans;   // [row,col] = colspan of cell at this position
+        public int[,] TableRowSpans;   // [row,col] = rowspan of cell at this position
+
         public override void Layout(Size availableSize)
         {
             if (Style == null) Style = new CssComputed(); // Ensure Style is never null
@@ -96,11 +104,16 @@ namespace BrowserCore.Engine.Core
             double contentHeight = 0;
 
             // 4. Layout Children
-            // Check if we should do Inline Layout, Block Layout, Flex Layout, or Grid Layout
+            // Check if we should do Inline Layout, Block Layout, Flex Layout, Grid Layout, or Table Layout
             bool isFlex = Style.Display == "flex" || Style.Display == "inline-flex";
             bool isGrid = Style.Display == "grid" || Style.Display == "inline-grid";
+            bool isTable = TableOccupied != null && Node?.Tag?.ToUpperInvariant() == "TABLE";
 
-            if (isGrid)
+            if (isTable)
+            {
+                contentHeight = LayoutTableChildren(contentWidth);
+            }
+            else if (isGrid)
             {
                 contentHeight = LayoutGridChildren(contentWidth);
             }
@@ -318,7 +331,9 @@ namespace BrowserCore.Engine.Core
             {
                 if (child.Style != null && (child.Style.Position == "absolute" || child.Style.Position == "fixed")) continue;
 
-                child.Layout(new Size(isRow ? double.PositiveInfinity : contentWidth, double.PositiveInfinity));
+                // Constrain row children to contentWidth to prevent overflow
+                double childAvailW = isRow ? contentWidth : contentWidth;
+                child.Layout(new Size(childAvailW, double.PositiveInfinity));
             }
 
             // 2. Position children (Simplified: Single line or simple wrap, no shrinking/growing yet)
@@ -891,6 +906,127 @@ namespace BrowserCore.Engine.Core
             int val;
             if (int.TryParse(s, out val)) return val;
             return max + 1;
+        }
+
+        private double LayoutTableChildren(double contentWidth)
+        {
+            if (TableOccupied == null || TableRows == 0 || TableCols == 0)
+                return LayoutFlexChildren(contentWidth);
+
+            var gap = 1.0;
+            var colWidths = new double[TableCols];
+            var rowHeights = new double[TableRows];
+
+            // Pass 1: layout cells to determine natural column widths and row heights
+            for (int r = 0; r < TableRows; r++)
+            {
+                for (int c = 0; c < TableCols; c++)
+                {
+                    if (!TableOccupied[r, c]) continue;
+                    // Find the cell at this position
+                    int childIdx = -1;
+                    for (int i = 0; i < Children.Count; i++)
+                    {
+                        var child = Children[i];
+                        var childTag = child.Node?.Tag?.ToUpperInvariant();
+                        if (childTag != "TD" && childTag != "TH") continue;
+                        // Find which grid position this child maps to
+                        // by checking its stored table placement
+                        if (child.TableRow == r && child.TableCol == c)
+                        {
+                            childIdx = i;
+                            break;
+                        }
+                    }
+                    if (childIdx < 0) continue;
+                    var cell = Children[childIdx];
+                    int cs = cell.TableColSpan > 0 ? cell.TableColSpan : 1;
+                    int rs = cell.TableRowSpan > 0 ? cell.TableRowSpan : 1;
+
+                    double availW = 0;
+                    for (int cc = c; cc < Math.Min(c + cs, TableCols); cc++)
+                        availW += colWidths[cc] + gap;
+                    if (availW <= 0) availW = contentWidth / Math.Max(1, TableCols) * cs;
+
+                    cell.Layout(new Size(availW, double.PositiveInfinity));
+                    double cellH = cell.Bounds.Height;
+                    double cellW = cell.Bounds.Width;
+
+                    // Distribute width across spanned columns
+                    if (cs == 1)
+                        colWidths[c] = Math.Max(colWidths[c], cellW);
+                    else
+                    {
+                        double perCol = cellW / cs;
+                        for (int cc = c; cc < Math.Min(c + cs, TableCols); cc++)
+                            colWidths[cc] = Math.Max(colWidths[cc], perCol);
+                    }
+
+                    // Distribute height across spanned rows
+                    if (rs == 1)
+                        rowHeights[r] = Math.Max(rowHeights[r], cellH);
+                    else
+                    {
+                        double perRow = cellH / rs;
+                        for (int rr = r; rr < Math.Min(r + rs, TableRows); rr++)
+                            rowHeights[rr] = Math.Max(rowHeights[rr], perRow);
+                    }
+                }
+            }
+
+            // Normalize column widths to fit contentWidth
+            double totalW = 0;
+            for (int c = 0; c < TableCols; c++) totalW += colWidths[c] + gap;
+            if (totalW > contentWidth && totalW > 0)
+            {
+                double scale = contentWidth / totalW;
+                for (int c = 0; c < TableCols; c++) colWidths[c] *= scale;
+            }
+            else if (totalW < contentWidth && TableCols > 0)
+            {
+                double extra = (contentWidth - totalW) / TableCols;
+                for (int c = 0; c < TableCols; c++) colWidths[c] += extra;
+            }
+
+            // Pass 2: position cells
+            for (int r = 0; r < TableRows; r++)
+            {
+                for (int c = 0; c < TableCols; c++)
+                {
+                    if (!TableOccupied[r, c]) continue;
+                    var cell = Children.FirstOrDefault(ch =>
+                        ch.Node?.Tag != null &&
+                        (ch.Node.Tag.ToUpperInvariant() == "TD" || ch.Node.Tag.ToUpperInvariant() == "TH") &&
+                        ch.TableRow == r && ch.TableCol == c);
+                    if (cell == null) continue;
+
+                    int cs = cell.TableColSpan > 0 ? cell.TableColSpan : 1;
+                    int rs = cell.TableRowSpan > 0 ? cell.TableRowSpan : 1;
+
+                    double x = 0;
+                    for (int cc = 0; cc < c; cc++) x += colWidths[cc] + gap;
+                    double y = 0;
+                    for (int rr = 0; rr < r; rr++) y += rowHeights[rr] + gap;
+                    double w = 0;
+                    for (int cc = c; cc < Math.Min(c + cs, TableCols); cc++)
+                        w += colWidths[cc] + (cc > c ? gap : 0);
+                    double h = 0;
+                    for (int rr = r; rr < Math.Min(r + rs, TableRows); rr++)
+                        h += rowHeights[rr] + (rr > r ? gap : 0);
+
+                    cell.Layout(new Size(w, h > 0 ? h : double.PositiveInfinity));
+                    var bounds = cell.Bounds;
+                    bounds.X = x;
+                    bounds.Y = y;
+                    bounds.Width = w;
+                    bounds.Height = h > 0 ? h : cell.Bounds.Height;
+                    cell.Bounds = bounds;
+                }
+            }
+
+            double totalHeight = 0;
+            for (int r = 0; r < TableRows; r++) totalHeight += rowHeights[r] + gap;
+            return totalHeight;
         }
 
         private void LayoutAbsoluteChildren(Size availableSize)
