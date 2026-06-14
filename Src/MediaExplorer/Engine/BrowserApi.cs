@@ -359,6 +359,14 @@ namespace BrowserCore.Api
 
                 if (_navigationId != currentNavId) { System.Diagnostics.Debug.WriteLine("[DIAG] BrowserHost ABORT navId changed " + currentNavId + " -> " + _navigationId); return false; }
 
+                // Markdown: detect .md/.markdown URLs and render as HTML
+                if (!string.IsNullOrWhiteSpace(html) && BrowserCoreHelpers.IsMarkdownUrl(uri))
+                {
+                    System.Diagnostics.Debug.WriteLine("[DIAG] Markdown detected: " + uri.AbsoluteUri);
+                    DevToolsLogger.Log("[MARKDOWN] Rendering " + uri.AbsoluteUri);
+                    html = MarkdownRenderer.RenderToHtml(html);
+                }
+
                 // Try alternate user agents if empty
                 if (string.IsNullOrWhiteSpace(html))
                 {
@@ -897,6 +905,13 @@ namespace BrowserCore.Api
                 return false;
             }
             catch { return false; }
+        }
+
+        internal static bool IsMarkdownUrl(Uri uri)
+        {
+            if (uri == null) return false;
+            var path = uri.AbsolutePath?.ToLowerInvariant() ?? "";
+            return path.EndsWith(".md") || path.EndsWith(".markdown") || path.EndsWith(".mdown") || path.EndsWith(".mkd");
         }
     }
 }

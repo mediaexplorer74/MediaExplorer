@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-MediaExplorer v1.0 successfully renders Nokia Design Archive cards on Lumia 640/950. However, the custom browser engine (NiL.JS + DomBasicRenderer + CssParser) has significant gaps that prevent rendering most real-world websites from the 2000s–2020s era. This plan defines a phased roadmap to transform MediaExplorer from a "card viewer" into a usable retro-browser.
+MediaExplorer v1.1 successfully renders Nokia Design Archive cards on Lumia 640/950. However, the custom browser engine (NiL.JS + DomBasicRenderer + CssParser) has significant gaps that prevent rendering most real-world websites from the 2000s–2020s era. This plan defines a phased roadmap to transform MediaExplorer from a "card viewer" into a usable retro-browser.
 
 **Current Engine Audit** (June 13, 2026):
 
@@ -846,6 +846,85 @@ Dzen.ru (formerly Yandex Zen) is completely locked behind Yandex Single Sign-On.
 - **What**: Settings page with "Login to Dzen.ru" button, shows username when logged in, "Logout" button
 - **Files**: `MainPage.xaml` (settings panel)
 - **Priority**: P2
+
+---
+
+### Session 18 — Site Compatibility Hardening (Phases A/B/C)
+
+#### Phase A: Charset Detection
+1. **Created `CharsetDetector.cs`** — BOM detection (UTF-8, UTF-16 LE/BE, UTF-32) + `<meta charset>` parsing from first 2KB
+2. **Modified `JavaScriptEngine.DecodeBytes()`** — Now detects charset from decompressed bytes via CharsetDetector instead of hardcoded UTF-8
+3. **Fixed `document.characterSet`/`.charset`/`.inputEncoding`** — Now returns `DetectedCharset` property instead of hardcoded "UTF-8"
+4. **Added `System.Text.Encoding.CodePages` NuGet** — Enables `Encoding.GetEncoding("windows-1251")` etc. on UWP
+5. **Registered CodePages provider** in `App.xaml.cs` at startup
+6. **Propagation** — `FetchScriptStringAsync` sets `DetectedCharset` after decode
+
+#### Phase B: Table Rendering
+1. **border-spacing** — `LayoutTableChildren` now uses `Style.BorderSpacing` instead of hardcoded `gap=1.0`
+2. **CAPTION support** — `<CAPTION>` tag recognized in `ComputeTableGrid`, renders as full-width row
+3. **Rowspan height** — Improved distribution (still equal share per row, but respects existing heights)
+
+#### Phase C: CSS Edge Cases
+1. **display:none re-enabled** — Removed `/* ... */` comment block in `RenderBox.Layout()`, smart hiding active again (structural elements like BODY/MAIN/ARTICLE always shown)
+2. **overflow-x/overflow-y** — `VirtualizingRenderer` now checks `OverflowX`/`OverflowY` individually, not just `overflow` shorthand
+3. **text-overflow: clip** — Added `TextTrimming.Clip` support alongside existing `CharacterEllipsis`
+
+#### Files Modified
+| File | Changes |
+|------|---------|
+| `Engine/CharsetDetector.cs` | **NEW** — BOM + meta charset detection |
+| `Engine/JavaScriptEngine.cs` | DecodeBytes charset detection, DetectedCharset property, document.charset |
+| `Engine/Core/RenderBox.cs` | border-spacing, display:none re-enabled |
+| `Engine/Core/RenderTreeBuilder.cs` | CAPTION support in ComputeTableGrid |
+| `Engine/Core/VirtualizingRenderer.cs` | overflow-x/y, text-overflow:clip |
+| `App.xaml.cs` | CodePagesEncodingProvider registration |
+| `MediaExplorer.csproj` | CharsetDetector.cs, System.Text.Encoding.CodePages NuGet |
+
+#### Test Results
+| Site | Result | Notes |
+|------|--------|-------|
+| 4pda.to/forum | ✅ Works | Links attached, zero errors, border-spacing applied |
+| Wikipedia | ✅ Works | (not re-tested this session, no regressions expected) |
+
+---
+
+### Session 19 — E-book Modes + Markdown-to-HTML
+
+#### E-book Modes
+1. **Removed JS toggle from Settings** — `JsToggle` removed from XAML and code-behind; JS always enabled
+2. **Removed `JsEnabled` property** from `MainPage.xaml.cs` — no more user-facing JS on/off
+3. **Renamed "Render mode" → "E-book mode"** in Settings page
+4. **Updated ComboBox items**: "Rich (full graphics, CSS + JS)" / "Poor (card/index style, minimal CSS)" / "Asceti (no images, no CSS, pure text)"
+5. **Added `RenderModeType.Asceti`** to enum — pure text rendering: no CSS, no images, no JS
+6. **Asceti rendering** — returns `BuildVisualTreeAsync` with empty CSS fetcher and null image loader
+7. **Removed MiniRunner dead code** — old `Rich` mode (MiniRunner only) path removed; `Rich` now = full JS
+8. **Backward compat** — `"Full"` maps to `"Rich"` in both `ApplyRenderMode()` and `LoadRenderMode()`
+9. **Default mode changed** — `"Full"` → `"Rich"` as default
+
+#### Markdown-to-HTML
+1. **Created `MarkdownRenderer.cs`** — Lightweight line-by-line markdown parser (no regex)
+2. **Supported syntax**: headers (#-######), bold, italic, strikethrough, links, images, code blocks, inline code, unordered/ordered lists, blockquotes, horizontal rules, tables, paragraphs
+3. **Styled output**: Reader-friendly CSS with Segoe UI, 720px max-width, syntax-highlighted code blocks
+4. **URL detection**: `.md`, `.markdown`, `.mdown`, `.mkd` extensions
+5. **Integration** — `BrowserApi.NavigateInternalAsync()` detects markdown URLs and renders via `MarkdownRenderer.RenderToHtml()`
+
+#### Files Modified
+| File | Changes |
+|------|---------|
+| `SettingsPage.xaml` | Removed JS toggle, renamed to "E-book Mode", updated ComboBox items |
+| `SettingsPage.xaml.cs` | Removed JsToggle handler/loading, updated mode mapping (Rich/Poor/Asceti), backward compat for "Full"→"Rich" |
+| `MainPage.xaml.cs` | Removed `JsEnabled` property, backward compat in `ApplyRenderMode()` |
+| `Engine/CustomHtmlEngine.cs` | Added `Asceti` enum, Asceti rendering block, removed MiniRunner dead code, default mode → Rich |
+| `Engine/MarkdownRenderer.cs` | **NEW** — Markdown-to-HTML converter |
+| `Engine/BrowserApi.cs` | Added `IsMarkdownUrl()` helper, markdown URL detection in `NavigateInternalAsync()` |
+| `MediaExplorer.csproj` | Added `MarkdownRenderer.cs` |
+
+#### Test Results
+| Feature | Result | Notes |
+|---------|--------|-------|
+| Reddit card mode | ✅ Works | r/nba 25 posts loaded, navigation working |
+| Settings page | ✅ Works | JS toggle removed, E-book Mode with Rich/Poor/Asceti |
+| Rich mode | ✅ Works | Full graphics, CSS + JS (same as old default) |
 
 ---
 

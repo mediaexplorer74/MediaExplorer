@@ -29,9 +29,6 @@
         <Pivot Grid.Row="1" x:Name="SettingsPivot" Foreground="White">
             <PivotItem Header="General">
                 <StackPanel Margin="16,12,16,0">
-                    <!-- JavaScript -->
-                    <ToggleSwitch x:Name="JsToggle" Header="JavaScript" IsOn="True" Foreground="White" Margin="0,0,0,16"/>
-
                     <!-- Home page -->
                     <TextBlock Text="Home Page" Foreground="White" FontSize="14" Margin="0,0,0,4"/>
                     <Grid Margin="0,0,0,16">
@@ -43,12 +40,12 @@
                         <Button Grid.Column="1" x:Name="SaveHomePageButton" Content="Save" Background="#333333" Foreground="#CCCCCC" BorderThickness="1" BorderBrush="#555555"/>
                     </Grid>
 
-                    <!-- Render mode -->
-                    <TextBlock Text="Render Mode" Foreground="White" FontSize="14" Margin="0,0,0,4"/>
+                    <!-- E-book mode -->
+                    <TextBlock Text="E-book Mode" Foreground="White" FontSize="14" Margin="0,0,0,4"/>
                     <ComboBox x:Name="RenderModeCombo" Background="#1A1A1A" Foreground="White" BorderBrush="#3E3E3E" Margin="0,0,0,16">
-                        <ComboBoxItem Content="Full (CSS + JS + interactive)"/>
-                        <ComboBoxItem Content="Rich (CSS, no JS, reading mode)"/>
-                        <ComboBoxItem Content="Poor (plain text, no CSS/JS)"/>
+                        <ComboBoxItem Content="Rich (full graphics, CSS + JS)"/>
+                        <ComboBoxItem Content="Poor (card/index style, minimal CSS)"/>
+                        <ComboBoxItem Content="Asceti (no images, no CSS, pure text)"/>
                     </ComboBox>
                 </StackPanel>
             </PivotItem>

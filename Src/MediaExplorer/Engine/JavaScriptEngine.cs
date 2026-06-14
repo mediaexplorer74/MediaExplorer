@@ -44,6 +44,9 @@ namespace BrowserCore.Engine
         // NiL.JS concurrency & failure guards
         private readonly object _nilEvalLock = new object();
 
+        // Detected character encoding for the current page (set by DecodeBytes or ResourceManager)
+        public string DetectedCharset { get; set; } = "UTF-8";
+
         // ---- Новый формат: BadHashRecord ----
         private class BadHashRecord
         {
@@ -2789,9 +2792,9 @@ if (mHrefSet.Success)
             public string cookie => "";
             public string referrer => _engine._ctx?.BaseUri?.ToString() ?? "";
             public string readyState => "complete";
-            public string characterSet => "UTF-8";
-            public string charset => "UTF-8";
-            public string inputEncoding => "UTF-8";
+            public string characterSet => _engine.DetectedCharset ?? "UTF-8";
+            public string charset => _engine.DetectedCharset ?? "UTF-8";
+            public string inputEncoding => _engine.DetectedCharset ?? "UTF-8";
             public string contentType => "text/html";
             public string domain => _engine._ctx?.BaseUri?.Host ?? "";
             public string URL => _engine._ctx?.BaseUri?.ToString() ?? "";
@@ -7073,6 +7076,7 @@ var self = this;
                         var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
                         string enc = null; try { enc = string.Join(",", resp.Content.Headers.ContentEncoding); } catch { /* swallow */ }
                         var result = DecodeBytes(bytes, enc);
+                        DetectedCharset = CharsetDetector.LastDetectedCharset ?? "UTF-8";
                         try { System.Diagnostics.Debug.WriteLine("[DIAG:FETCH] managed-first OK: " + (result?.Length ?? 0) + " bytes from " + uri); } catch { }
                         return result;
                     }
@@ -7130,6 +7134,7 @@ var self = this;
                 var b2 = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
                 string enc2 = null; try { enc2 = string.Join(",", resp.Content.Headers.ContentEncoding); } catch { /* swallow */ }
                 var result = DecodeBytes(b2, enc2);
+                DetectedCharset = CharsetDetector.LastDetectedCharset ?? "UTF-8";
                 try { System.Diagnostics.Debug.WriteLine("[DIAG:FETCH] generic OK: " + (result?.Length ?? 0) + " bytes from " + uri); } catch { }
                 return result;
             }
@@ -7188,6 +7193,7 @@ var self = this;
             {
                 if (bytes == null || bytes.Length == 0) return "";
                 Stream s = new MemoryStream(bytes);
+                byte[] decompressed = null;
                 if (!string.IsNullOrEmpty(contentEncoding))
                 {
                     var ce = contentEncoding.ToLowerInvariant();
@@ -7204,38 +7210,41 @@ var self = this;
                             }
                             if (broType != null)
                             {
-                                // Use the BrotliStream type via reflection to avoid compile-time dependency when absent
                                 using (var bro = (Stream)Activator.CreateInstance(broType, new object[] { s, CompressionMode.Decompress }))
                                 using (var ms = new MemoryStream())
                                 {
                                     bro.CopyTo(ms);
-                                    return Encoding.UTF8.GetString(ms.ToArray(), 0, (int)ms.Length);
+                                    decompressed = ms.ToArray();
                                 }
                             }
                         }
                         catch { /* platform may not have Brotli - fall through */ }
                     }
-                    if (ce.Contains("gzip"))
+                    if (decompressed == null && ce.Contains("gzip"))
                     {
                         using (var gz = new GZipStream(s, CompressionMode.Decompress))
                         using (var ms = new MemoryStream())
                         {
                             gz.CopyTo(ms);
-                            return Encoding.UTF8.GetString(ms.ToArray(), 0, (int)ms.Length);
+                            decompressed = ms.ToArray();
                         }
                     }
-                    if (ce.Contains("deflate"))
+                    if (decompressed == null && ce.Contains("deflate"))
                     {
                         using (var dz = new DeflateStream(s, CompressionMode.Decompress))
                         using (var ms = new MemoryStream())
                         {
                             dz.CopyTo(ms);
-                            return Encoding.UTF8.GetString(ms.ToArray(), 0, (int)ms.Length);
+                            decompressed = ms.ToArray();
                         }
                     }
                 }
-                // no encoding declared: assume UTF8 (use index/count overload where available)
-                try { return Encoding.UTF8.GetString(bytes, 0, bytes.Length); } catch { try { return Encoding.UTF8.GetString(bytes, 0, bytes.Length); } catch { return ""; } }
+                if (decompressed == null) decompressed = bytes;
+
+                // Detect charset from BOM or <meta charset> in content
+                var detected = CharsetDetector.DetectEncoding(decompressed);
+                var enc = detected ?? Encoding.UTF8;
+                try { return enc.GetString(decompressed, 0, decompressed.Length); } catch { try { return Encoding.UTF8.GetString(decompressed, 0, decompressed.Length); } catch { return ""; } }
             }
             catch { try { return Encoding.UTF8.GetString(bytes, 0, bytes.Length); } catch { try { return Encoding.UTF8.GetString(bytes, 0, bytes.Length); } catch { return ""; } } }
         }

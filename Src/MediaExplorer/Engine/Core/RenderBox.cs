@@ -21,31 +21,10 @@ namespace BrowserCore.Engine.Core
         {
             if (Style == null) Style = new CssComputed(); // Ensure Style is never null
 
-            // TEMPORARILY DISABLED FOR DEBUGGING - Show everything to ensure content is visible
-            /*
-            // Smart Display None:
-            // Only respect display:none if it's NOT a critical structural element.
-            // This prevents "white screen" on sites that hide body/main initially,
-            // while still hiding popups/overlays/clutter.
-            if (Style.Display == "none")
-            {
-                var tag = Node?.Tag?.ToUpperInvariant();
-                // Always show these structural tags even if hidden
-                bool forceShow = tag == "BODY" || tag == "MAIN" || tag == "ARTICLE" || tag == "SECTION" || tag == "HEADER" || tag == "FOOTER";
-                
-                // Also show DIVs that are direct children of BODY (often main wrappers)
-                if (!forceShow && tag == "DIV" && Node?.Parent?.Tag?.ToUpperInvariant() == "BODY")
-                {
-                    forceShow = true;
-                }
-
-                if (!forceShow)
-                {
-                    Bounds = Rect.Empty;
-                    return;
-                }
-            }
-            */
+            // display:none handling disabled — re-enabling breaks scrolling on 4pda.to
+            // and other sites that use CSS display:none on wrapper elements.
+            // The original "smart" logic (force-show BODY/MAIN/DIV) still broke things.
+            // TODO: Only apply display:none when it comes from CSS stylesheet, not from UA defaults.
 
             // 1. Calculate Box Model properties
             var margin = Style.Margin;
@@ -913,7 +892,7 @@ namespace BrowserCore.Engine.Core
             if (TableOccupied == null || TableRows == 0 || TableCols == 0)
                 return LayoutFlexChildren(contentWidth);
 
-            var gap = 1.0;
+            var gap = Style?.BorderSpacing ?? 1.0;
             var colWidths = new double[TableCols];
             var rowHeights = new double[TableRows];
 
@@ -967,6 +946,7 @@ namespace BrowserCore.Engine.Core
                         rowHeights[r] = Math.Max(rowHeights[r], cellH);
                     else
                     {
+                        // Give each spanned row an equal share, but respect existing row heights
                         double perRow = cellH / rs;
                         for (int rr = r; rr < Math.Min(r + rs, TableRows); rr++)
                             rowHeights[rr] = Math.Max(rowHeights[rr], perRow);

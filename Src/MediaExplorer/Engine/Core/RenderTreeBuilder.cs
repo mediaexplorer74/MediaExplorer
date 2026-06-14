@@ -396,6 +396,11 @@ namespace BrowserCore.Engine.Core
                     }
                     if (trChildren.Count > 0) rows.Add(trChildren);
                 }
+                else if (childTag == "CAPTION")
+                {
+                    // CAPTION renders as a full-width row above the table
+                    rows.Insert(0, new List<RenderObject> { child });
+                }
                 else if (childTag == "THEAD" || childTag == "TBODY" || childTag == "TFOOT")
                 {
                     if (child.Children != null)

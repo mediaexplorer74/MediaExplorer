@@ -14,20 +14,20 @@ Start-Sleep -Seconds 150
 Get-Process -Name "MediaExplorer" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
 # Step 4 — Read diagnostics log
-Get-Content "$env:LOCALAPPDATA\Packages\MediaExplorerV1p0_5gyrq6psz227t\LocalState\Logger.txt" -Tail 80
+Get-Content "$env:LOCALAPPDATA\Packages\MediaExplorerV1p1_5gyrq6psz227t\LocalState\Logger.txt" -Tail 80
 ```
 
 **Loop**: Build → Deploy+Launch → wait 150s → Kill → Read log → Analyze → Fix → Rebuild → repeat.
 
 **One-liner**:
 ```powershell
-msbuild "Src\MediaExplorer\MediaExplorer.csproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /v:m; if ($?) { powershell -ExecutionPolicy Bypass -File "Src\MediaExplorer\DeployAndRun.ps1" -Platform x64; Start-Sleep -Seconds 150; Get-Process -Name "MediaExplorer" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Get-Content "$env:LOCALAPPDATA\Packages\MediaExplorerV1p0_5gyrq6psz227t\LocalState\Logger.txt" -Tail 80 }
+msbuild "Src\MediaExplorer\MediaExplorer.csproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /v:m; if ($?) { powershell -ExecutionPolicy Bypass -File "Src\MediaExplorer\DeployAndRun.ps1" -Platform x64; Start-Sleep -Seconds 150; Get-Process -Name "MediaExplorer" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Get-Content "$env:LOCALAPPDATA\Packages\MediaExplorerV1p1_5gyrq6psz227t\LocalState\Logger.txt" -Tail 80 }
 ```
 
-## Current State (June 14, 2026 — Session 17)
+## Current State (June 14, 2026 — Session 19)
 
-**Version**: 1.0.0.0, AUMID `MediaExplorerV1p0!App`, PackageFamilyName `MediaExplorerV1p0_5gyrq6psz227t`
-**Package Identity**: `MediaExplorerV1p0` (renamed from V0p57, new GUID, fresh install required)
+**Version**: 1.1.0.0, AUMID `MediaExplorerV1p1!App`, PackageFamilyName `MediaExplorerV1p1_5gyrq6psz227t`
+**Package Identity**: `MediaExplorerV1p1` (renamed from V1p0, fresh install required)
 
 ### Critical Decision: SVG→XAML Bridge Abandoned
 
@@ -77,21 +77,24 @@ https://nokiadesignarchive.aalto.fi/images/archive/{file}.jpg
 - `quoteJsKeys(s)` — converts `{id:"x"}` to `{"id":"x"}` for valid JSON
 
 ### Diagnostics Architecture
-- `DevToolsLogger.Log(msg)` → `%LOCALAPPDATA%\Packages\MediaExplorerV1p0_5gyrq6psz227t\LocalState\Logger.txt`
+- `DevToolsLogger.Log(msg)` → `%LOCALAPPDATA%\Packages\MediaExplorerV1p1_5gyrq6psz227t\LocalState\Logger.txt`
 - `Debug.WriteLine(msg)` → VS Output only
 - `__diagLog(msg)` → C# callback, writes both
 - Key prefixes: `[DIAG:DATA]`, `[DIAG:SYS]`, `[DIAG:ROUTE]`, `[DIAG:CARD]` — keep
 
 ### Files
-- `Src/MediaExplorer/Engine/JavaScriptEngine.cs` — ES6+ polyfills, event system, fetch API, DOM manipulation, `globalThis.*` injection, SafeEval, `__storeData`
-- `Src/MediaExplorer/Engine/BrowserApi.cs` — `ExtractEntriesJson()`, `ExtractCollectionsJson()`, `ExtractStoriesJson()`
+- `Src/MediaExplorer/Engine/JavaScriptEngine.cs` — ES6+ polyfills, event system, fetch API, DOM manipulation, `globalThis.*` injection, SafeEval, `__storeData`, charset detection integration
+- `Src/MediaExplorer/Engine/CharsetDetector.cs` — **NEW** BOM + `<meta charset>` encoding detection (UTF-8, windows-1251, koi8-r, shift_jis, etc.)
+- `Src/MediaExplorer/Engine/MarkdownRenderer.cs` — **NEW** Markdown-to-HTML converter (headers, bold, italic, links, images, code blocks, lists, tables)
+- `Src/MediaExplorer/Engine/BrowserApi.cs` — `ExtractEntriesJson()`, `ExtractCollectionsJson()`, `ExtractStoriesJson()`, markdown URL detection
 - `Src/MediaExplorer/Engine/DomBasicRenderer.cs` — stable text/image/link renderer
-- `Src/MediaExplorer/Engine/CustomHtmlEngine.cs` — RenderTreeBuilder → LayoutEngine → VirtualizingRenderer pipeline
-- `Src/MediaExplorer/Engine/Core/VirtualizingRenderer.cs` — XAML Canvas rendering, overflow:auto/scroll, sticky positioning, SVG→BitmapImage fallback
-- `Src/MediaExplorer/Engine/Core/RenderTreeBuilder.cs` — table grid layout, HTML attribute parsing, body display:none override
-- `Src/MediaExplorer/Engine/Core/RenderBox.cs` — table grid layout, flex/block/inline layout
+- `Src/MediaExplorer/Engine/CustomHtmlEngine.cs` — RenderTreeBuilder → LayoutEngine → VirtualizingRenderer pipeline, **E-book modes** (Rich/Poor/Asceti)
+- `Src/MediaExplorer/Engine/Core/VirtualizingRenderer.cs` — XAML Canvas rendering, overflow:auto/scroll, overflow-x/y, sticky positioning, SVG→BitmapImage fallback, text-overflow:clip
+- `Src/MediaExplorer/Engine/Core/RenderTreeBuilder.cs` — table grid layout, CAPTION support, HTML attribute parsing, body display:none override
+- `Src/MediaExplorer/Engine/Core/RenderBox.cs` — table grid layout, flex/block/inline layout, border-spacing, display:none
 - `Src/MediaExplorer/MainPage.xaml.cs` — card mode, navigation UI, image URLs, link routing, **Reddit JSON API card mode**, Reddit comments view, score coloring
 - `Src/MediaExplorer/MainPage.xaml` — ScrollViewer CacheMode
+- `Src/MediaExplorer/SettingsPage.xaml` — E-book mode selector (Rich/Poor/Asceti), no JS toggle
 - `Src/MediaExplorer/Engine/DevToolsLogger.cs` — diagnostic logging
 
 ### Post-v1.0 Roadmap
@@ -106,13 +109,13 @@ https://nokiadesignarchive.aalto.fi/images/archive/{file}.jpg
 - Reddit image loading (HttpClient, graceful 403 fallback) ✅
 - Nav bar spacing fix ✅
 - Phase 5 testing: TodoMVC ⚠️, MDN ❌, Bootstrap 4 ✅, 4pda.to ✅
+- Site compatibility hardening: CharsetDetector ✅, border-spacing ✅, CAPTION ✅, display:none ✅, overflow-x/y ✅, text-overflow:clip ✅
+- E-book modes: Rich/Poor/Asceti ✅, JS toggle removed ✅, settings renamed ✅
+- Markdown-to-HTML: MarkdownRenderer.cs ✅, .md URL detection ✅
 
 #### v1.2 (next iteration)
-1. **Site compatibility hardening** — more Phase 5 sites, React SPA detection
-2. **Performance tuning** — focus on Lumia 640 (1GB) perf, reduce memory
-3. **SkiaSharp graph rendering** — прикольная тема, но лучше в v2.0
-4. **E-book modes** — Poor/Rich/Asceti — превратить текущий Render mode, упразднить JS enabler в settings
-5. **markdown-to-html** — полезная фича
+1. **Performance tuning** — focus on Lumia 640 (1GB) perf, reduce memory
+2. **SkiaSharp graph rendering** — прикольная тема, но лучше в v2.0
 
 #### v2.0 (long-term)
 1. **Dzen.ru OAuth2** — Yandex OAuth Authorization Code flow, token storage, login UI, authenticated API access

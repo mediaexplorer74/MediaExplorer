@@ -123,12 +123,17 @@
     <PackageReference Include="Newtonsoft.Json">
       <Version>13.0.4</Version>
     </PackageReference>
+    <PackageReference Include="System.Text.Encoding.CodePages">
+      <Version>4.7.1</Version>
+    </PackageReference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="App.xaml.cs">
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
     <Compile Include="Engine\BrowserApi.cs" />
+    <Compile Include="Engine\CharsetDetector.cs" />
+    <Compile Include="Engine\MarkdownRenderer.cs" />
     <Compile Include="Engine\Core\LayoutEngine.cs" />
     <Compile Include="Engine\Core\Painter.cs" />
     <Compile Include="Engine\Core\RenderBox.cs" />

@@ -19,16 +19,16 @@ using NiL.JS.Core;
 namespace BrowserCore.Engine
 {
     /// <summary>
-    /// Rendering mode controlling JS/CSS/image behavior.
-    /// FULL  — NiL.JS + full CSS cascade + images (default)
-    /// RICH  — MiniRunner only (timeouts/analytics-kill) + full CSS + images + AI companion
-    /// POOR  — No JS + minimal reader stylesheet + no images + AI summary (e-book mode)
+    /// E-book rendering mode controlling CSS/image/JS behavior.
+    /// RICH   — Full graphics, CSS + JS (default)
+    /// POOR   — Card/index style, minimal CSS, no images
+    /// ASCETI — Pure text, no CSS, no images (old e-book style)
     /// </summary>
     public enum RenderModeType
     {
-        Full,   // NiL.JS + full CSS + images
-        Rich,   // MiniRunner only + full CSS + images
-        Poor    // No JS + reader stylesheet + no images
+        Rich,   // Full graphics, CSS + JS
+        Poor,   // Card/index style, minimal CSS, no images
+        Asceti  // Pure text, no CSS, no images
     }
 
     /// <summary>
@@ -39,7 +39,7 @@ namespace BrowserCore.Engine
     {
         public bool SafeMode { get; set; } = false;
 
-        private RenderModeType _renderMode = RenderModeType.Full;
+        private RenderModeType _renderMode = RenderModeType.Rich;
         public RenderModeType RenderMode
         {
             get { return _renderMode; }
@@ -52,7 +52,7 @@ namespace BrowserCore.Engine
         }
 
         // Backward compat: string-based API (Settings page, BrowserApi)
-        private string _renderModeString = "Full";
+        private string _renderModeString = "Rich";
         public string RenderModeString
         {
             get { return _renderModeString; }
@@ -61,10 +61,10 @@ namespace BrowserCore.Engine
                 _renderModeString = value;
                 if (string.Equals(value, "Poor", StringComparison.OrdinalIgnoreCase))
                     _renderMode = RenderModeType.Poor;
-                else if (string.Equals(value, "Rich", StringComparison.OrdinalIgnoreCase))
-                    _renderMode = RenderModeType.Rich;
+                else if (string.Equals(value, "Asceti", StringComparison.OrdinalIgnoreCase))
+                    _renderMode = RenderModeType.Asceti;
                 else
-                    _renderMode = RenderModeType.Full;
+                    _renderMode = RenderModeType.Rich;
             }
         }
 
@@ -1259,7 +1259,32 @@ namespace BrowserCore.Engine
                 _activeDom = dom;
                 System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase1 PARSED dom children=" + (dom.Children != null ? dom.Children.Count.ToString() : "0"));
 
-                // POOR mode — e-book style: minimal reader stylesheet, no JS, no images
+                // ASCETI mode — pure text: no CSS, no images, no JS, no reader stylesheet
+                if (_renderMode == RenderModeType.Asceti)
+                {
+                    var msg = "[DIAG] RenderAsync Asceti mode — pure text, no CSS/images";
+                    System.Diagnostics.Debug.WriteLine(msg);
+                    DevToolsLogger.Log(msg);
+
+                    // No image loader for ASCETI mode
+                    Func<Uri, Task<IRandomAccessStream>> noImageLoader = async _ => null;
+
+                    var ascetiElement = await BuildVisualTreeAsync(
+                        dom,
+                        baseUri,
+                        async _ => string.Empty, // No external CSS
+                        noImageLoader,
+                        onNavigate,
+                        null, // No JS
+                        viewportWidth,
+                        _activeFixedBackground,
+                        false
+                    ).ConfigureAwait(false);
+
+                    return ascetiElement;
+                }
+
+                // POOR mode — card/index style: minimal reader stylesheet, no images
                 if (_renderMode == RenderModeType.Poor)
                 {
                     var msg = "[DIAG] RenderAsync Poor mode — reader stylesheet";
@@ -1347,9 +1372,6 @@ namespace BrowserCore.Engine
                 DevToolsLogger.Log("[DIAG:MODE] _renderMode=" + _renderMode + " EnableJavaScript=" + EnableJavaScript + " allowJs_initial=" + EnableJavaScript);
 
                 bool allowJs = EnableJavaScript;
-                bool richMode = _renderMode == RenderModeType.Rich;
-                if (richMode)
-                    allowJs = false; // RICH: skip NiL.JS full engine, MiniRunner only below
                 if (forceJavascript.HasValue)
                 {
                     allowJs = forceJavascript.Value;
@@ -1552,14 +1574,6 @@ namespace BrowserCore.Engine
                             }
                             catch (Exception ex) { var m3 = "[DIAG] RenderAsync Phase3 JS EXC " + ex.Message; System.Diagnostics.Debug.WriteLine(m3); DevToolsLogger.Log(m3); }
                         }
-                else if (richMode)
-                {
-                    // RICH mode: run MiniRunner only for setTimeout/clearTimeout + analytics kill
-                    var msg = "[DIAG] RenderAsync Phase3 RICH MiniRunner start";
-                    System.Diagnostics.Debug.WriteLine(msg);
-                    DevToolsLogger.Log(msg);
-                    try { RunRichMiniRunner(dom, js); var m2 = "[DIAG] RenderAsync Phase3 RICH MiniRunner DONE"; System.Diagnostics.Debug.WriteLine(m2); DevToolsLogger.Log(m2); } catch (Exception ex) { var m3 = "[DIAG] RenderAsync Phase3 RICH MiniRunner EXC " + ex.Message; System.Diagnostics.Debug.WriteLine(m3); DevToolsLogger.Log(m3); }
-                }
                 else { var msg = "[DIAG] RenderAsync Phase3 JS SKIPPED allowJs=" + allowJs; System.Diagnostics.Debug.WriteLine(msg); DevToolsLogger.Log(msg); }
 
                 var msg4 = "[DIAG] RenderAsync Phase4 BuildVisualTreeAsync start";

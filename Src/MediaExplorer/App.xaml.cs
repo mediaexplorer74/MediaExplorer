@@ -51,6 +51,9 @@ namespace WEBVIEW
         /// <param name="e">Details about the launch request and process.</param>
         protected override void OnLaunched(LaunchActivatedEventArgs e)
         {
+            // Register CodePages encoding provider for non-UTF-8 charset support (windows-1251, koi8-r, etc.)
+            try { System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance); } catch { }
+
 #if DEBUG
             if (System.Diagnostics.Debugger.IsAttached)
             {

@@ -693,6 +693,7 @@ namespace WEBVIEW
                             _filterCollectionId = null;
                             _backupEntryCards = null;
                             _currentCardIndex = i;
+                            UpdateCurrentLocation(new Uri(address));
                             ResetContentHost();
                             Ui(() =>
                             {
@@ -763,6 +764,7 @@ namespace WEBVIEW
                     _cardMode = true;
                     _redditCardMode = true;
                     _currentCardIndex = 0;
+                    UpdateCurrentLocation(new Uri(address));
                     Ui(() =>
                     {
                         ContentHost.Children.Clear();
@@ -947,7 +949,7 @@ namespace WEBVIEW
                         _activeVisualIndex = ContentHost.Children.IndexOf(element);
                         System.Diagnostics.Debug.WriteLine("[DIAG] Engine_RepaintReady ADDED idx=" + _activeVisualIndex + " children=" + ContentHost.Children.Count);
                         ApplyAppBarMode();
-                        if (string.Equals(_browser.RenderMode, "Rich", StringComparison.OrdinalIgnoreCase) && !_suppressRepaintHandler)
+                        if (!_suppressRepaintHandler && (_browser.RenderMode == "Poor" || _browser.RenderMode == "Asceti"))
                             StartReadingMode();
                     }
                 }
@@ -1161,7 +1163,7 @@ namespace WEBVIEW
                 DevToolsLogger.Log("[DIAG:REDDIT] Fetch " + jsonUrl);
 
                 var http = new HttpClient();
-                http.DefaultRequestHeaders.Add("User-Agent", "MediaExplorer/1.0 (Windows Phone)");
+                http.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
                 var resp = await http.GetAsync(new Uri(jsonUrl));
                 if (!resp.IsSuccessStatusCode)
                 {
@@ -2528,7 +2530,12 @@ namespace WEBVIEW
             {
                 var s = Windows.Storage.ApplicationData.Current.LocalSettings;
                 if (s.Values.TryGetValue("RenderMode", out var v) && v is string mode && !string.IsNullOrWhiteSpace(mode))
+                {
+                    // Backward compat: "Full" maps to "Rich"
+                    if (string.Equals(mode, "Full", StringComparison.OrdinalIgnoreCase))
+                        mode = "Rich";
                     RenderMode = mode;
+                }
             }
             catch { }
         }
@@ -2614,12 +2621,6 @@ namespace WEBVIEW
             }
             catch { }
             return "Semi";
-        }
-
-        public bool JsEnabled
-        {
-            get => _welcomeEngine.EnableJavaScript;
-            set => _welcomeEngine.EnableJavaScript = value;
         }
 
         public string RenderMode

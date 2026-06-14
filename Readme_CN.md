@@ -1,4 +1,4 @@
-# MediaExplorer 1.0.100 — dev branch
+# MediaExplorer 1.1.0 — dev branch
 
 ![](/Images/logo.png)
 
@@ -6,16 +6,15 @@
 
 MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的业余浏览器项目，**不使用**系统 WebView 或 Chakra 引擎。它使用自定义 HTML 解析器、支持选择器/层叠/flexbox 的 CSS 引擎、基于 [NiL.JS](https://github.com/nilproject/NiL.JS) 的 JavaScript 运行时，以及基于 XAML 的渲染器。
 
-**v1.0 针对 [Nokia Design Archive](https://nokiadesignarchive.aalto.fi/) 进行了优化** — 一个拥有 722+ 条目、33 个收藏集、230 个故事和 91 个关键词的博物馆网站，记录了诺基亚的设计历史。MediaExplorer 从网站的 JavaScript 包中提取存档数据，将其渲染为交互式可滑动卡片，包含图片、收藏集标签、关键词标签以及指向阿尔托大学仓库的链接。
+**v1.1 针对 [Nokia Design Archive](https://nokiadesignarchive.aalto.fi/) 进行了优化** — 一个拥有 722+ 条目、33 个收藏集、230 个故事和 91 个关键词的博物馆网站，记录了诺基亚的设计历史。MediaExplorer 从网站的 JavaScript 包中提取存档数据，将其渲染为交互式可滑动卡片，包含图片、收藏集标签、关键词标签以及指向阿尔托大学仓库的链接。
 
-约 40 个文件，约 2.5 万行代码。v1.0 发布版。
+约 40 个文件，约 2.5 万行代码。v1.1 发布版。
 
 ## 截图
 
 ![](/Images/sshot01.png)
 ![](/Images/sshot02.png)
 ![](/Images/sshot03.png)
-![](/Images/sshot04.png)
 
 
 ## 功能
@@ -24,7 +23,7 @@ MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的�
 - **JavaScript** — NiL.JS 运行时，支持 ES Modules（Vite bundles parse; D3v4/v5 support）
 - **开发者工具** — Console、DOM 检查器、Network 标签、Debug 日志
 - **3 种 UI 模式** — 隐藏（条状）、半展开、完整（标准应用栏）
-- **3 种渲染模式** — 完整（JS+CSS）、丰富（CSS 无 JS）、极简（纯文本）
+- **3 种电子书模式** — Rich（完整图形，CSS + JS）、Poor（卡片/索引样式，最小 CSS）、Asceti（纯文本，无 CSS/图片）
 - **磁盘缓存** — 带优先队列的资源缓存
 - **MutationObserver** — DOM 变化时增量重渲染
 - **截图按钮** — 截图（单页或长页）保存到 Pictures/MediaExplorer
@@ -34,11 +33,11 @@ MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的�
 
 ## 状态
 
-- **v1.0 发布。** 阶段 R（精简）、S（智能手机适配）、T（文本/图像/链接详情视图）已完成。
+- **v1.1 发布。** 阶段 3-5 已完成：JS Engine（ES6+）、HTML & Media（表格、表单、iframe）、Site Compatibility（Reddit JSON、SVG fallback、charset detection、e-book 模式、markdown-to-html）。
 - **SVG→XAML 桥已放弃** — 经过 18+ 次开发会话，架构不匹配被认定为在 Win SDK 15063 上无法修复。替换为为窄屏设计的文本/卡片渲染。
 - **数据提取保持完好** — `__graphData`（755 节点 + 1647 链接）、`__entries`（722）、`__stories`（230）、`__collections`（33）留作未来 SkiaSharp 渲染器使用。
 
-## 开发状态（2026年6月13日）
+## 开发状态（2026年6月14日）
 
 ### 关键决策
 - **SVG→XAML 已移除** — 滚动时内容重复、架构不匹配、对 Lumia 来说太重
@@ -46,6 +45,8 @@ MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的�
 - **链接路由** — 内部条目 URL（/entry/E0001）→ 卡片模式；外部 URL → 通过 Launcher 打开系统浏览器
 - **数据提取** — 保留供未来 SkiaSharp Canvas2D 渲染器使用
 - **通用网页渲染（v1.1）** — 自定义 RenderTreeBuilder 渲染真实网站。首次成功渲染：Hacker News，含30条新闻、橙色头部、投票箭头、可点击链接和页脚
+- **电子书模式** — Rich（完整图形）、Poor（卡片/索引样式）、Asceti（纯文本）。JS 始终启用。
+- **Markdown-to-HTML** — 自动检测 .md URL，使用样式化读者 CSS 渲染
 
 ### 关键文件
 `MainPage.xaml.cs` — 卡片模式、导航、链接路由
@@ -60,6 +61,7 @@ MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的�
 
 ## 开发里程碑
 
+- **2026.06.14 — v1.1.0** 电子书模式（Rich/Poor/Asceti）、markdown-to-html、charset detection（windows-1251 等）、表格改进（border-spacing、CAPTION）、CSS 边缘情况（display:none、overflow-x/y、text-overflow:clip）。JS 始终启用。
 - **2026.06.13 — v1.0.10** 通用网页渲染。Hacker News 完整渲染：橙色头部、30条新闻、投票箭头、可点击链接、页脚。CSS 伪类（`:link`/`:visited`）、HTML 展示属性（`bgcolor`、`width`）、SVG 图标。
 - **2026.06.12 — v1.0.0** 阶段 R+S+T 完成。智能手机卡片布局、条目详情视图、类别目录、链接路由。SVG→XAML 桥放弃。
 - **2026.06.07 — v0.55.0** D3.js 力导向图（诺基亚设计档案馆）渲染为实时 XAML 元素。
@@ -123,6 +125,6 @@ MediaExplorer 与 Nokia Design Archive 配合最佳。进行一般网页测试�
 
 按原样提供。不提供支持。仅用于研究。自己动手。
 
-[m][e] 2026 年 6 月 13 日
+[m][e] 2026 年 6 月 14 日
 
 ![](/Images/footer.png)

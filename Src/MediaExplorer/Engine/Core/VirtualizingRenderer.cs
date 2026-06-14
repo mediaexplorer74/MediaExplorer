@@ -273,10 +273,20 @@ namespace BrowserCore.Engine.Core
             if (!isLeafControl && node.Children != null)
             {
                 var overflow = node.Style?.Overflow ?? "";
+                var overflowX = node.Style?.OverflowX ?? overflow;
+                var overflowY = node.Style?.OverflowY ?? overflow;
                 bool isHidden = string.Equals(overflow, "hidden", StringComparison.OrdinalIgnoreCase) ||
-                                string.Equals(overflow, "clip", StringComparison.OrdinalIgnoreCase);
+                                string.Equals(overflow, "clip", StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(overflowX, "hidden", StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(overflowX, "clip", StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(overflowY, "hidden", StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(overflowY, "clip", StringComparison.OrdinalIgnoreCase);
                 bool isAuto = string.Equals(overflow, "auto", StringComparison.OrdinalIgnoreCase) ||
-                              string.Equals(overflow, "scroll", StringComparison.OrdinalIgnoreCase);
+                              string.Equals(overflow, "scroll", StringComparison.OrdinalIgnoreCase) ||
+                              string.Equals(overflowX, "auto", StringComparison.OrdinalIgnoreCase) ||
+                              string.Equals(overflowX, "scroll", StringComparison.OrdinalIgnoreCase) ||
+                              string.Equals(overflowY, "auto", StringComparison.OrdinalIgnoreCase) ||
+                              string.Equals(overflowY, "scroll", StringComparison.OrdinalIgnoreCase);
 
                 var childVisibleRect = visibleRect;
                 if (isHidden && node.Bounds.Width > 0 && node.Bounds.Height > 0)
@@ -829,12 +839,17 @@ namespace BrowserCore.Engine.Core
             if (style?.LineHeight.HasValue == true && style.LineHeight.Value > 0)
                 tb.LineHeight = style.LineHeight.Value;
 
-            // Apply text-overflow: ellipsis (check parent box too)
+            // Apply text-overflow: ellipsis or clip (check parent box too)
             var parentStyle = textNode.Parent?.Style;
             var textOverflow = style?.TextOverflow ?? parentStyle?.TextOverflow ?? "";
             if (string.Equals(textOverflow, "ellipsis", StringComparison.OrdinalIgnoreCase))
             {
                 tb.TextTrimming = Windows.UI.Xaml.TextTrimming.CharacterEllipsis;
+                tb.TextWrapping = TextWrapping.NoWrap;
+            }
+            else if (string.Equals(textOverflow, "clip", StringComparison.OrdinalIgnoreCase))
+            {
+                tb.TextTrimming = Windows.UI.Xaml.TextTrimming.Clip;
                 tb.TextWrapping = TextWrapping.NoWrap;
             }
 
@@ -898,8 +913,14 @@ namespace BrowserCore.Engine.Core
 
             // Detect overflow:auto/scroll for nested scrolling
             var overflowVal = box.Style?.Overflow ?? "";
+            var overflowXVal = box.Style?.OverflowX ?? overflowVal;
+            var overflowYVal = box.Style?.OverflowY ?? overflowVal;
             var isOverflowAuto = string.Equals(overflowVal, "auto", StringComparison.OrdinalIgnoreCase) ||
-                                 string.Equals(overflowVal, "scroll", StringComparison.OrdinalIgnoreCase);
+                                 string.Equals(overflowVal, "scroll", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(overflowXVal, "auto", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(overflowXVal, "scroll", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(overflowYVal, "auto", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(overflowYVal, "scroll", StringComparison.OrdinalIgnoreCase);
 
             // Only create Border if there's something to style
             if (HasBorderOrBackground(box) || tag == "A" || !IsZero(margin) || !IsZero(padding) || isOverflowAuto)

@@ -1,4 +1,4 @@
-# MediaExplorer 1.0.100 — dev branch
+# MediaExplorer 1.1.0 — dev branch
 
 ![](/Images/logo.png)
 
@@ -6,23 +6,23 @@
 
 MediaExplorer is a hobby browser for Windows 10 Mobile (W10M, build 15063+) built **without** the system WebView or Chakra engine. It uses a custom HTML parser, CSS engine with selectors/cascade/flexbox, a JavaScript runtime powered by [NiL.JS](https://github.com/nilproject/NiL.JS), and a XAML-based renderer.
 
-**v1.0 is optimized for the [Nokia Design Archive](https://nokiadesignarchive.aalto.fi/)** — a museum website with 722+ entries, 33 collections, 230 stories, and 91 keywords documenting Nokia's design history. MediaExplorer extracts the archive data from the site's JavaScript bundle, renders it as interactive swipeable cards with images, collection chips, keyword tags, and links to the Aalto University repository.
+**v1.1 is optimized for the [Nokia Design Archive](https://nokiadesignarchive.aalto.fi/)** — a museum website with 722+ entries, 33 collections, 230 stories, and 91 keywords documenting Nokia's design history. MediaExplorer extracts the archive data from the site's JavaScript bundle, renders it as interactive swipeable cards with images, collection chips, keyword tags, and links to the Aalto University repository.
 
-~40 files, ~25k+ lines of code. v1.0 release.
+~40 files, ~25k+ lines of code. v1.1 release.
 
 ## Screenshots
 
 ![](/Images/sshot01.png)
 ![](/Images/sshot02.png)
 ![](/Images/sshot03.png)
-![](/Images/sshot04.png)
+
 
 ## Features
 - **Custom rendering engine** — HTML parser, CSS cascade, flexbox, XAML renderer
 - **JavaScript** — NiL.JS runtime with ES Modules support (Vite bundles parse; D3v4/v5 support)
 - **DevTools** — Console, DOM inspector, Network tab, Debug log
 - **3 UI modes** — Hided (strip), Semi (expandable), Full (standard app bar)
-- **3 render modes** — Full (JS+CSS), Rich (CSS, no JS), Poor (plain text)
+- **3 e-book modes** — Rich (full graphics, CSS + JS), Poor (card/index style, minimal CSS), Asceti (pure text, no CSS/images)
 - **Disk cache** — Resource caching with priority queue
 - **MutationObserver** — Incremental re-render on DOM changes
 - **Snapshot button** — Screenshot (single or full-page) saved to Pictures/MediaExplorer
@@ -32,11 +32,11 @@ MediaExplorer is a hobby browser for Windows 10 Mobile (W10M, build 15063+) buil
 
 ## Status
 
-- **v1.0 release.** Phases R (Retrench), S (Smartphone adaptivity), T (Text/Image/Link detail views) complete.
+- **v1.1 release.** Phases 3-5 complete: JS Engine (ES6+), HTML & Media (tables, forms, iframes), Site Compatibility (Reddit JSON, SVG fallback, charset detection, e-book modes, markdown-to-html).
 - **SVG→XAML bridge abandoned** — after 18+ sessions, the architectural mismatch proved unfixable on Win SDK 15063. Replaced with text/image/link rendering and card-based layout for narrow viewports.
 - **Data extraction intact** — `__graphData` (755 nodes, 1647 links), `__entries` (722), `__stories` (230), `__collections` (33) available for future SkiaSharp renderer.
 
-## Dev section (June 13, 2026)
+## Dev section (June 14, 2026)
 
 ### Key decisions
 - **SVG→XAML bridge removed** — content doubling on scroll, architectural mismatch, too heavy for Lumia
@@ -44,6 +44,8 @@ MediaExplorer is a hobby browser for Windows 10 Mobile (W10M, build 15063+) buil
 - **Link routing** — internal entry URLs (/entry/E0001) → card mode; external URLs → system browser via Launcher
 - **Data extraction** — preserved for future SkiaSharp Canvas2D renderer
 - **General web rendering (v1.1)** — Custom RenderTreeBuilder pipeline for real websites. First successful rendering: Hacker News with full 30 news items, orange header, vote arrows, clickable links, footer
+- **E-book modes** — Rich (full graphics), Poor (card/index style), Asceti (pure text). JS always enabled.
+- **Markdown-to-HTML** — Auto-detects .md URLs, renders with styled reader CSS
 
 ### Key files
 `MainPage.xaml.cs` — card mode, navigation, link routing
@@ -60,6 +62,7 @@ This is a homemade browser engine — not production-ready, not intended to repl
 
 ## Milestones
 
+- **2026.06.14 — v1.1.0** E-book modes (Rich/Poor/Asceti), markdown-to-html, charset detection (windows-1251 etc.), table improvements (border-spacing, CAPTION), CSS edge cases (display:none, overflow-x/y, text-overflow:clip). JS always enabled.
 - **2026.06.13 — v1.0.10** General web rendering. Hacker News fully renders: orange header, 30 news items, vote arrows, clickable navigation, footer. CSS pseudo-classes (`:link`/`:visited`), HTML presentation attributes (`bgcolor`, `width`), SVG logo support.
 - **2026.06.12 — v1.0.0** Phases R+S+T complete. Card-based smartphone layout, entry detail views, category index, link routing. SVG→XAML bridge abandoned.
 - **2026.06.07 — v0.55.0** D3.js force-directed graph (Nokia Design Archive) renders as live XAML shapes.
@@ -123,6 +126,6 @@ Include: URL, what you expected, what you got. Screenshots help.
 
 As is. No support. RnD only. DIY.
 
-[m][e] June 13, 2026
+[m][e] June 14, 2026
 
 ![](/Images/footer.png)

@@ -30,11 +30,6 @@ namespace WEBVIEW
                 }
             };
 
-            JsToggle.Toggled += (s, e) =>
-            {
-                try { if (MainPage.Current != null) MainPage.Current.JsEnabled = JsToggle.IsOn; } catch { }
-            };
-
             SaveHomePageButton.Click += (s, e) =>
             {
                 try
@@ -59,16 +54,15 @@ namespace WEBVIEW
                 if (MainPage.Current != null) MainPage.Current.ApplyAppBarMode();
             };
 
-            // RenderModeCombo controls the rendering profile:
-//   Full  – CSS + JS + full interactivity (default/"Normal" mode)
-//   Rich  – CSS only, no JavaScript; used for reading‑mode pages
-//   Poor  – Plain‑text fallback, no CSS or JavaScript (e‑book style)
-RenderModeCombo.SelectionChanged += (s, e) =>
+            // RenderModeCombo controls the e-book rendering profile:
+            //   Rich   – Full graphics, CSS + JS (default)
+            //   Poor   – Card/index style, minimal CSS, no images
+            //   Asceti – Pure text, no CSS, no images (old e-book style)
+            RenderModeCombo.SelectionChanged += (s, e) =>
             {
                 if (RenderModeCombo == null) return;
                 int idx = RenderModeCombo.SelectedIndex;
-                // Map the selected index to the internal mode string
-                string mode = idx == 0 ? "Full" : idx == 1 ? "Rich" : "Poor";
+                string mode = idx == 0 ? "Rich" : idx == 1 ? "Poor" : "Asceti";
                 SaveRenderMode(mode);
                 if (MainPage.Current != null) MainPage.Current.RenderMode = mode;
             };
@@ -129,10 +123,6 @@ RenderModeCombo.SelectionChanged += (s, e) =>
         {
             try
             {
-                // JavaScript
-                if (JsToggle != null && MainPage.Current != null)
-                    JsToggle.IsOn = MainPage.Current.JsEnabled;
-
                 // Home page
                 var hp = LoadHomePage();
                 if (HomePageBox != null && !string.IsNullOrWhiteSpace(hp))
@@ -151,11 +141,11 @@ RenderModeCombo.SelectionChanged += (s, e) =>
                     AppBarModeCombo.SelectedIndex = idx;
                 }
 
-                // Render mode
+                // E-book mode
                 if (RenderModeCombo != null)
                 {
                     var mode = LoadRenderMode();
-                    int idx = mode == "Full" ? 0 : mode == "Rich" ? 1 : 2;
+                    int idx = mode == "Rich" ? 0 : mode == "Poor" ? 1 : 2;
                     RenderModeCombo.SelectedIndex = idx;
                 }
 
@@ -253,10 +243,15 @@ RenderModeCombo.SelectionChanged += (s, e) =>
             {
                 var s = Windows.Storage.ApplicationData.Current.LocalSettings;
                 if (s.Values.TryGetValue("RenderMode", out var v) && v is string mode)
+                {
+                    // Backward compat: "Full" maps to "Rich"
+                    if (string.Equals(mode, "Full", StringComparison.OrdinalIgnoreCase))
+                        return "Rich";
                     return mode;
+                }
             }
             catch { }
-            return "Full";
+            return "Rich";
         }
 
         private static void SaveRenderMode(string mode)
