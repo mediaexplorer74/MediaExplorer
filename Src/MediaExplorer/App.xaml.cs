@@ -54,6 +54,26 @@ namespace WEBVIEW
             // Register CodePages encoding provider for non-UTF-8 charset support (windows-1251, koi8-r, etc.)
             try { System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance); } catch { }
 
+            // Memory pressure handler — trim image cache when memory is high
+            try
+            {
+                Windows.System.MemoryManager.AppMemoryUsageIncreased += (s, level) =>
+                {
+                    try
+                    {
+                        var usage = Windows.System.MemoryManager.AppMemoryUsage;
+                        var usageLevel = Windows.System.MemoryManager.AppMemoryUsageLevel;
+                        if (usageLevel == Windows.System.AppMemoryUsageLevel.OverLimit || usage > 250 * 1024 * 1024)
+                        {
+                            BrowserCore.Engine.ImageCache.Instance.Clear();
+                            BrowserCore.Engine.DevToolsLogger.Log("[DIAG:MEM] Memory pressure — cache cleared, usage=" + (usage / 1024 / 1024) + "MB");
+                        }
+                    }
+                    catch { }
+                };
+            }
+            catch { }
+
 #if DEBUG
             if (System.Diagnostics.Debugger.IsAttached)
             {

@@ -59,11 +59,6 @@
                         <ComboBoxItem Content="Semi (tap to expand)"/>
                         <ComboBoxItem Content="Hided (thin strip, tap to expand)"/>
                     </ComboBox>
-
-                    <!-- Button visibility -->
-                    <TextBlock Text="Show in AppBar" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,8" TextWrapping="Wrap"/>
-                    <ToggleSwitch x:Name="ShowSnapshotToggle" Header="Screenshot button" IsOn="True" Foreground="White" Margin="0,0,0,8"/>
-                    <ToggleSwitch x:Name="ShowCopyToggle" Header="Copy text button" IsOn="True" Foreground="White" Margin="0,0,0,16"/>
                 </StackPanel>
             </PivotItem>
 
@@ -77,13 +72,178 @@
                     <ToggleSwitch x:Name="StatusBarToggle" Header="Show Status Bar" IsOn="True" Foreground="White" Margin="0,0,0,16"/>
                     <TextBlock Text="Hide the bottom status bar for a cleaner view" Foreground="#888888" FontSize="12" Margin="0,0,0,16" TextWrapping="Wrap"/>
 
-                    <!-- API key -->
-                    <TextBlock Text="OpenRouter API Key" Foreground="White" FontSize="14" Margin="0,0,0,4"/>
-                    <TextBox x:Name="AiKeyBox" PlaceholderText="sk-or-v1-..." Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" Margin="0,0,0,16"/>
-
                     <!-- Clear cache -->
                     <Button x:Name="ClearCacheButton" Content="Clear Cache" Background="#333333" Foreground="#CCCCCC" BorderThickness="1" BorderBrush="#555555" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
                 </StackPanel>
+            </PivotItem>
+
+            <PivotItem Header="AI Connectors">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="16,12,16,0">
+                        <!-- Active connector selector -->
+                        <TextBlock Text="Active Connector" Foreground="White" FontSize="14" Margin="0,0,0,4"/>
+                        <TextBlock Text="Which AI preset to use when page fails to render" Foreground="#888888" FontSize="11" Margin="0,0,0,4" TextWrapping="Wrap"/>
+                        <ComboBox x:Name="ActiveConnectorCombo" Background="#1A1A1A" Foreground="White" BorderBrush="#3E3E3E" Margin="0,0,0,16">
+                            <ComboBoxItem Content="Ultra (premium, Claude/GPT-4o)"/>
+                            <ComboBoxItem Content="Rich (quality, GPT-4o)"/>
+                            <ComboBoxItem Content="Poor (cheap model)"/>
+                            <ComboBoxItem Content="Asceti (free model)"/>
+                            <ComboBoxItem Content="Smart (auto-chain: cheapest first)"/>
+                        </ComboBox>
+
+                        <!-- ═══ Ultra connector ═══ -->
+                        <Border Background="#2D2D2D" CornerRadius="6" Padding="12,10" Margin="0,0,0,8">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Ultra" FontSize="16" FontWeight="SemiBold" Foreground="#FF6688" VerticalAlignment="Center"/>
+                                    <ToggleSwitch Grid.Column="1" x:Name="UltraEnabled" IsOn="True" Foreground="White"/>
+                                </Grid>
+                                <TextBlock Text="Direct API • Claude Opus/Sonnet • Premium quality" Foreground="#888888" FontSize="11" Margin="0,2,0,8"/>
+
+                                <TextBlock Text="API Key" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,2"/>
+                                <TextBox x:Name="UltraApiKey" PlaceholderText="sk-ant-... or sk-..." Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" FontSize="12" Margin="0,0,0,6"/>
+
+                                <TextBlock Text="Model Family" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,2"/>
+                                <TextBox x:Name="UltraFamily" Text="anthropic" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" FontSize="12" Margin="0,0,0,6"/>
+
+                                <TextBlock Text="Model ID" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,2"/>
+                                <TextBox x:Name="UltraModel" Text="claude-sonnet-4-20250514" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" FontSize="12" Margin="0,0,0,6"/>
+
+                                <Grid Margin="0,6,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <ToggleSwitch Grid.Column="0" x:Name="UltraAutoFormat" IsOn="True" Foreground="White" Header="Auto-format"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ═══ Rich connector ═══ -->
+                        <Border Background="#2D2D2D" CornerRadius="6" Padding="12,10" Margin="0,0,0,8">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Rich" FontSize="16" FontWeight="SemiBold" Foreground="#FFD700" VerticalAlignment="Center"/>
+                                    <ToggleSwitch Grid.Column="1" x:Name="RichEnabled" IsOn="True" Foreground="White"/>
+                                </Grid>
+                                <TextBlock Text="OpenRouter • Claude / GPT-4o • Best quality" Foreground="#888888" FontSize="11" Margin="0,2,0,8"/>
+
+                                <TextBlock Text="API Key" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,2"/>
+                                <TextBox x:Name="RichApiKey" PlaceholderText="sk-or-v1-..." Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" FontSize="12" Margin="0,0,0,6"/>
+
+                                <TextBlock Text="Model Family" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,2"/>
+                                <TextBox x:Name="RichFamily" Text="openai" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" FontSize="12" Margin="0,0,0,6"/>
+
+                                <TextBlock Text="Model ID" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,2"/>
+                                <TextBox x:Name="RichModel" Text="gpt-4o" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" FontSize="12" Margin="0,0,0,6"/>
+
+                                <Grid Margin="0,4,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Online" Foreground="#4CAF50" FontSize="11" VerticalAlignment="Center"/>
+                                    <ToggleSwitch Grid.Column="1" x:Name="RichAutoFormat" IsOn="True" Foreground="White" Header="Auto-format"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ═══ Poor connector ═══ -->
+                        <Border Background="#2D2D2D" CornerRadius="6" Padding="12,10" Margin="0,0,0,8">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Poor" FontSize="16" FontWeight="SemiBold" Foreground="#88CCFF" VerticalAlignment="Center"/>
+                                    <ToggleSwitch Grid.Column="1" x:Name="PoorEnabled" IsOn="True" Foreground="White"/>
+                                </Grid>
+                                <TextBlock Text="OpenRouter • Small models • Budget" Foreground="#888888" FontSize="11" Margin="0,2,0,8"/>
+
+                                <TextBlock Text="API Key" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,2"/>
+                                <TextBox x:Name="PoorApiKey" PlaceholderText="sk-or-v1-... (or same as Rich)" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" FontSize="12" Margin="0,0,0,6"/>
+
+                                <TextBlock Text="Model Family" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,2"/>
+                                <TextBox x:Name="PoorFamily" Text="mistralai" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" FontSize="12" Margin="0,0,0,6"/>
+
+                                <TextBlock Text="Model ID" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,2"/>
+                                <TextBox x:Name="PoorModel" Text="ministral-8b-2512" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" FontSize="12" Margin="0,0,0,6"/>
+
+                                <Grid Margin="0,4,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Online (→ offline planned)" Foreground="#FFA726" FontSize="11" VerticalAlignment="Center"/>
+                                    <ToggleSwitch Grid.Column="1" x:Name="PoorAutoFormat" IsOn="True" Foreground="White" Header="Auto-format"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ═══ Asceti connector ═══ -->
+                        <Border Background="#2D2D2D" CornerRadius="6" Padding="12,10" Margin="0,0,0,8">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Asceti" FontSize="16" FontWeight="SemiBold" Foreground="#AAFFAA" VerticalAlignment="Center"/>
+                                    <ToggleSwitch Grid.Column="1" x:Name="AscetiEnabled" IsOn="True" Foreground="White"/>
+                                </Grid>
+                                <TextBlock Text="OpenRouter • Free models • Zero cost" Foreground="#888888" FontSize="11" Margin="0,2,0,8"/>
+
+                                <TextBlock Text="API Key" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,2"/>
+                                <TextBox x:Name="AscetiApiKey" PlaceholderText="sk-or-v1-..." Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" FontSize="12" Margin="0,0,0,6"/>
+
+                                <TextBlock Text="Model Family" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,2"/>
+                                <TextBox x:Name="AscetiFamily" Text="google" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" FontSize="12" Margin="0,0,0,6"/>
+
+                                <TextBlock Text="Model ID" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,2"/>
+                                <TextBox x:Name="AscetiModel" Text="gemma-4-26b-a4b-it:free" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" FontSize="12" Margin="0,0,0,6"/>
+
+                                <Grid Margin="0,4,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Online (free tier)" Foreground="#4CAF50" FontSize="11" VerticalAlignment="Center"/>
+                                    <ToggleSwitch Grid.Column="1" x:Name="AscetiAutoFormat" IsOn="True" Foreground="White" Header="Auto-format"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ═══ Smart connector ═══ -->
+                        <Border Background="#2D2D2D" CornerRadius="6" Padding="12,10" Margin="0,0,0,16">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Smart" FontSize="16" FontWeight="SemiBold" Foreground="#CCAAFF" VerticalAlignment="Center"/>
+                                    <ToggleSwitch Grid.Column="1" x:Name="SmartEnabled" IsOn="True" Foreground="White"/>
+                                </Grid>
+                                <TextBlock Text="Auto-chain: Asceti → Poor → Rich (best value)" Foreground="#888888" FontSize="11" Margin="0,2,0,8"/>
+
+                                <TextBlock Text="Quality threshold (0.0–1.0)" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,2"/>
+                                <TextBox x:Name="SmartThreshold" Text="0.6" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" FontSize="12" Margin="0,0,0,6"/>
+
+                                <TextBlock Text="Max escalation attempts" Foreground="#AAAAAA" FontSize="12" Margin="0,0,0,2"/>
+                                <TextBox x:Name="SmartMaxAttempts" Text="3" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" FontSize="12" Margin="0,0,0,6"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
             </PivotItem>
 
             <PivotItem Header="About">

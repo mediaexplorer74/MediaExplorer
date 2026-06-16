@@ -27,7 +27,7 @@ namespace WEBVIEW
 {
     public sealed partial class MainPage : Page
     {
-        private bool _safeMode = false;
+        //private bool _safeMode = false;
         private string _lastErrorMessage;
         private bool _messageOverlayVisible;
         private DispatcherTimer _toastTimer;
@@ -39,7 +39,17 @@ namespace WEBVIEW
         private readonly CustomHtmlEngine _welcomeEngine = new CustomHtmlEngine();
         private readonly BrowserHost _browser;
         private bool _barExpanded = false;
-        private string _appBarMode = "Semi"; // "Full", "Semi", "Hided"
+        private string _appBarMode = "Full"; // "Full", "Semi", "Hided"
+        private string _appBarVisualState = "Full"; // "Full", "Compact", "Minimal"
+        private double _lastScrollOffset;
+        private const double BAR_FULL_HEIGHT = 52;
+        private const double BAR_COMPACT_HEIGHT = 34;
+        private const double BAR_MINIMAL_HEIGHT = 6;
+        private EngineType _activeEngine = EngineType.NiLJS;
+        private bool _edgeNavigating;
+        private RemoteRenderer _remote;
+        private double _remoteLastX, _remoteLastY;
+        private bool _remoteDragging;
 
         // ═══ TEST URL ═══ Change this to test different sites ═══
         // Set to null/empty to use saved Home Page from Settings.
@@ -119,10 +129,19 @@ namespace WEBVIEW
         private bool _loadProgressActive = false;
         private bool _navigationComplete;
         private bool _initialNavigationDone;
+        private bool _firstRepaintDone;
+        private readonly SmartFallbackRenderer _fallback;
         public MainPage()
         {
             InitializeComponent();
             Current = this;
+
+            _fallback = new SmartFallbackRenderer(
+                fetchPageText: async (url) => await FetchPageTextAsync(url),
+                showAiResult: (text, loading) => ShowAiResult(text, loading),
+                startReadingMode: () => { },
+                showToast: (msg) => ShowToast(msg)
+            );
 
             // Subscribe to DevToolsLogger to capture TestLogger and JS console output
             try
@@ -159,10 +178,10 @@ namespace WEBVIEW
             if (HubOpenButton != null) HubOpenButton.Click += HubOpenButton_Click;
             if (HubCloseButton != null) HubCloseButton.Click += HubCloseButton_Click;
             if (HubBackButton != null) HubBackButton.Click += HubBackButton_Click;
-            if (ReaderCloseButton != null) ReaderCloseButton.Click += ReaderCloseButton_Click;
             if (ContentArea != null) ContentArea.ManipulationDelta += ContentArea_ManipulationDelta;
+            if (ContentScrollViewer != null) ContentScrollViewer.ViewChanged += ContentScrollViewer_ViewChanged;
 
-            // Hardware/software Back button � browser navigation
+            // Hardware/software Back button   browser navigation
             try
             {
                 SystemNavigationManager.GetForCurrentView().BackRequested += (s, e) =>
@@ -182,7 +201,7 @@ namespace WEBVIEW
             }
             catch { }
 
-            // Bottom bar � mouse & touch
+            // Bottom bar   mouse & touch
             if (BarStrip != null)
             {
                 BarStrip.Tapped += BarStrip_Tapped;
@@ -212,6 +231,10 @@ namespace WEBVIEW
                     {
                         ToggleBar();
                     }
+                    if (ctrl && e.VirtualKey == Windows.System.VirtualKey.Home)
+                    {
+                        ShowDashboard();
+                    }
                 }
                 catch { }
             };
@@ -227,6 +250,15 @@ namespace WEBVIEW
             // Tap on content area to collapse bar
             if (ContentArea != null)
                 ContentArea.Tapped += (s, e) => CollapseBar();
+
+            // Dashboard overlay tap to dismiss
+            if (DashboardOverlay != null)
+                DashboardOverlay.Tapped += (s, e) =>
+                {
+                    var fe = e.OriginalSource as FrameworkElement;
+                    if (fe == DashboardOverlay || fe?.Name == "DashboardContent")
+                        HideDashboard();
+                };
 
             // Magic Bubble: long-tap / long-press on content area
             if (ContentArea != null)
@@ -302,7 +334,7 @@ namespace WEBVIEW
 
             SizeChanged += MainPage_SizeChanged;
 
-            Loaded += (s, e) => { try { ApplyAppBarMode(); ApplyRenderMode(); ApplyDevTools(); ApplyStatusBar(); ApplyButtonVisibility(); } catch { } };
+            Loaded += (s, e) => { try { ApplyAppBarMode(); ApplyRenderMode(); ApplyDevTools(); ApplyStatusBar(); MemoryProfiler.Start(); MemoryProfiler.LogMemoryUsage("Startup"); } catch { } };
             try { ApplyAppBarMode(); } catch { }
             try { ApplyRenderMode(); } catch { }
             try { ApplyDevTools(); } catch { }
@@ -362,7 +394,7 @@ namespace WEBVIEW
                 }
                 else
                 {
-                    var _ = ShowWelcomeAsync();
+                    ShowDashboard();
                 }
             }
         }
@@ -371,22 +403,18 @@ namespace WEBVIEW
 
         private void ExpandBar()
         {
-            if (_barExpanded) return;
-            _barExpanded = true;
-            if (BarStrip != null) BarStrip.IsHitTestVisible = false;
-            if (BarContent != null) BarContent.IsHitTestVisible = true;
-            AnimateBarHeight(52);
+            if (_appBarVisualState == "Full") return;
+            SetAppBarVisualState("Full");
         }
 
         private void CollapseBar()
         {
-            if (!_barExpanded || _suppressBarCollapse) return;
-            if (_appBarMode == "Full") return;
-            _barExpanded = false;
-            double target = _appBarMode == "Hided" ? 6 : 24;
-            if (BarStrip != null) BarStrip.IsHitTestVisible = true;
-            if (BarContent != null) BarContent.IsHitTestVisible = false;
-            AnimateBarHeight(target);
+            if (_suppressBarCollapse) return;
+            if (_appBarVisualState == "Minimal") return;
+            if (_appBarVisualState == "Full")
+                SetAppBarVisualState("Compact");
+            else
+                SetAppBarVisualState("Minimal");
         }
 
         // --- Magic Bubble (long-tap triggers existing AI summary) ---
@@ -402,7 +430,7 @@ namespace WEBVIEW
                 var elapsed = DateTime.Now - _holdingStart;
                 if (elapsed.TotalMilliseconds >= 500)
                 {
-                    // Long press � reuse existing AiOverlay + OpenRouter summary
+                    // Long press   reuse existing AiOverlay + OpenRouter summary
                     HubOpenButton_Click(null, null);
                 }
             }
@@ -495,7 +523,12 @@ namespace WEBVIEW
 
         private void BarStrip_Tapped(object sender, TappedRoutedEventArgs e)
         {
-            ToggleBar();
+            if (_appBarVisualState == "Minimal")
+                SetAppBarVisualState("Compact");
+            else if (_appBarVisualState == "Compact")
+                SetAppBarVisualState("Full");
+            else
+                SetAppBarVisualState("Minimal");
             e.Handled = true;
         }
 
@@ -655,7 +688,7 @@ namespace WEBVIEW
         private static string BuildSearchUrl(string query)
         {
             var q = Uri.EscapeDataString(query ?? string.Empty);
-            return "https://www.google.com/search?q=" + q + "&hl=en";
+            return "https://html.duckduckgo.com/html/?q=" + q;
         }
 
         private string GetAddressFromUI()
@@ -669,6 +702,10 @@ namespace WEBVIEW
             _lastFailedAddress = address;
             System.Diagnostics.Debug.WriteLine("[DIAG] MainPage.NavigateAsync START seq=" + _renderSequence + " address=" + address);
             CollapseBar();
+            HideDashboard();
+            HubCloseButton_Click(null, null);
+            _fallback?.Reset();
+            _firstRepaintDone = false;
             if (string.IsNullOrWhiteSpace(address))
             {
                 UpdateStatusMessage("Enter a URL.");
@@ -738,7 +775,7 @@ namespace WEBVIEW
                 }
                 else
                 {
-                    UpdateStatusMessage("Unknown about: page � " + address);
+                    UpdateStatusMessage("Unknown about: page   " + address);
                     return;
                 }
             }
@@ -754,10 +791,14 @@ namespace WEBVIEW
             ResetContentHost();
 
             // Phase 5: Reddit JSON API — intercept reddit.com URLs
-            if (IsRedditUrl(address) || address.Contains("reddit.com"))
+            if (address.Contains("reddit.com"))
             {
-                DevToolsLogger.Log("[DIAG:REDDIT] Intercepted: " + address);
-                if (await TryLoadRedditJsonAsync(address))
+                bool isOld = address.Contains("old.reddit.com");
+                bool hasJson = address.EndsWith(".json", StringComparison.OrdinalIgnoreCase);
+                string jsonUrl = hasJson ? address : address.TrimEnd('/') + "/.json";
+
+                DevToolsLogger.Log("[DIAG:REDDIT] Intercepted: " + address + " → " + jsonUrl);
+                if (await TryLoadRedditJsonAsync(jsonUrl))
                 {
                     _cardMode = true;
                     _redditCardMode = true;
@@ -774,6 +815,16 @@ namespace WEBVIEW
                 DevToolsLogger.Log("[DIAG:REDDIT] JSON failed, falling back to HTML");
             }
 
+            // Engine selection: check if EdgeHTML is needed for SPAs
+            var decision = EngineRouter.SelectEngine(address, 0, null);
+            if (decision.Engine == EngineType.EdgeHTML)
+            {
+                DevToolsLogger.Log("[DIAG:ENGINE] Routing to EdgeHTML: " + decision.Reason + " url=" + address);
+                NavigateViaEdge(address);
+                return;
+            }
+
+            SwitchToEngine(EngineType.NiLJS);
             try
             {
                 await _browser.NavigateAsync(address);
@@ -796,7 +847,7 @@ namespace WEBVIEW
                     if (LoadingRing != null) LoadingRing.IsActive = true;
                     if (ContentHost != null) ContentHost.Children.Clear();
                     _activeVisual = null; _activeVisualIndex = -1;
-                    if (_safeMode) { _welcomeEngine.SafeMode = true; _welcomeEngine.ApplySafeMode(); }
+                    //if (_safeMode) { _welcomeEngine.SafeMode = true; _welcomeEngine.ApplySafeMode(); }
                 }
                 catch { }
             });
@@ -867,6 +918,50 @@ namespace WEBVIEW
                 });
             }
             if (!_startupStatusPinned) UpdateStatusMessage("Ready.");
+        }
+
+        private async Task<string> FetchPageTextAsync(string url)
+        {
+            try
+            {
+                var http = new HttpClient();
+                http.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+                http.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                http.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.9");
+                var resp = await http.GetAsync(new Uri(url));
+                if (!resp.IsSuccessStatusCode) return null;
+                var html = await resp.Content.ReadAsStringAsync();
+
+                // Check for verification/captcha pages first
+                var htmlLower = html.ToLowerInvariant();
+                if (htmlLower.Contains("please wait for verification") ||
+                    htmlLower.Contains("checking your browser") ||
+                    htmlLower.Contains("verify you are human") ||
+                    htmlLower.Contains("challenge-platform") ||
+                    htmlLower.Contains("cf-challenge"))
+                {
+                    return "[Blocked] This page requires browser verification (CAPTCHA/Cloudflare). Cannot fetch content automatically.";
+                }
+
+                // Strip ALL non-content: script, style, noscript, svg, head, meta, link
+                var text = System.Text.RegularExpressions.Regex.Replace(html,
+                    "<(script|style|noscript|svg|head|meta|link)[^>]*>[\\s\\S]*?</\\1>",
+                    " ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                // Strip self-closing tags
+                text = System.Text.RegularExpressions.Regex.Replace(text, "<(meta|link|br|hr|img|input)[^>]*/?>", " ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                // Strip remaining HTML tags
+                text = System.Text.RegularExpressions.Regex.Replace(text, "<[^>]+>", " ");
+                // Decode HTML entities
+                text = System.Net.WebUtility.HtmlDecode(text);
+                // Collapse whitespace
+                text = System.Text.RegularExpressions.Regex.Replace(text, "\\s+", " ").Trim();
+
+                if (string.IsNullOrWhiteSpace(text) || text.Length < 20)
+                    return null;
+
+                return text;
+            }
+            catch { return null; }
         }
 
         private void Engine_RepaintReady(FrameworkElement element)
@@ -946,8 +1041,28 @@ namespace WEBVIEW
                         _activeVisual = element;
                         _activeVisualIndex = ContentHost.Children.IndexOf(element);
                         ApplyAppBarMode();
-                        if (!_suppressRepaintHandler && (_browser.RenderMode == "Poor" || _browser.RenderMode == "Asceti"))
-                            StartReadingMode();
+                        // Smart Fallback: detect empty render OR always trigger in Poor mode
+                        bool fallbackTriggered = false;
+                        if (_fallback != null && !_suppressRepaintHandler && _firstRepaintDone && _currentUri != null)
+                        {
+                            string pageText = "";
+                            try { pageText = _browser?.GetTextContent() ?? ""; } catch { }
+                            bool poorMode = _browser?.RenderMode == "Poor";
+                            if (poorMode || _fallback.IsPageEmpty(ContentHost.Children.Count, pageText, _currentUri.AbsoluteUri))
+                            {
+                                DevToolsLogger.Log("[DIAG:FALLBACK] Triggered for " + _currentUri.AbsoluteUri + " poorMode=" + poorMode + " children=" + ContentHost.Children.Count + " textLen=" + (pageText?.Length ?? 0));
+                                fallbackTriggered = true;
+                                var _ = _fallback.TryFallbackAsync(_currentUri.AbsoluteUri);
+                            }
+                        }
+
+                        if (!fallbackTriggered && !_suppressRepaintHandler && _firstRepaintDone && (_browser.RenderMode == "Poor" || _browser.RenderMode == "Asceti"))
+                        {
+                            DevToolsLogger.Log("[DIAG:FALLBACK] Poor/Asceti mode → AI Summary for " + _currentUri?.AbsoluteUri);
+                            var _ = _fallback?.TryFallbackAsync(_currentUri?.AbsoluteUri ?? "");
+                        }
+                        _firstRepaintDone = true;
+                        try { MemoryProfiler.LogMemoryUsage("Repaint:" + (_currentUri?.Host ?? "")); } catch { }
                     }
                 }
                 catch (Exception ex) { var m = "[DIAG:CARD] Engine_RepaintReady EXC " + ex.GetType().Name + ": " + ex.Message; System.Diagnostics.Debug.WriteLine(m); DevToolsLogger.Log(m); }
@@ -2361,7 +2476,20 @@ namespace WEBVIEW
             if (e.Key == Windows.System.VirtualKey.Enter)
             {
                 e.Handled = true;
-                await NavigateAsync(GetAddressFromUI());
+                var input = GetAddressFromUI();
+                if (string.IsNullOrWhiteSpace(input)) return;
+
+                if (LooksLikeUrl(input) || input.StartsWith("http", StringComparison.OrdinalIgnoreCase) ||
+                    input.StartsWith("file", StringComparison.OrdinalIgnoreCase) ||
+                    input.StartsWith("ms-appx", StringComparison.OrdinalIgnoreCase) ||
+                    input.StartsWith("about:", StringComparison.OrdinalIgnoreCase))
+                {
+                    await NavigateAsync(input);
+                }
+                else
+                {
+                    RunSearchQuery(input);
+                }
             }
         }
 
@@ -2562,36 +2690,31 @@ namespace WEBVIEW
             catch { }
         }
 
-        public void ApplyButtonVisibility()
-        {
-            try
-            {
-                var s = Windows.Storage.ApplicationData.Current.LocalSettings;
-                // Snapshot/Copy buttons moved to Hub — no visibility toggling needed
-            }
-            catch { }
-        }
-
         public void ApplyAppBarMode()
         {
             _appBarMode = LoadAppBarMode();
             if (_appBarMode == "Full")
             {
-                if (BottomBar != null) BottomBar.Height = 52;
+                _appBarVisualState = "Full";
+                if (BottomBar != null) BottomBar.Height = BAR_FULL_HEIGHT;
+                if (Omnibox != null) Omnibox.Visibility = Visibility.Visible;
                 if (BarContent != null) BarContent.IsHitTestVisible = true;
                 if (BarStrip != null) BarStrip.IsHitTestVisible = false;
                 _barExpanded = true;
             }
             else if (_appBarMode == "Hided")
             {
-                if (BottomBar != null) BottomBar.Height = 6;
+                _appBarVisualState = "Minimal";
+                if (BottomBar != null) BottomBar.Height = BAR_MINIMAL_HEIGHT;
                 if (BarContent != null) BarContent.IsHitTestVisible = false;
                 if (BarStrip != null) BarStrip.IsHitTestVisible = true;
                 _barExpanded = false;
             }
             else
             {
-                if (BottomBar != null) BottomBar.Height = 24;
+                _appBarVisualState = "Compact";
+                if (BottomBar != null) BottomBar.Height = BAR_COMPACT_HEIGHT;
+                if (Omnibox != null) Omnibox.Visibility = Visibility.Collapsed;
                 if (BarContent != null) BarContent.IsHitTestVisible = false;
                 if (BarStrip != null) BarStrip.IsHitTestVisible = true;
                 _barExpanded = false;
@@ -2714,7 +2837,7 @@ namespace WEBVIEW
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("[Snapshot] ERROR: " + ex.GetType().Name + " � " + ex.Message);
+                System.Diagnostics.Debug.WriteLine("[Snapshot] ERROR: " + ex.GetType().Name + "   " + ex.Message);
                 if (ex.InnerException != null)
                     System.Diagnostics.Debug.WriteLine("[Snapshot] Inner: " + ex.InnerException.Message);
                 UpdateStatusMessage("Snapshot failed: " + ex.Message, overrideStartup: true);
@@ -2842,7 +2965,7 @@ namespace WEBVIEW
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("[Snapshot] OUTER error: " + ex.GetType().Name + " � " + ex.Message);
+                System.Diagnostics.Debug.WriteLine("[Snapshot] OUTER error: " + ex.GetType().Name + "   " + ex.Message);
                 if (ex.InnerException != null)
                     System.Diagnostics.Debug.WriteLine("[Snapshot] Inner: " + ex.InnerException.Message);
                 UpdateStatusMessage("Snapshot failed: " + ex.Message, overrideStartup: true);
@@ -3131,50 +3254,69 @@ namespace WEBVIEW
             catch { }
         }
 
-        // --- Reading Mode ---
-        private double _readerFontSize = 16;
+        // ========== Scroll-Aware AppBar ==========
 
-        public void StartReadingMode()
+        private void ContentScrollViewer_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
         {
-            try
+            if (_cardMode) return;
+            var sv = sender as ScrollViewer;
+            if (sv == null) return;
+
+            if (!e.IsIntermediate)
             {
-                string text;
-                try { text = _browser?.GetTextContent() ?? string.Empty; } catch { text = string.Empty; }
-                if (string.IsNullOrWhiteSpace(text))
-                {
-                    UpdateStatusMessage("No page content for reading mode.");
-                    return;
-                }
-                if (ReadingOverlay != null)
-                {
-                    _suppressBarCollapse = true;
-                    ReadingOverlay.Visibility = Visibility.Visible;
-                    _readerFontSize = 16;
-                    if (ReaderContentText != null)
-                    {
-                        ReaderContentText.FontSize = _readerFontSize;
-                        ReaderContentText.Text = text;
-                    }
-                }
+                _lastScrollOffset = sv.VerticalOffset;
+                return;
             }
-            catch { }
+
+            double currentOffset = sv.VerticalOffset;
+            double delta = currentOffset - _lastScrollOffset;
+            _lastScrollOffset = currentOffset;
+
+            if (Math.Abs(delta) < 1) return;
+
+            if (delta > 0)
+            {
+                if (_appBarVisualState == "Full")
+                    SetAppBarVisualState("Compact");
+                else if (_appBarVisualState == "Compact")
+                    SetAppBarVisualState("Minimal");
+            }
+            else
+            {
+                if (_appBarVisualState == "Minimal")
+                    SetAppBarVisualState("Compact");
+            }
         }
 
-        private void ReaderFontPlus_Click(object sender, RoutedEventArgs e)
+        private void SetAppBarVisualState(string state)
         {
-            _readerFontSize = Math.Min(_readerFontSize + 2, 36);
-            if (ReaderContentText != null) ReaderContentText.FontSize = _readerFontSize;
-        }
+            if (_appBarVisualState == state) return;
+            _appBarVisualState = state;
 
-        private void ReaderFontMinus_Click(object sender, RoutedEventArgs e)
-        {
-            _readerFontSize = Math.Max(_readerFontSize - 2, 10);
-            if (ReaderContentText != null) ReaderContentText.FontSize = _readerFontSize;
-        }
-
-        private void ReaderCloseButton_Click(object sender, RoutedEventArgs e)
-        {
-            try { if (ReadingOverlay != null) ReadingOverlay.Visibility = Visibility.Collapsed; _suppressBarCollapse = false; } catch { }
+            switch (state)
+            {
+                case "Full":
+                    AnimateBarHeight(BAR_FULL_HEIGHT);
+                    if (Omnibox != null) Omnibox.Visibility = Visibility.Visible;
+                    if (BarContent != null) BarContent.IsHitTestVisible = true;
+                    if (BarStrip != null) BarStrip.IsHitTestVisible = false;
+                    _barExpanded = true;
+                    break;
+                case "Compact":
+                    AnimateBarHeight(BAR_COMPACT_HEIGHT);
+                    if (Omnibox != null) Omnibox.Visibility = Visibility.Collapsed;
+                    if (BarContent != null) BarContent.IsHitTestVisible = true;
+                    if (BarStrip != null) BarStrip.IsHitTestVisible = false;
+                    _barExpanded = true;
+                    break;
+                case "Minimal":
+                    AnimateBarHeight(BAR_MINIMAL_HEIGHT);
+                    if (BarContent != null) BarContent.IsHitTestVisible = false;
+                    if (BarStrip != null) BarStrip.IsHitTestVisible = true;
+                    _barExpanded = false;
+                    break;
+            }
+            UpdateBarClip();
         }
 
         // --- AI ---
@@ -3210,13 +3352,19 @@ namespace WEBVIEW
                 ShowHubMain();
                 if (HubOverlay != null) HubOverlay.Visibility = Visibility.Visible;
                 if (HubEbookLabel != null) HubEbookLabel.Text = _browser?.RenderMode ?? "Rich";
+                if (HubEngineLabel != null) HubEngineLabel.Text = _activeEngine.ToString();
             }
             catch { }
         }
 
         private void HubCloseButton_Click(object sender, RoutedEventArgs e)
         {
-            try { if (HubOverlay != null) HubOverlay.Visibility = Visibility.Collapsed; } catch { }
+            try
+            {
+                if (HubOverlay != null) HubOverlay.Visibility = Visibility.Collapsed;
+                if (HubAiSummaryContent != null) HubAiSummaryContent.Children.Clear();
+            }
+            catch { }
         }
 
         private void HubBackButton_Click(object sender, RoutedEventArgs e)
@@ -3231,6 +3379,8 @@ namespace WEBVIEW
                 if (HubMenuView != null) HubMenuView.Visibility = Visibility.Visible;
                 if (HubFavoritesView != null) HubFavoritesView.Visibility = Visibility.Collapsed;
                 if (HubHistoryView != null) HubHistoryView.Visibility = Visibility.Collapsed;
+                if (HubAiSummaryView != null) HubAiSummaryView.Visibility = Visibility.Collapsed;
+                if (HubAiSummaryContent != null) HubAiSummaryContent.Children.Clear();
                 if (HubTitle != null) HubTitle.Text = "AI Hub";
                 if (HubBackButton != null) HubBackButton.Visibility = Visibility.Collapsed;
                 if (HubCloseButton != null) HubCloseButton.Visibility = Visibility.Visible;
@@ -3248,15 +3398,15 @@ namespace WEBVIEW
 
                 switch (tag)
                 {
+                    case "Home":
+                        HubCloseButton_Click(null, null);
+                        ShowDashboard();
+                        break;
                     case "Favorites":
                         ShowHubFavorites();
                         break;
                     case "History":
                         ShowHubHistory();
-                        break;
-                    case "Reading":
-                        HubCloseButton_Click(null, null);
-                        StartReadingMode();
                         break;
                     case "AISummary":
                         HubCloseButton_Click(null, null);
@@ -3272,6 +3422,9 @@ namespace WEBVIEW
                         break;
                     case "Ebook":
                         CycleEbookMode();
+                        break;
+                    case "Engine":
+                        CycleEngine();
                         break;
                     case "DevTools":
                         HubCloseButton_Click(null, null);
@@ -3320,19 +3473,81 @@ namespace WEBVIEW
         {
             if (HubFavoritesList == null) return;
             HubFavoritesList.Children.Clear();
+
+            // "Add to Favorites" button for current page
+            if (_currentUri != null)
+            {
+                string currentUrl = _currentUri.AbsoluteUri;
+                string currentTitle = _pageTitle ?? _currentUri.Host ?? currentUrl;
+                var addBtn = new Button
+                {
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    HorizontalContentAlignment = HorizontalAlignment.Left,
+                    Background = new SolidColorBrush(Color.FromArgb(255, 40, 50, 70)),
+                    BorderThickness = new Thickness(0),
+                    Margin = new Thickness(0, 0, 0, 8),
+                    Padding = new Thickness(12, 10, 12, 10)
+                };
+                var addPanel = new StackPanel { Orientation = Orientation.Horizontal };
+                addPanel.Children.Add(new TextBlock
+                {
+                    Text = "\u2605 ",
+                    FontSize = 14,
+                    Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 215, 0)),
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                addPanel.Children.Add(new TextBlock
+                {
+                    Text = "Add current page",
+                    FontSize = 13,
+                    Foreground = new SolidColorBrush(Color.FromArgb(220, 100, 180, 255)),
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                addBtn.Content = addPanel;
+                addBtn.Click += (s, e) =>
+                {
+                    AddFavorite(currentUrl, currentTitle);
+                    ShowToast("Added to favorites: " + currentTitle);
+                    BuildHubFavoritesList();
+                };
+                HubFavoritesList.Children.Add(addBtn);
+            }
+
             var favs = LoadFavorites();
             if (favs.Count == 0)
             {
-                HubFavoritesList.Children.Add(new TextBlock { Text = "No favorites yet.\nTap ⭐ in AI Hub to add the current page.", Foreground = new SolidColorBrush(Windows.UI.Colors.Gray), FontSize = 14, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 16, 0, 0) });
+                HubFavoritesList.Children.Add(new TextBlock { Text = "No favorites yet.\nTap \"Add current page\" above to bookmark.", Foreground = new SolidColorBrush(Windows.UI.Colors.Gray), FontSize = 14, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) });
                 return;
             }
             foreach (var fav in favs)
             {
+                string favUrl = fav.Url;
+                string favTitle = fav.Title;
                 var item = new Button { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0x33, 0x33, 0x33)), BorderThickness = new Thickness(0), Margin = new Thickness(0, 0, 0, 2), Padding = new Thickness(12, 10, 12, 10) };
-                var tb = new TextBlock { Text = fav.Title ?? fav.Url, Foreground = new SolidColorBrush(Windows.UI.Colors.White), FontSize = 14, TextTrimming = TextTrimming.CharacterEllipsis };
-                item.Content = tb;
-                var url = fav.Url;
-                item.Click += (s, e) => { HubCloseButton_Click(null, null); NavigateAsync(url); };
+                var itemPanel = new Grid();
+                itemPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                itemPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var tb = new TextBlock { Text = fav.Title ?? fav.Url, Foreground = new SolidColorBrush(Windows.UI.Colors.White), FontSize = 14, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+                Grid.SetColumn(tb, 0);
+                itemPanel.Children.Add(tb);
+                var removeBtn = new TextBlock
+                {
+                    Text = "\u2715",
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(Color.FromArgb(180, 255, 100, 100)),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(8, 0, 0, 0)
+                };
+                removeBtn.Tapped += (s, e) =>
+                {
+                    e.Handled = true;
+                    RemoveFavorite(favUrl);
+                    BuildHubFavoritesList();
+                };
+                Grid.SetColumn(removeBtn, 1);
+                itemPanel.Children.Add(removeBtn);
+                item.Content = itemPanel;
+                item.Click += (s, e) => { HubCloseButton_Click(null, null); NavigateAsync(favUrl); };
                 HubFavoritesList.Children.Add(item);
             }
         }
@@ -3347,17 +3562,112 @@ namespace WEBVIEW
                 HubHistoryList.Children.Add(new TextBlock { Text = "No history yet.", Foreground = new SolidColorBrush(Windows.UI.Colors.Gray), FontSize = 14, Margin = new Thickness(0, 16, 0, 0) });
                 return;
             }
-            foreach (var entry in history.Take(30))
+
+            // Clear All button
+            var clearAllBtn = new Button
             {
-                var item = new Button { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0x33, 0x33, 0x33)), BorderThickness = new Thickness(0), Margin = new Thickness(0, 0, 0, 2), Padding = new Thickness(12, 10, 12, 10) };
-                var panel = new StackPanel();
-                panel.Children.Add(new TextBlock { Text = entry.Title ?? entry.Url, Foreground = new SolidColorBrush(Windows.UI.Colors.White), FontSize = 14, TextTrimming = TextTrimming.CharacterEllipsis });
-                panel.Children.Add(new TextBlock { Text = entry.Url, Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0x88, 0x88, 0x88)), FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 0) });
-                item.Content = panel;
-                var url = entry.Url;
-                item.Click += (s, e) => { HubCloseButton_Click(null, null); NavigateAsync(url); };
-                HubHistoryList.Children.Add(item);
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Background = new SolidColorBrush(Color.FromArgb(255, 60, 30, 30)),
+                BorderThickness = new Thickness(0),
+                Margin = new Thickness(0, 0, 0, 8),
+                Padding = new Thickness(12, 8, 12, 8)
+            };
+            clearAllBtn.Content = new TextBlock
+            {
+                Text = "\u2715  Clear all history (" + history.Count + ")",
+                FontSize = 13,
+                Foreground = new SolidColorBrush(Color.FromArgb(220, 255, 100, 100))
+            };
+            clearAllBtn.Click += (s, e) =>
+            {
+                ClearAllHistory();
+                BuildHubHistoryList();
+            };
+            HubHistoryList.Children.Add(clearAllBtn);
+
+            // Group by date
+            var now = DateTime.UtcNow;
+            var today = new List<HistoryEntry>();
+            var yesterday = new List<HistoryEntry>();
+            var thisWeek = new List<HistoryEntry>();
+            var older = new List<HistoryEntry>();
+
+            foreach (var entry in history)
+            {
+                var age = now - entry.Timestamp.ToUniversalTime();
+                if (age.TotalDays < 1) today.Add(entry);
+                else if (age.TotalDays < 2) yesterday.Add(entry);
+                else if (age.TotalDays < 7) thisWeek.Add(entry);
+                else older.Add(entry);
             }
+
+            void AddGroup(string label, List<HistoryEntry> entries)
+            {
+                if (entries.Count == 0) return;
+                HubHistoryList.Children.Add(new TextBlock
+                {
+                    Text = label,
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(Color.FromArgb(180, 100, 180, 255)),
+                    Margin = new Thickness(0, 8, 0, 4)
+                });
+                foreach (var entry in entries)
+                {
+                    string entryUrl = entry.Url;
+                    var item = new Button { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0x33, 0x33, 0x33)), BorderThickness = new Thickness(0), Margin = new Thickness(0, 0, 0, 2), Padding = new Thickness(12, 8, 12, 8) };
+                    var panel = new Grid();
+                    panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    panel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    var textPanel = new StackPanel();
+                    textPanel.Children.Add(new TextBlock { Text = entry.Title ?? entry.Url, Foreground = new SolidColorBrush(Windows.UI.Colors.White), FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis });
+                    string timeStr = entry.Timestamp.ToLocalTime().ToString("HH:mm");
+                    textPanel.Children.Add(new TextBlock
+                    {
+                        Text = timeStr + "  \u2022  " + entry.Url,
+                        Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(180, 120, 120, 120)),
+                        FontSize = 11,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        Margin = new Thickness(0, 2, 0, 0)
+                    });
+                    Grid.SetColumn(textPanel, 0);
+                    panel.Children.Add(textPanel);
+                    var removeBtn = new TextBlock
+                    {
+                        Text = "\u2715",
+                        FontSize = 12,
+                        Foreground = new SolidColorBrush(Color.FromArgb(180, 255, 100, 100)),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(8, 0, 0, 0)
+                    };
+                    removeBtn.Tapped += (s, e) =>
+                    {
+                        e.Handled = true;
+                        RemoveHistoryEntry(entryUrl);
+                        BuildHubHistoryList();
+                    };
+                    Grid.SetColumn(removeBtn, 1);
+                    panel.Children.Add(removeBtn);
+                    item.Content = panel;
+                    item.Click += (s, e) => { HubCloseButton_Click(null, null); NavigateAsync(entryUrl); };
+                    HubHistoryList.Children.Add(item);
+                }
+            }
+
+            AddGroup("Today", today);
+            AddGroup("Yesterday", yesterday);
+            AddGroup("This Week", thisWeek);
+            AddGroup("Older", older);
+        }
+
+        private void ClearAllHistory()
+        {
+            try
+            {
+                Windows.Storage.ApplicationData.Current.LocalSettings.Values.Remove("History");
+                ShowToast("History cleared");
+            }
+            catch { }
         }
 
         private void CycleEbookMode()
@@ -3373,11 +3683,62 @@ namespace WEBVIEW
             catch { }
         }
 
+        private void CycleEngine()
+        {
+            try
+            {
+                var current = _activeEngine;
+                EngineType next;
+                string label;
+                if (current == EngineType.NiLJS) { next = EngineType.EdgeHTML; label = "EdgeHTML"; }
+                else if (current == EngineType.EdgeHTML) { next = EngineType.Remote; label = "Remote"; }
+                else if (current == EngineType.Remote) { next = EngineType.Auto; label = "Auto"; }
+                else { next = EngineType.NiLJS; label = "NiLJS"; }
+
+                _activeEngine = next;
+                if (HubEngineLabel != null) HubEngineLabel.Text = label;
+
+                if (next == EngineType.Remote)
+                {
+                    ConnectToRemoteServer();
+                }
+                else if (current == EngineType.Remote)
+                {
+                    DisconnectRemote();
+                }
+
+                if (_currentUri != null)
+                {
+                    string host = EngineRouter.GetHostFromUrl(_currentUri.AbsoluteUri);
+                    if (next != EngineType.Auto)
+                        EngineRouter.SetSiteEngine(host, next);
+                    else
+                        EngineRouter.SetSiteEngine(host, EngineType.Auto);
+                }
+
+                string msg = "Engine: " + label;
+                if (_currentUri != null)
+                    msg += " for " + EngineRouter.GetHostFromUrl(_currentUri.AbsoluteUri);
+                UpdateStatusMessage(msg);
+                ShowToast(msg);
+            }
+            catch { }
+        }
+
         private async void RunAiSummary()
         {
             try
             {
-                var key = LoadAiKey();
+                // Load active connector config
+                var defaults = BrowserCore.Engine.AiConnectorConfig.GetDefaults();
+                var activeType = BrowserCore.Engine.ConnectorStorage.LoadActiveConnector();
+                var cfg = BrowserCore.Engine.ConnectorStorage.Load(activeType, defaults[(int)activeType]);
+
+                // Fallback: check legacy API key if connector has none
+                var key = cfg.ApiKey;
+                if (string.IsNullOrWhiteSpace(key))
+                    key = LoadAiKey();
+
                 string pageText;
                 try
                 {
@@ -3396,12 +3757,12 @@ namespace WEBVIEW
 
                 if (string.IsNullOrWhiteSpace(key))
                 {
-                    ShowAiResult("No API key set. Open Settings → Advanced → OpenRouter API Key.", false);
+                    ShowAiResult("No API key set. Open Settings → AI Connectors → configure a key.", false);
                     return;
                 }
 
                 if (pageText.Length > 16000) pageText = pageText.Substring(0, 16000) + "\n[truncated]";
-                ShowAiResult("Analyzing page content...", true);
+                ShowAiResult("Analyzing with " + cfg.Name + " (" + cfg.ModelId + ")...", true);
                 var summary = await OpenRouterClient.SummarizeAsync(key, pageText);
                 ShowAiResult(summary, false);
             }
@@ -3417,18 +3778,429 @@ namespace WEBVIEW
                     if (HubMenuView != null) HubMenuView.Visibility = Visibility.Collapsed;
                     if (HubFavoritesView != null) HubFavoritesView.Visibility = Visibility.Collapsed;
                     if (HubHistoryView != null) HubHistoryView.Visibility = Visibility.Collapsed;
+                    if (HubAiSummaryView != null) HubAiSummaryView.Visibility = Visibility.Visible;
                     if (HubTitle != null) HubTitle.Text = isLoading ? "Thinking..." : "AI Summary";
                     if (HubBackButton != null) HubBackButton.Visibility = Visibility.Visible;
                     if (HubCloseButton != null) HubCloseButton.Visibility = Visibility.Collapsed;
                     if (HubOverlay != null) HubOverlay.Visibility = Visibility.Visible;
 
-                    // Show result in a scrollable text block inside hub content
-                    var contentGrid = HubOverlay?.FindName("HubPanel") as FrameworkElement;
-                    // For simplicity, reuse toast for now — will build proper panel later
-                    ShowToast(text);
+                    if (HubAiSummaryContent != null)
+                    {
+                        HubAiSummaryContent.Children.Clear();
+                        if (isLoading)
+                        {
+                            HubAiSummaryContent.Children.Add(new ProgressRing
+                            {
+                                IsActive = true,
+                                Width = 32,
+                                Height = 32,
+                                Foreground = new SolidColorBrush(Color.FromArgb(200, 100, 180, 255)),
+                                HorizontalAlignment = HorizontalAlignment.Center,
+                                Margin = new Thickness(0, 16, 0, 12)
+                            });
+                            HubAiSummaryContent.Children.Add(new TextBlock
+                            {
+                                Text = text,
+                                Foreground = new SolidColorBrush(Colors.Gray),
+                                FontSize = 14,
+                                TextWrapping = TextWrapping.Wrap,
+                                HorizontalAlignment = HorizontalAlignment.Center
+                            });
+                        }
+                        else
+                        {
+                            HubAiSummaryContent.Children.Add(new TextBlock
+                            {
+                                Text = text,
+                                Foreground = new SolidColorBrush(Colors.White),
+                                FontSize = 14,
+                                TextWrapping = TextWrapping.Wrap,
+                                LineHeight = 22
+                            });
+                        }
+                    }
                 }
                 catch { }
             });
+        }
+
+        // ========== Hybrid Search ==========
+
+        private async void RunSearchQuery(string query)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(query)) return;
+
+                ShowAiResult("Searching: \"" + query + "\"...", true);
+
+                // Try AI first
+                string aiResult = await TryAiSearch(query);
+                if (!string.IsNullOrEmpty(aiResult) && !aiResult.StartsWith("Error:"))
+                {
+                    ShowAiResult(aiResult, false);
+                    return;
+                }
+
+                // Fallback: DuckDuckGo HTML
+                ShowAiResult("Searching DuckDuckGo...", true);
+                var ddgResults = await FetchDuckDuckGoResults(query);
+                if (!string.IsNullOrEmpty(ddgResults))
+                {
+                    ShowAiResult(ddgResults, false);
+                }
+                else
+                {
+                    string errorMsg = "No results found.\n\n";
+                    if (!string.IsNullOrEmpty(aiResult) && aiResult.StartsWith("Error:"))
+                        errorMsg += "AI: " + aiResult + "\n\n";
+                    errorMsg += "Try a different query or check your network connection.";
+                    ShowAiResult(errorMsg, false);
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowAiResult("Search error: " + ex.Message, false);
+            }
+        }
+
+        private async Task<string> TryAiSearch(string query)
+        {
+            try
+            {
+                var defaults = BrowserCore.Engine.AiConnectorConfig.GetDefaults();
+                var activeType = BrowserCore.Engine.ConnectorStorage.LoadActiveConnector();
+                var cfg = BrowserCore.Engine.ConnectorStorage.Load(activeType, defaults[(int)activeType]);
+
+                var key = cfg.ApiKey;
+                if (string.IsNullOrWhiteSpace(key))
+                    key = LoadAiKey();
+
+                if (string.IsNullOrWhiteSpace(key))
+                    return null;
+
+                if (query.Length > 2000) query = query.Substring(0, 2000);
+                var prompt = "You are a helpful assistant. Answer this question concisely and clearly. If it's about a specific website or service, provide the most relevant information. Use markdown formatting for readability.";
+                var result = await ApiClient.SummarizeAsync(key, cfg.ModelFamily, cfg.ModelId, query, prompt);
+                return result;
+            }
+            catch { return null; }
+        }
+
+        private async Task<string> FetchDuckDuckGoResults(string query)
+        {
+            try
+            {
+                var http = new HttpClient();
+                http.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+                var url = "https://html.duckduckgo.com/html/?q=" + Uri.EscapeDataString(query);
+                var resp = await http.GetAsync(new Uri(url));
+                if (!resp.IsSuccessStatusCode) return null;
+                var html = await resp.Content.ReadAsStringAsync();
+
+                var results = new System.Text.StringBuilder();
+                results.AppendLine("Search results for: " + query);
+                results.AppendLine(new string('─', 30));
+                results.AppendLine();
+
+                // Extract results: <a class="result__a" href="...">Title</a>
+                var titleMatches = System.Text.RegularExpressions.Regex.Matches(html,
+                    @"<a\s+class=""result__a""\s+href=""([^""]*)""[^>]*>(.*?)</a>",
+                    System.Text.RegularExpressions.RegexOptions.Singleline);
+
+                // Extract snippets: <a class=""result__snippet"" ...>Snippet</a>
+                var snippetMatches = System.Text.RegularExpressions.Regex.Matches(html,
+                    @"<a\s+class=""result__snippet""[^>]*>(.*?)</a>",
+                    System.Text.RegularExpressions.RegexOptions.Singleline);
+
+                int count = Math.Min(titleMatches.Count, 8);
+                for (int i = 0; i < count; i++)
+                {
+                    string href = System.Net.WebUtility.HtmlDecode(titleMatches[i].Groups[1].Value);
+                    string title = System.Net.WebUtility.HtmlDecode(
+                        System.Text.RegularExpressions.Regex.Replace(titleMatches[i].Groups[2].Value, "<[^>]+>", "")).Trim();
+                    string snippet = "";
+                    if (i < snippetMatches.Count)
+                    {
+                        snippet = System.Net.WebUtility.HtmlDecode(
+                            System.Text.RegularExpressions.Regex.Replace(snippetMatches[i].Groups[1].Value, "<[^>]+>", "")).Trim();
+                    }
+
+                    results.AppendLine((i + 1) + ". " + title);
+                    if (!string.IsNullOrEmpty(snippet))
+                        results.AppendLine("   " + snippet);
+                    if (!string.IsNullOrEmpty(href))
+                        results.AppendLine("   " + href);
+                    results.AppendLine();
+                }
+
+                if (count == 0)
+                {
+                    // Try alternative extraction: <a class="result-link" ...>
+                    var altMatches = System.Text.RegularExpressions.Regex.Matches(html,
+                        @"<a\s+class=""result-link""[^>]*href=""([^""]*)""[^>]*>(.*?)</a>",
+                        System.Text.RegularExpressions.RegexOptions.Singleline);
+                    count = Math.Min(altMatches.Count, 8);
+                    for (int i = 0; i < count; i++)
+                    {
+                        string href = System.Net.WebUtility.HtmlDecode(altMatches[i].Groups[1].Value);
+                        string title = System.Net.WebUtility.HtmlDecode(
+                            System.Text.RegularExpressions.Regex.Replace(altMatches[i].Groups[2].Value, "<[^>]+>", "")).Trim();
+                        results.AppendLine((i + 1) + ". " + title);
+                        if (!string.IsNullOrEmpty(href))
+                            results.AppendLine("   " + href);
+                        results.AppendLine();
+                    }
+                }
+
+                results.AppendLine("────────────────────────");
+                results.AppendLine("Open DuckDuckGo for full results");
+                return results.ToString();
+            }
+            catch { return null; }
+        }
+
+        // ========== Multi-Engine Architecture ==========
+
+        private void SwitchToEngine(EngineType engine)
+        {
+            _activeEngine = engine;
+            Ui(() =>
+            {
+                try
+                {
+                    if (engine == EngineType.EdgeHTML)
+                    {
+                        if (ContentArea != null) ContentArea.Visibility = Visibility.Collapsed;
+                        if (EdgeBrowser != null) EdgeBrowser.Visibility = Visibility.Visible;
+                        if (RemoteView != null) RemoteView.Visibility = Visibility.Collapsed;
+                    }
+                    else if (engine == EngineType.Remote)
+                    {
+                        if (ContentArea != null) ContentArea.Visibility = Visibility.Collapsed;
+                        if (EdgeBrowser != null) EdgeBrowser.Visibility = Visibility.Collapsed;
+                        if (RemoteView != null) RemoteView.Visibility = Visibility.Visible;
+                    }
+                    else
+                    {
+                        if (EdgeBrowser != null) EdgeBrowser.Visibility = Visibility.Collapsed;
+                        if (RemoteView != null) RemoteView.Visibility = Visibility.Collapsed;
+                        if (ContentArea != null) ContentArea.Visibility = Visibility.Visible;
+                    }
+                }
+                catch { }
+            });
+        }
+
+        private void NavigateViaEdge(string url)
+        {
+            SwitchToEngine(EngineType.EdgeHTML);
+            Ui(() =>
+            {
+                try
+                {
+                    if (EdgeBrowser != null)
+                    {
+                        _edgeNavigating = true;
+                        EdgeBrowser.Navigate(new Uri(url));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DevToolsLogger.Log("[DIAG:EDGE] Navigate error: " + ex.Message);
+                    SwitchToEngine(EngineType.NiLJS);
+                }
+            });
+        }
+
+        private void EdgeBrowser_NavigationStarting(WebView sender, WebViewNavigationStartingEventArgs args)
+        {
+            _edgeNavigating = true;
+            Ui(() =>
+            {
+                if (LoadingOverlay != null) LoadingOverlay.Visibility = Visibility.Visible;
+                if (LoadingRing != null) LoadingRing.IsActive = true;
+                if (LoadProgressBar != null)
+                {
+                    LoadProgressBar.Visibility = Visibility.Visible;
+                    LoadProgressBar.Width = 0;
+                    LoadProgressBar.Opacity = 1;
+                    AnimateLoadProgress();
+                }
+            });
+        }
+
+        private async void EdgeBrowser_NavigationCompleted(WebView sender, WebViewNavigationCompletedEventArgs args)
+        {
+            _edgeNavigating = false;
+            Ui(() =>
+            {
+                if (LoadingRing != null) LoadingRing.IsActive = false;
+                if (LoadingOverlay != null) LoadingOverlay.Visibility = Visibility.Collapsed;
+                FadeOutLoadProgress();
+            });
+
+            if (args.IsSuccess && args.Uri != null)
+            {
+                UpdateCurrentLocation(args.Uri);
+                UpdateNavButtons();
+                string title = "";
+                try { title = await sender.InvokeScriptAsync("eval", new[] { "document.title" }); } catch { }
+                if (!string.IsNullOrEmpty(title))
+                    UpdateStatusMessage(title);
+            }
+            else
+            {
+                DevToolsLogger.Log("[DIAG:EDGE] Navigation failed: " + args.WebErrorStatus.ToString());
+                UpdateStatusMessage("Page load failed. Try NiL.JS engine.");
+            }
+        }
+
+        private void EdgeBrowser_ContainsFullScreenElementChanged(WebView sender, object args)
+        {
+            // Fullscreen toggle — no-op for now
+        }
+
+        public EngineType ActiveEngine => _activeEngine;
+
+        // ========== Remote Rendering ==========
+
+        private async void ConnectToRemoteServer()
+        {
+            string serverUrl = null;
+            try
+            {
+                var s = ApplicationData.Current.LocalSettings;
+                if (s.Values.TryGetValue("RemoteServerUrl", out var v) && v is string url)
+                    serverUrl = url;
+            }
+            catch { }
+
+            if (string.IsNullOrEmpty(serverUrl))
+            {
+                ShowToast("Set server URL in Settings → Remote Server");
+                return;
+            }
+
+            if (_remote == null)
+            {
+                _remote = new RemoteRenderer();
+                _remote.ScreenshotReceived += (bmp) =>
+                {
+                    Ui(() =>
+                    {
+                        try
+                        {
+                            if (RemoteScreenshot != null) RemoteScreenshot.Source = bmp;
+                            if (RemoteView != null) RemoteView.Visibility = Visibility.Visible;
+                            if (ContentArea != null) ContentArea.Visibility = Visibility.Collapsed;
+                            if (EdgeBrowser != null) EdgeBrowser.Visibility = Visibility.Collapsed;
+                            _activeEngine = EngineType.Remote;
+                        }
+                        catch { }
+                    });
+                };
+                _remote.TitleReceived += (title) =>
+                {
+                    Ui(() =>
+                    {
+                        if (RemoteStatusText != null) RemoteStatusText.Text = title;
+                        UpdateStatusMessage(title);
+                    });
+                };
+                _remote.ErrorOccurred += (msg) =>
+                {
+                    Ui(() => ShowToast("Remote: " + msg));
+                };
+                _remote.Disconnected += () =>
+                {
+                    Ui(() =>
+                    {
+                        if (RemoteView != null) RemoteView.Visibility = Visibility.Collapsed;
+                        if (ContentArea != null) ContentArea.Visibility = Visibility.Visible;
+                        ShowToast("Disconnected from remote server");
+                    });
+                };
+            }
+
+            if (!_remote.IsConnected)
+            {
+                ShowToast("Connecting to " + serverUrl + "...");
+                bool ok = await _remote.ConnectAsync(serverUrl);
+                if (!ok)
+                {
+                    ShowToast("Failed to connect. Is the server running?");
+                    return;
+                }
+            }
+        }
+
+        private async void NavigateViaRemote(string url)
+        {
+            ConnectToRemoteServer();
+            if (_remote == null) return;
+            await Task.Delay(500);
+            if (_remote != null && _remote.IsConnected)
+            {
+                int w = 412, h = 915;
+                try
+                {
+                    w = (int)ContentArea.ActualWidth;
+                    h = (int)ContentArea.ActualHeight;
+                    if (w <= 0) w = 412;
+                    if (h <= 0) h = 915;
+                }
+                catch { }
+                await _remote.RenderAsync(url, w, h);
+            }
+        }
+
+        private void RemoteScreenshot_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            if (_remote == null || !_remote.IsConnected) return;
+            try
+            {
+                var pos = e.GetPosition(RemoteScreenshot);
+                int x = (int)(pos.X * 2);
+                int y = (int)(pos.Y * 2);
+                var _ = _remote.ClickAsync(x, y);
+            }
+            catch { }
+        }
+        private void RemoteScreenshot_ManipulationStarted(object sender, ManipulationStartedRoutedEventArgs e)
+        {
+            _remoteDragging = false;
+            _remoteLastX = 0;
+            _remoteLastY = 0;
+        }
+
+        private void RemoteScreenshot_ManipulationDelta(object sender, ManipulationDeltaRoutedEventArgs e)
+        {
+            double dx = e.Delta.Translation.X;
+            double dy = e.Delta.Translation.Y;
+            _remoteLastX += dx;
+            _remoteLastY += dy;
+            if (Math.Abs(_remoteLastX) > 20 || Math.Abs(_remoteLastY) > 20)
+                _remoteDragging = true;
+        }
+
+        private async void RemoteScreenshot_ManipulationCompleted(object sender, ManipulationCompletedRoutedEventArgs e)
+        {
+            if (_remote == null || !_remote.IsConnected) return;
+
+            if (_remoteDragging && Math.Abs(_remoteLastY) > 40)
+            {
+                int scrollY = _remoteLastY > 0 ? 300 : -300;
+                await _remote.ScrollAsync(scrollY);
+            }
+            _remoteDragging = false;
+        }
+
+        private void DisconnectRemote()
+        {
+            _remote?.Disconnect();
+            if (RemoteView != null) RemoteView.Visibility = Visibility.Collapsed;
+            if (ContentArea != null) ContentArea.Visibility = Visibility.Visible;
         }
 
         // --- DevTools ---
@@ -3635,7 +4407,7 @@ namespace WEBVIEW
                     if (arr != null)
                     {
                         var list = new List<HistoryEntry>();
-                        for (int i = 0; i < Math.Min(arr.Count, 50); i++)
+                        for (int i = 0; i < Math.Min(arr.Count, 100); i++)
                         {
                             var obj = arr[i].GetObject();
                             list.Add(new HistoryEntry
@@ -3671,6 +4443,28 @@ namespace WEBVIEW
                     arr.Add(obj);
                 }
                 Windows.Storage.ApplicationData.Current.LocalSettings.Values["History"] = arr.Stringify();
+            }
+            catch { }
+        }
+
+        private void RemoveHistoryEntry(string url)
+        {
+            try
+            {
+                var history = LoadHistory();
+                history.RemoveAll(h => h.Url == url);
+
+                var arr = new Windows.Data.Json.JsonArray();
+                foreach (var e in history)
+                {
+                    var obj = new Windows.Data.Json.JsonObject();
+                    obj.SetNamedValue("url", Windows.Data.Json.JsonValue.CreateStringValue(e.Url ?? ""));
+                    obj.SetNamedValue("title", Windows.Data.Json.JsonValue.CreateStringValue(e.Title ?? ""));
+                    obj.SetNamedValue("ts", Windows.Data.Json.JsonValue.CreateNumberValue(e.Timestamp.ToFileTimeUtc()));
+                    arr.Add(obj);
+                }
+                Windows.Storage.ApplicationData.Current.LocalSettings.Values["History"] = arr.Stringify();
+                ShowToast("Removed from history");
             }
             catch { }
         }
@@ -3730,6 +4524,285 @@ namespace WEBVIEW
                 UpdateStatusMessage("Added to favorites.");
             }
             catch { }
+        }
+
+        private void RemoveFavorite(string url)
+        {
+            try
+            {
+                var favs = LoadFavorites();
+                favs.RemoveAll(f => f.Url == url);
+
+                var arr = new Windows.Data.Json.JsonArray();
+                foreach (var f in favs)
+                {
+                    var obj = new Windows.Data.Json.JsonObject();
+                    obj.SetNamedValue("url", Windows.Data.Json.JsonValue.CreateStringValue(f.Url ?? ""));
+                    obj.SetNamedValue("title", Windows.Data.Json.JsonValue.CreateStringValue(f.Title ?? ""));
+                    arr.Add(obj);
+                }
+                Windows.Storage.ApplicationData.Current.LocalSettings.Values["Favorites"] = arr.Stringify();
+                ShowToast("Removed from favorites");
+            }
+            catch { }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  Phase 2: Start Dashboard + Speed Dial
+        // ═══════════════════════════════════════════════════════════════
+
+        private class SpeedDialItem
+        {
+            public string Url { get; set; }
+            public string Title { get; set; }
+        }
+
+        private static readonly SpeedDialItem[] DefaultSpeedDial = new[]
+        {
+            new SpeedDialItem { Url = "https://en.m.wikipedia.org", Title = "Wikipedia" },
+            new SpeedDialItem { Url = "https://news.ycombinator.com", Title = "Hacker News" },
+            new SpeedDialItem { Url = "https://4pda.to/forum", Title = "4PDA" },
+            new SpeedDialItem { Url = "https://old.reddit.com", Title = "Reddit" },
+            new SpeedDialItem { Url = "https://archive.org", Title = "Archive.org" },
+            new SpeedDialItem { Url = "https://developer.mozilla.org", Title = "MDN" },
+        };
+
+        private List<SpeedDialItem> LoadSpeedDial()
+        {
+            try
+            {
+                var s = ApplicationData.Current.LocalSettings;
+                if (s.Values.TryGetValue("SpeedDial", out var v) && v is string json && !string.IsNullOrWhiteSpace(json))
+                {
+                    var arr = JsonValue.Parse(json)?.GetArray();
+                    if (arr != null && arr.Count > 0)
+                    {
+                        var list = new List<SpeedDialItem>();
+                        for (int i = 0; i < arr.Count; i++)
+                        {
+                            var obj = arr[i].GetObject();
+                            list.Add(new SpeedDialItem
+                            {
+                                Url = obj.ContainsKey("url") ? obj.GetNamedString("url") : "",
+                                Title = obj.ContainsKey("title") ? obj.GetNamedString("title") : ""
+                            });
+                        }
+                        return list;
+                    }
+                }
+            }
+            catch { }
+            return DefaultSpeedDial.ToList();
+        }
+
+        private void SaveSpeedDial(List<SpeedDialItem> items)
+        {
+            try
+            {
+                var arr = new JsonArray();
+                foreach (var item in items)
+                {
+                    var obj = new JsonObject();
+                    obj.SetNamedValue("url", JsonValue.CreateStringValue(item.Url ?? ""));
+                    obj.SetNamedValue("title", JsonValue.CreateStringValue(item.Title ?? ""));
+                    arr.Add(obj);
+                }
+                ApplicationData.Current.LocalSettings.Values["SpeedDial"] = arr.Stringify();
+            }
+            catch { }
+        }
+
+        private void ShowDashboard()
+        {
+            Ui(() =>
+            {
+                try
+                {
+                    if (DashboardOverlay == null) return;
+                    DashboardOverlay.Visibility = Visibility.Visible;
+                    BuildSpeedDialGrid();
+                    BuildDashboardRecentList();
+                }
+                catch { }
+            });
+        }
+
+        private void HideDashboard()
+        {
+            Ui(() =>
+            {
+                try { if (DashboardOverlay != null) DashboardOverlay.Visibility = Visibility.Collapsed; }
+                catch { }
+            });
+        }
+
+        private void BuildSpeedDialGrid()
+        {
+            if (SpeedDialGrid == null) return;
+            SpeedDialGrid.Children.Clear();
+            SpeedDialGrid.RowDefinitions.Clear();
+            SpeedDialGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            SpeedDialGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            var pins = LoadSpeedDial();
+            int col = 0, row = 0;
+            foreach (var pin in pins)
+            {
+                if (col >= 4) { col = 0; row++; }
+                if (row > 1) break;
+
+                string capturedUrl = pin.Url;
+                string capturedTitle = pin.Title;
+
+                var tile = new Border
+                {
+                    Background = new SolidColorBrush(Color.FromArgb(255, 45, 45, 45)),
+                    CornerRadius = new CornerRadius(8),
+                    Margin = new Thickness(4),
+                    Padding = new Thickness(0),
+                    Width = 72,
+                    Height = 72,
+                    HorizontalAlignment = HorizontalAlignment.Center
+                };
+
+                var tileContent = new StackPanel
+                {
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center
+                };
+
+                string initial = !string.IsNullOrEmpty(capturedTitle) ? capturedTitle.Substring(0, 1).ToUpper() : "?";
+                tileContent.Children.Add(new TextBlock
+                {
+                    Text = initial,
+                    FontSize = 22,
+                    FontWeight = Windows.UI.Text.FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(Color.FromArgb(255, 100, 180, 255)),
+                    HorizontalAlignment = HorizontalAlignment.Center
+                });
+                tileContent.Children.Add(new TextBlock
+                {
+                    Text = capturedTitle,
+                    FontSize = 10,
+                    Foreground = new SolidColorBrush(Colors.White),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    MaxWidth = 68,
+                    Margin = new Thickness(0, 2, 0, 0)
+                });
+
+                tile.Child = tileContent;
+                tile.Tapped += (s, e) =>
+                {
+                    e.Handled = true;
+                    HideDashboard();
+                    HubCloseButton_Click(null, null);
+                    var _ = NavigateAsync(capturedUrl);
+                };
+                tile.Holding += (s, e) =>
+                {
+                    if (e.HoldingState == Windows.UI.Input.HoldingState.Completed)
+                    {
+                        RemoveSpeedDialPin(capturedUrl);
+                    }
+                };
+
+                Grid.SetColumn(tile, col);
+                Grid.SetRow(tile, row);
+                SpeedDialGrid.Children.Add(tile);
+                col++;
+            }
+        }
+
+        private void RemoveSpeedDialPin(string url)
+        {
+            var pins = LoadSpeedDial();
+            pins.RemoveAll(p => p.Url == url);
+            SaveSpeedDial(pins);
+            BuildSpeedDialGrid();
+            ShowToast("Pin removed");
+        }
+
+        private void DashboardAddPin_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentUri == null) return;
+            string url = _currentUri.AbsoluteUri;
+            string title = _currentUri.Host ?? url;
+            var pins = LoadSpeedDial();
+            if (pins.Any(p => p.Url == url))
+            {
+                ShowToast("Already pinned");
+                return;
+            }
+            if (pins.Count >= 8)
+            {
+                ShowToast("Max 8 pins. Long-press to remove one.");
+                return;
+            }
+            pins.Add(new SpeedDialItem { Url = url, Title = title });
+            SaveSpeedDial(pins);
+            BuildSpeedDialGrid();
+            ShowToast("Pinned: " + title);
+        }
+
+        private void BuildDashboardRecentList()
+        {
+            if (DashboardRecentList == null) return;
+            DashboardRecentList.Children.Clear();
+
+            var history = LoadHistory();
+            if (history.Count == 0)
+            {
+                DashboardRecentList.Children.Add(new TextBlock
+                {
+                    Text = "No history yet.",
+                    Foreground = new SolidColorBrush(Colors.Gray),
+                    FontSize = 13,
+                    Margin = new Thickness(4, 4, 0, 0)
+                });
+                return;
+            }
+
+            foreach (var entry in history.Take(10))
+            {
+                string capturedUrl = entry.Url;
+                var item = new Button
+                {
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    HorizontalContentAlignment = HorizontalAlignment.Left,
+                    Background = new SolidColorBrush(Color.FromArgb(255, 35, 35, 35)),
+                    BorderThickness = new Thickness(0),
+                    Margin = new Thickness(0, 0, 0, 2),
+                    Padding = new Thickness(12, 8, 12, 8)
+                };
+                var panel = new StackPanel();
+                panel.Children.Add(new TextBlock
+                {
+                    Text = !string.IsNullOrWhiteSpace(entry.Title) && entry.Title != entry.Url ? entry.Title : entry.Url,
+                    Foreground = new SolidColorBrush(Colors.White),
+                    FontSize = 13,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                });
+                if (!string.IsNullOrWhiteSpace(entry.Title) && entry.Title != entry.Url)
+                {
+                    panel.Children.Add(new TextBlock
+                    {
+                        Text = entry.Url,
+                        Foreground = new SolidColorBrush(Color.FromArgb(180, 120, 120, 120)),
+                        FontSize = 11,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        Margin = new Thickness(0, 2, 0, 0)
+                    });
+                }
+                item.Content = panel;
+                item.Click += (s, ev) =>
+                {
+                    HubCloseButton_Click(null, null);
+                    HideDashboard();
+                    var _ = NavigateAsync(capturedUrl);
+                };
+                DashboardRecentList.Children.Add(item);
+            }
         }
     }
 }

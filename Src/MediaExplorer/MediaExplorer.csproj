@@ -133,6 +133,8 @@
     </Compile>
     <Compile Include="Engine\BrowserApi.cs" />
     <Compile Include="Engine\CharsetDetector.cs" />
+    <Compile Include="Engine\DzenApi.cs" />
+    <Compile Include="Engine\DzenAuthManager.cs" />
     <Compile Include="Engine\MarkdownRenderer.cs" />
     <Compile Include="Engine\Core\LayoutEngine.cs" />
     <Compile Include="Engine\Core\Painter.cs" />
@@ -166,6 +168,13 @@
     <Compile Include="Engine\SandboxPolicy.cs" />
     <Compile Include="Engine\TestLogger.cs" />
     <Compile Include="Engine\DevToolsLogger.cs" />
+    <Compile Include="Engine\AiConnectorPreset.cs" />
+    <Compile Include="Engine\EngineRouter.cs" />
+    <Compile Include="Engine\ImageCache.cs" />
+    <Compile Include="Engine\MemoryProfiler.cs" />
+    <Compile Include="Engine\RemoteRenderer.cs" />
+    <Compile Include="Engine\SmartFallbackRenderer.cs" />
+    <Compile Include="Engine\ApiClient.cs" />
     <!-- <Compile Include="Engine\SimpleWrapPanel.cs" /> -->
     <Compile Include="Engine\UiThreadHelper.cs" />
     <Compile Include="Engine\VideoHost.cs" />

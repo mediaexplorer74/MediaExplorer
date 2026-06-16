@@ -730,7 +730,11 @@ namespace BrowserCore.Engine.Core
                                     _pendingSvgFallback[img] = uri;
                                     img.ImageFailed += OnSvgImageFailed;
                                 }
-                                img.Source = new Windows.UI.Xaml.Media.Imaging.BitmapImage(uri);
+                                var bmp = new Windows.UI.Xaml.Media.Imaging.BitmapImage(uri);
+                                double renderW = box.Bounds.Width;
+                                if (renderW > 0 && !double.IsInfinity(renderW) && !double.IsNaN(renderW))
+                                    bmp.DecodePixelWidth = (int)Math.Min(renderW, 400);
+                                img.Source = bmp;
                             }
                             catch (Exception ex)
                             {

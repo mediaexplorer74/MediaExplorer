@@ -4,6 +4,7 @@ using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Navigation;
+using BrowserCore.Engine;
 
 namespace WEBVIEW
 {
@@ -98,24 +99,14 @@ namespace WEBVIEW
                 catch { }
             };
 
-            ShowSnapshotToggle.Toggled += (s, e) =>
+            // AI Connectors
+            ActiveConnectorCombo.SelectionChanged += (s, e) =>
             {
-                try
-                {
-                    SaveShowSnapshot(ShowSnapshotToggle.IsOn);
-                    if (MainPage.Current != null) MainPage.Current.ApplyButtonVisibility();
-                }
-                catch { }
-            };
-
-            ShowCopyToggle.Toggled += (s, e) =>
-            {
-                try
-                {
-                    SaveShowCopy(ShowCopyToggle.IsOn);
-                    if (MainPage.Current != null) MainPage.Current.ApplyButtonVisibility();
-                }
-                catch { }
+                if (ActiveConnectorCombo == null) return;
+                int idx = ActiveConnectorCombo.SelectedIndex;
+                var type = idx == 0 ? ConnectorType.Ultra : idx == 1 ? ConnectorType.Rich :
+                    idx == 2 ? ConnectorType.Poor : idx == 3 ? ConnectorType.Asceti : ConnectorType.Smart;
+                ConnectorStorage.SaveActiveConnector(type);
             };
         }
 
@@ -127,11 +118,6 @@ namespace WEBVIEW
                 var hp = LoadHomePage();
                 if (HomePageBox != null && !string.IsNullOrWhiteSpace(hp))
                     HomePageBox.Text = hp;
-
-                // API key
-                var key = LoadAiKey();
-                if (AiKeyBox != null && !string.IsNullOrWhiteSpace(key))
-                    AiKeyBox.Text = key;
 
                 // AppBar mode
                 if (AppBarModeCombo != null)
@@ -157,11 +143,8 @@ namespace WEBVIEW
                 if (StatusBarToggle != null)
                     StatusBarToggle.IsOn = LoadStatusBarVisible();
 
-                // Button visibility
-                if (ShowSnapshotToggle != null)
-                    ShowSnapshotToggle.IsOn = LoadShowSnapshot();
-                if (ShowCopyToggle != null)
-                    ShowCopyToggle.IsOn = LoadShowCopy();
+                // AI Connectors
+                LoadConnectorSettings();
             }
             catch { }
         }
@@ -170,8 +153,7 @@ namespace WEBVIEW
         {
             try
             {
-                // Save API key on exit
-                SaveAiKey(AiKeyBox?.Text?.Trim() ?? string.Empty);
+                SaveConnectorSettings();
             }
             catch { }
 
@@ -201,19 +183,6 @@ namespace WEBVIEW
             }
             catch { }
             return null;
-        }
-
-        private static void SaveAiKey(string key)
-        {
-            try
-            {
-                var s = Windows.Storage.ApplicationData.Current.LocalSettings;
-                if (string.IsNullOrWhiteSpace(key))
-                    s.Values.Remove("OpenRouterKey");
-                else
-                    s.Values["OpenRouterKey"] = key;
-            }
-            catch { }
         }
 
         private static string LoadAppBarMode()
@@ -305,46 +274,94 @@ namespace WEBVIEW
             catch { }
         }
 
-        private static bool LoadShowSnapshot()
+        private void LoadConnectorSettings()
         {
-            try
-            {
-                var s = Windows.Storage.ApplicationData.Current.LocalSettings;
-                if (s.Values.TryGetValue("ShowSnapshot", out var v) && v is bool b)
-                    return b;
-            }
-            catch { }
-            return true;
+            var defaults = AiConnectorConfig.GetDefaults();
+
+            // Active connector (Ultra=0, Rich=1, Poor=2, Asceti=3, Smart=4)
+            var active = ConnectorStorage.LoadActiveConnector();
+            ActiveConnectorCombo.SelectedIndex = active == ConnectorType.Ultra ? 0 :
+                active == ConnectorType.Rich ? 1 : active == ConnectorType.Poor ? 2 :
+                active == ConnectorType.Asceti ? 3 : 4;
+
+            // Ultra
+            var ultra = ConnectorStorage.Load(ConnectorType.Ultra, defaults[0]);
+            UltraEnabled.IsOn = ultra.Enabled;
+            UltraApiKey.Text = ultra.ApiKey ?? "";
+            UltraFamily.Text = ultra.ModelFamily ?? "anthropic";
+            UltraModel.Text = ultra.ModelId ?? "claude-sonnet-4-20250514";
+            UltraAutoFormat.IsOn = ultra.AutoFormat;
+
+            // Rich
+            var rich = ConnectorStorage.Load(ConnectorType.Rich, defaults[1]);
+            RichEnabled.IsOn = rich.Enabled;
+            RichApiKey.Text = rich.ApiKey ?? "";
+            RichFamily.Text = rich.ModelFamily ?? "openai";
+            RichModel.Text = rich.ModelId ?? "gpt-4o";
+            RichAutoFormat.IsOn = rich.AutoFormat;
+
+            // Poor
+            var poor = ConnectorStorage.Load(ConnectorType.Poor, defaults[2]);
+            PoorEnabled.IsOn = poor.Enabled;
+            PoorApiKey.Text = poor.ApiKey ?? "";
+            PoorFamily.Text = poor.ModelFamily ?? "mistralai";
+            PoorModel.Text = poor.ModelId ?? "ministral-8b-2512";
+            PoorAutoFormat.IsOn = poor.AutoFormat;
+
+            // Asceti
+            var asceti = ConnectorStorage.Load(ConnectorType.Asceti, defaults[3]);
+            AscetiEnabled.IsOn = asceti.Enabled;
+            AscetiApiKey.Text = asceti.ApiKey ?? "";
+            AscetiFamily.Text = asceti.ModelFamily ?? "google";
+            AscetiModel.Text = asceti.ModelId ?? "gemma-4-26b-a4b-it:free";
+            AscetiAutoFormat.IsOn = asceti.AutoFormat;
         }
 
-        private static void SaveShowSnapshot(bool show)
+        private void SaveConnectorSettings()
         {
-            try
+            var ultra = new AiConnectorConfig
             {
-                Windows.Storage.ApplicationData.Current.LocalSettings.Values["ShowSnapshot"] = show;
-            }
-            catch { }
-        }
+                Type = ConnectorType.Ultra, Name = "Ultra",
+                ModelFamily = UltraFamily.Text?.Trim() ?? "anthropic",
+                ModelId = UltraModel.Text?.Trim() ?? "claude-sonnet-4-20250514",
+                IsOnline = true,
+                Enabled = UltraEnabled.IsOn, ApiKey = UltraApiKey.Text?.Trim() ?? "",
+                AutoFormat = UltraAutoFormat.IsOn, QualityThreshold = 1.0, MaxAttempts = 1, DailyBudgetUsd = 1.0
+            };
+            ConnectorStorage.Save(ultra);
 
-        private static bool LoadShowCopy()
-        {
-            try
+            var rich = new AiConnectorConfig
             {
-                var s = Windows.Storage.ApplicationData.Current.LocalSettings;
-                if (s.Values.TryGetValue("ShowCopy", out var v) && v is bool b)
-                    return b;
-            }
-            catch { }
-            return true;
-        }
+                Type = ConnectorType.Rich, Name = "Rich",
+                ModelFamily = RichFamily.Text?.Trim() ?? "openai",
+                ModelId = RichModel.Text?.Trim() ?? "gpt-4o",
+                IsOnline = true,
+                Enabled = RichEnabled.IsOn, ApiKey = RichApiKey.Text?.Trim() ?? "",
+                AutoFormat = RichAutoFormat.IsOn, QualityThreshold = 0.8, MaxAttempts = 1, DailyBudgetUsd = 0.5
+            };
+            ConnectorStorage.Save(rich);
 
-        private static void SaveShowCopy(bool show)
-        {
-            try
+            var poor = new AiConnectorConfig
             {
-                Windows.Storage.ApplicationData.Current.LocalSettings.Values["ShowCopy"] = show;
-            }
-            catch { }
+                Type = ConnectorType.Poor, Name = "Poor",
+                ModelFamily = PoorFamily.Text?.Trim() ?? "mistralai",
+                ModelId = PoorModel.Text?.Trim() ?? "ministral-8b-2512",
+                IsOnline = true,
+                Enabled = PoorEnabled.IsOn, ApiKey = PoorApiKey.Text?.Trim() ?? "",
+                AutoFormat = PoorAutoFormat.IsOn, QualityThreshold = 0.5, MaxAttempts = 1, DailyBudgetUsd = 0.1
+            };
+            ConnectorStorage.Save(poor);
+
+            var asceti = new AiConnectorConfig
+            {
+                Type = ConnectorType.Asceti, Name = "Asceti",
+                ModelFamily = AscetiFamily.Text?.Trim() ?? "google",
+                ModelId = AscetiModel.Text?.Trim() ?? "gemma-4-26b-a4b-it:free",
+                IsOnline = true,
+                Enabled = AscetiEnabled.IsOn, ApiKey = AscetiApiKey.Text?.Trim() ?? "",
+                AutoFormat = AscetiAutoFormat.IsOn, QualityThreshold = 0.3, MaxAttempts = 1, DailyBudgetUsd = 0.0
+            };
+            ConnectorStorage.Save(asceti);
         }
     }
 }

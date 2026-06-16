@@ -1,4 +1,4 @@
-# MediaExplorer 1.5.0 — ai_hub branch
+# MediaExplorer 2.0 — ai_hub branch
 
 ![](/Images/logo.png)
 
@@ -6,9 +6,9 @@
 
 MediaExplorer is a hobby browser for Windows 10 Mobile (W10M, build 15063+) built **without** the system WebView or Chakra engine. It uses a custom HTML parser, CSS engine with selectors/cascade/flexbox, a JavaScript runtime powered by [NiL.JS](https://github.com/nilproject/NiL.JS), and a XAML-based renderer.
 
-**v1.1 is optimized for the [Nokia Design Archive](https://nokiadesignarchive.aalto.fi/)** — a museum website with 722+ entries, 33 collections, 230 stories, and 91 keywords documenting Nokia's design history. MediaExplorer extracts the archive data from the site's JavaScript bundle, renders it as interactive swipeable cards with images, collection chips, keyword tags, and links to the Aalto University repository.
+**v1.5 features an AI Hub overlay** — a scrollable menu with 11 tools (Favorites, History, Reading Mode, AI Summary, Screenshot, Copy Text, E-book Mode, DevTools, Settings). When a website can't be rendered by NiL.JS, the **Smart Fallback Renderer** automatically fetches the page, sends it to an AI connector (OpenRouter API), and displays a summary in Reader Mode.
 
-~40 files, ~25k+ lines of code. v1.1 release.
+~50 files, ~30k+ lines of code. v1.5 release.
 
 ## Screenshots
 
@@ -18,42 +18,50 @@ MediaExplorer is a hobby browser for Windows 10 Mobile (W10M, build 15063+) buil
 
 
 ## Features
+- AppBar Situational Size, Hybrid Search, Multi-Engine Architecture, Advanced AI Connector, Remote Rendering [Playwright], DzenRu Auth2 Tweak
 - **Custom rendering engine** — HTML parser, CSS cascade, flexbox, XAML renderer
 - **JavaScript** — NiL.JS runtime with ES Modules support (Vite bundles parse; D3v4/v5 support)
+- **AI Hub** — Scrollable overlay with 11 tools: Favorites, History, Reading Mode, AI Summary, Screenshot, Copy Text, E-book Mode, DevTools, Settings
+- **Smart Fallback Renderer** — Auto-detects broken/empty renders → fetches page → sends to AI connector → shows summary in Reader Mode
+- **AI Connector Presets** — Rich (GPT-4o), Poor (Ministral-8B), Asceti (Gemma-4 free), Smart (auto-chain cheapest first). Per-connector API keys.
+- **Start Dashboard** — Speed dial grid (6 pinned sites) + recent history list
+- **History system** — Auto-records navigation, grouped by date (Today/Yesterday/This Week/Older), clear all
+- **Favorites** — Add current page, remove per entry, stored in LocalSettings
 - **DevTools** — Console, DOM inspector, Network tab, Debug log
 - **3 UI modes** — Hided (strip), Semi (expandable), Full (standard app bar)
 - **3 e-book modes** — Rich (full graphics, CSS + JS), Poor (card/index style, minimal CSS), Asceti (pure text, no CSS/images)
 - **Disk cache** — Resource caching with priority queue
 - **MutationObserver** — Incremental re-render on DOM changes
-- **Snapshot button** — Screenshot (single or full-page) saved to Pictures/MediaExplorer
-- **Keyboard shortcuts** — Ctrl+L (focus URL), Ctrl+B (toggle bar)
-- **Smartphone card mode** — Auto-detects narrow viewport (<600px), shows archive content as swipeable cards with detail views, category index, and link routing
-- **Nokia Design Archive integration** — Extracts __entries, __collections, __stories data from JS globals; renders as interactive cards with type badges, collection chips, and story references
+- **Snapshot** — Screenshot (single or full-page) saved to Pictures/MediaExplorer
+- **Keyboard shortcuts** — Ctrl+L (focus URL), Ctrl+B (toggle bar), Ctrl+Home (Dashboard)
+- **Smartphone card mode** — Auto-detects narrow viewport, swipeable cards with detail views
+- **Nokia Design Archive integration** — Extracts entries/collections/stories from JS globals
 
 ## Status
 
-- **v1.1 release.** Phases 3-5 complete: JS Engine (ES6+), HTML & Media (tables, forms, iframes), Site Compatibility (Reddit JSON, SVG fallback, charset detection, e-book modes, markdown-to-html).
+- **v1.5 release.** Plan 8 complete: AI Hub overlay, Start Dashboard, History/Favorites, AI Connector presets, Smart Fallback Renderer.
 - **SVG→XAML bridge abandoned** — after 18+ sessions, the architectural mismatch proved unfixable on Win SDK 15063. Replaced with text/image/link rendering and card-based layout for narrow viewports.
 - **Data extraction intact** — `__graphData` (755 nodes, 1647 links), `__entries` (722), `__stories` (230), `__collections` (33) available for future SkiaSharp renderer.
 
 ## Dev section (June 14, 2026)
 
 ### Key decisions
-- **SVG→XAML bridge removed** — content doubling on scroll, architectural mismatch, too heavy for Lumia
-- **Card mode** — transparent replacement for narrow viewports: swipeable cards with entry details, category index, collection filtering
-- **Link routing** — internal entry URLs (/entry/E0001) → card mode; external URLs → system browser via Launcher
-- **Data extraction** — preserved for future SkiaSharp Canvas2D renderer
-- **General web rendering (v1.1)** — Custom RenderTreeBuilder pipeline for real websites. First successful rendering: Hacker News with full 30 news items, orange header, vote arrows, clickable links, footer
-- **E-book modes** — Rich (full graphics), Poor (card/index style), Asceti (pure text). JS always enabled.
-- **Markdown-to-HTML** — Auto-detects .md URLs, renders with styled reader CSS
+- **AI Hub** — Single scrollable overlay replaces cluttered 8-element AppBar with 4 elements (← → Omnibox ≡)
+- **Smart Fallback** — When NiL.JS can't render a site, auto-fetch via HTTP → send to AI connector → show summary in Reader Mode
+- **AI Connector Presets** — Rich/Poor/Asceti/Smart tiers with per-connector API keys (OpenRouter)
+- **Poor mode = AI-first** — In Poor render mode, ALL sites trigger AI fallback automatically
+- **E-book modes evolved** — Now serve as AI connector tier selector
+- **Reddit** — old.reddit.com → card mode (JSON API); reddit.com → JSON API fallback
 
 ### Key files
-`MainPage.xaml.cs` — card mode, navigation, link routing
-`Engine/BrowserApi.cs` — ExtractEntriesJson/ExtractCollectionsJson/ExtractStoriesJson
-`Engine/Core/RenderTreeBuilder.cs` — HTML→RenderObject tree, UA styles, HTML presentational attributes
+`MainPage.xaml.cs` — AI Hub, Dashboard, History/Favorites, Smart Fallback, card mode
+`Engine/AiConnectorPreset.cs` — ConnectorType enum, config, storage
+`Engine/SmartFallbackRenderer.cs` — Empty/code-junk/ISP detection, AI chain
+`Engine/ApiClient.cs` — OpenRouter API with configurable model
+`Engine/Core/RenderTreeBuilder.cs` — HTML→RenderObject tree, UA styles
 `Engine/Core/RenderBox.cs` — Flex/block/inline layout engine
-`Engine/Core/VirtualizingRenderer.cs` — Canvas-based virtualizing renderer with lazy images
-`Engine/CssLoader.cs` — CSS cascade, selectors, media queries, pseudo-classes
+`Engine/Core/VirtualizingRenderer.cs` — Canvas-based virtualizing renderer
+`SettingsPage.xaml` — AI Connectors tab with per-connector config
 `AGENTS.md` — automation loop commands
 
 ## Dev section END
@@ -62,6 +70,7 @@ This is a homemade browser engine — not production-ready, not intended to repl
 
 ## Milestones
 
+- **2026.06.14 — v1.5.0** AI Hub overlay, Start Dashboard, History/Favorites, AI Connector presets (Rich/Poor/Asceti/Smart), Smart Fallback Renderer. StatusBar fix, Reader Mode copy button.
 - **2026.06.14 — v1.1.0** E-book modes (Rich/Poor/Asceti), markdown-to-html, charset detection (windows-1251 etc.), table improvements (border-spacing, CAPTION), CSS edge cases (display:none, overflow-x/y, text-overflow:clip). JS always enabled.
 - **2026.06.13 — v1.0.10** General web rendering. Hacker News fully renders: orange header, 30 news items, vote arrows, clickable navigation, footer. CSS pseudo-classes (`:link`/`:visited`), HTML presentation attributes (`bgcolor`, `width`), SVG logo support.
 - **2026.06.12 — v1.0.0** Phases R+S+T complete. Card-based smartphone layout, entry detail views, category index, link routing. SVG→XAML bridge abandoned.
@@ -92,10 +101,12 @@ MediaExplorer works best with the Nokia Design Archive. For general web testing,
 
 - Source is AI-generated ("neuro-slop"), except the original UDAIE-A WebView code
 - Not tested on any W10M device
-- White screen on some sites (dzen.ru, ya.ru)
+- White screen on some sites (dzen.ru, ya.ru) — Smart Fallback handles most cases
 - ES Modules runtime errors still being fixed
 - Private fields (`#name`) not supported
 - SVG→XAML rendering abandoned — complex graph/timeline deferred to SkiaSharp (v1.1+)
+- OpenRouter model IDs change frequently — verify via API before use
+- Some sites (Reddit, Medium) blocked by Cloudflare/captcha — cannot be fetched by Smart Fallback
 
 ## Credits
 
@@ -126,6 +137,6 @@ Include: URL, what you expected, what you got. Screenshots help.
 
 As is. No support. RnD only. DIY.
 
-[m][e] June 14, 2026
+[m][e] June 15, 2026
 
 ![](/Images/footer.png)

@@ -219,14 +219,106 @@ Grid (RootGrid)
 
 ---
 
+## Phase 4: AI Connector Presets — Smart Fallback Rendering (v1.5)
+
+### Problem
+NiL.JS can't render many modern sites (React SPAs, heavy JS, complex APIs). User sees white screen. Current AI Summary only works on pages that **already rendered** — it summarizes visible content. But what about pages that render **nothing**?
+
+### Core Idea
+Repurpose E-book Modes (Rich/Poor/Asceti) as **AI Connector Tiers** — different levels of AI-powered page analysis, triggered automatically when rendering fails.
+
+### Architecture
+```
+Page load → NiL.JS renders → success? 
+  ├─ YES → show page (optionally enhance with AI Summary)
+  └─ NO (white screen / empty DOM)
+       → auto-trigger AI Connector based on selected preset:
+            ┌──────────────────────────────────────────────┐
+            │  Preset    │ Source         │ Cost    │ What │
+            ├──────────────────────────────────────────────┤
+            │  Rich      │ OpenRouter     │ $$$     │ Full │
+            │            │ (Claude/GPT)   │         │ LLM  │
+            ├──────────────────────────────────────────────┤
+            │  Poor      │ OpenRouter     │ $       │ Basic│
+            │            │ (small models) │         │ fetch│
+            ├──────────────────────────────────────────────┤
+            │  Asceti    │ OpenRouter     │ Free    │ Free │
+            │            │ (free models)  │         │ model│
+            ├──────────────────────────────────────────────┤
+            │  Smart     │ Auto-chain     │ Varies  │ Try  │
+            │            │ Asceti→Poor→Rich│        │ best │
+            └──────────────────────────────────────────────┘
+```
+
+### Preset Details
+
+#### Rich (OpenRouter — Full LLM)
+- **API**: OpenRouter (Claude 3.5 Sonnet, GPT-4o, etc.)
+- **Flow**: Fetch page HTML → extract text/structure → send to LLM with prompt "Describe this page content, structure, links"
+- **Cost**: ~$0.01-0.05 per page (depends on model + page size)
+- **Quality**: Excellent — full understanding of page layout, links, images
+- **Use case**: Complex sites worth paying for (documentation, articles)
+
+#### Poor (OpenRouter — Cheap Model)
+- **API**: OpenRouter (Phi-3, Gemini Flash, etc.)
+- **Flow**: Fetch → basic extraction → lightweight LLM summary
+- **Cost**: ~$0.001-0.005 per page
+- **Quality**: Good text summary, may miss layout nuance
+- **Use case**: Quick scan of articles, news
+
+#### Asceti (Free OpenRouter Model)
+- **API**: OpenRouter free tier (e.g. `mistralai/mistral-7b-instruct:free`, `google/gemma-2-9b-it:free`)
+- **Flow**: Fetch → extract → free LLM summary
+- **Cost**: Free (rate-limited)
+- **Quality**: Basic — small model, limited context
+- **Use case**: Offline-style free fallback, no API budget
+
+#### Smart (Auto-Chain)
+- **Flow**: Try Asceti (free) first → if quality threshold not met → try Poor → if still bad → try Rich
+- **Threshold**: Based on response length, keyword coverage, confidence score
+- **Cost**: Varies — usually Asceti or Poor, only escalates when needed
+- **Use case**: Default for most users — best quality at minimal cost
+
+### Detection: "Page Failed to Render"
+When to trigger AI fallback:
+- DOM has < 5 visible elements after render
+- Body is empty or contains only `<script>` tags
+- All text content < 50 characters
+- RenderTreeBuilder produced 0 canvas children
+- Timeout: 10s without meaningful render
+
+### UI Integration
+- **Hub → E-book Mode**: cycles Rich/Poor/Asceti/Smart (existing cycle logic)
+- **Smart indicator**: Hub shows "Smart" badge when auto-chain is active
+- **Fallback toast**: "Page couldn't render. Using [preset] AI connector..."
+- **Settings → AI Connector**: dropdown to configure default preset + API key
+
+### Implementation Files
+
+| File | Changes |
+|------|---------|
+| `Engine/AiConnectorPreset.cs` | **NEW** — enum (Rich/Poor/Asceti/Smart), preset configs |
+| `Engine/SmartFallbackRenderer.cs` | **NEW** — render failure detection + AI chain logic |
+| `Engine/OpenRouterClient.cs` | Extend with preset-aware prompts (brief/detailed) |
+| `MainPage.xaml.cs` | Hook into RepaintReady: detect empty render → trigger fallback |
+| `MainPage.xaml` | Hub E-book label shows current preset + Smart badge |
+| `SettingsPage.xaml` | AI Connector section: preset selector + API key |
+
+---
+
 ## Milestones
 
-### v1.2 (next iteration)
-1. **Phase 1**: Slim AppBar (← → Omnibox ≡) + AI Hub overlay with all features
-2. **Phase 2**: Start Dashboard with speed dial + recent history
+### v1.5 (current — Session 20, June 14, 2026)
+1. **Phase 1**: Slim AppBar (← → Omnibox ≡) + AI Hub overlay with all features ✅
+2. **Phase 2**: Start Dashboard with speed dial + recent history ✅
+3. **Phase 3**: Full History/Favorites system with storage, sub-panels, management ✅
+4. **Phase 4**: AI Connector Presets — Settings UI + editable model family/ID ✅
+5. **Smart Fallback Renderer** — Poor/Asceti: auto AI Summary on every nav; Rich: only on bad render ✅
+6. **Reader Mode removed** — replaced by AI Summary in Hub panel ✅
+7. **Stale AI Summary fix** — Hub content cleared on navigation/close ✅
 
-### v1.5 (later)
-3. **Phase 3**: Full History/Favorites system with storage, sub-panels, management
+### v2.0 (long-term)
+6. **Phase 5**: Dzen.ru OAuth2 + authenticated API access
 
 ---
 
@@ -240,6 +332,12 @@ Grid (RootGrid)
 | `MainPage.xaml.cs` | 2 | Dashboard logic, speed dial storage, tile tap handlers |
 | `MainPage.xaml.cs` | 3 | History recording, Favorites CRUD, sub-panel navigation |
 | `SettingsPage.xaml` | 1 | Remove Snapshot/Copy toggles (moved to Hub) |
+| `Engine/AiConnectorPreset.cs` | 4 | **NEW** — preset enum + config (Rich/Poor/Asceti/Smart) |
+| `Engine/SmartFallbackRenderer.cs` | 4 | **NEW** — failure detection + OpenRouter chain |
+| `Engine/OpenRouterClient.cs` | 4 | Preset-aware prompts + free model support |
+| `MainPage.xaml.cs` | 4 | Fallback trigger on empty render |
+| `MainPage.xaml` | 4 | Smart badge in Hub |
+| `SettingsPage.xaml` | 4 | AI Connector section |
 | `Doc/Plan_08.md` | — | This plan |
 
 ---

@@ -135,6 +135,7 @@
             <RowDefinition Height="0" x:Name="DevToolsRow"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- ===== DevTools Panel (top third, toggleable) ===== -->
@@ -207,10 +208,29 @@
         </Grid>
 
         <!-- ===== Content Area ===== -->
+        <!-- ===== Content Area (NiL.JS engine) ===== -->
         <Grid Grid.Row="1" x:Name="ContentArea" Background="White" ManipulationMode="TranslateX">
-            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" CacheMode="{x:Null}">
+            <ScrollViewer x:Name="ContentScrollViewer" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" CacheMode="{x:Null}">
                 <StackPanel x:Name="ContentHost"/>
             </ScrollViewer>
+        </Grid>
+
+        <!-- ===== EdgeHTML WebView (hidden by default) ===== -->
+        <WebView x:Name="EdgeBrowser" Grid.Row="1" Visibility="Collapsed"
+                 NavigationStarting="EdgeBrowser_NavigationStarting"
+                 NavigationCompleted="EdgeBrowser_NavigationCompleted"
+                 ContainsFullScreenElementChanged="EdgeBrowser_ContainsFullScreenElementChanged"/>
+
+        <!-- ===== Remote Rendering View (hidden by default) ===== -->
+        <Grid x:Name="RemoteView" Grid.Row="1" Background="#1A1A1A" Visibility="Collapsed">
+            <Image x:Name="RemoteScreenshot" Stretch="Uniform" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                   Tapped="RemoteScreenshot_Tapped" ManipulationMode="TranslateX,TranslateY"
+                   ManipulationStarted="RemoteScreenshot_ManipulationStarted"
+                   ManipulationDelta="RemoteScreenshot_ManipulationDelta"
+                   ManipulationCompleted="RemoteScreenshot_ManipulationCompleted"/>
+            <Border x:Name="RemoteStatusBar" Background="#33000000" VerticalAlignment="Top" Padding="8,4">
+                <TextBlock x:Name="RemoteStatusText" Text="Remote" Foreground="#AAAAAA" FontSize="11"/>
+            </Border>
         </Grid>
 
         <!-- ===== Loading Progress Bar (Chrome-style top indicator) ===== -->
@@ -219,7 +239,7 @@
                 HorizontalAlignment="Left" Width="0" Visibility="Collapsed"/>
 
         <!-- ===== Bottom AppBar (collapsible) ===== -->
-        <Grid Grid.Row="2" Height="24" x:Name="BottomBar">
+        <Grid Grid.Row="2" Height="34" x:Name="BottomBar">
 
             <!-- Expanded content (renders first = behind BarStrip) -->
             <Border Background="#2D2D2D" BorderBrush="#000000" BorderThickness="0,1,0,0" Padding="4,4,4,4" x:Name="BarContent" IsHitTestVisible="False">
@@ -300,7 +320,7 @@
         <!-- ===== AI Hub (Dynamic Island) ===== -->
         <Grid x:Name="HubOverlay" Grid.Row="1" Grid.RowSpan="2" Background="#E6000000" Visibility="Collapsed" IsHitTestVisible="True">
             <Grid x:Name="HubPanel" VerticalAlignment="Bottom" HorizontalAlignment="Stretch"
-                  MaxHeight="520" Margin="0">
+                  MaxHeight="700" Margin="0">
                 <Border x:Name="HubBorder" Background="#2D2D2D" CornerRadius="16,16,0,0" Padding="0"
                         MaxWidth="500" HorizontalAlignment="Center" Width="480">
                     <Grid>
@@ -329,7 +349,14 @@
                         <!-- Hub Content (swaps between views) -->
                         <Grid Grid.Row="1">
                             <!-- View 1: Main Menu -->
-                            <StackPanel x:Name="HubMenuView" Visibility="Visible">
+                            <ScrollViewer x:Name="HubMenuView" Visibility="Visible" VerticalScrollBarVisibility="Auto">
+                                <StackPanel>
+                                <Button x:Name="HubItemHome" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="Home">
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#xE80F;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#66BBFF"/>
+                                        <TextBlock Grid.Column="1" Text="Home" Foreground="White" FontSize="14" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Button>
                                 <Button x:Name="HubItemFavorites" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="Favorites">
                                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Text="&#xE734;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#FFD700"/>
@@ -343,12 +370,6 @@
                                     </Grid>
                                 </Button>
                                 <Border Background="#444444" Height="1" Margin="16,4"/>
-                                <Button x:Name="HubItemReading" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="Reading">
-                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#AAFFAA"/>
-                                        <TextBlock Grid.Column="1" Text="Reading Mode" Foreground="White" FontSize="14" VerticalAlignment="Center"/>
-                                    </Grid>
-                                </Button>
                                 <Button x:Name="HubItemAiSummary" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="AISummary">
                                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Text="&#xE8F1;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#CCAAFF"/>
@@ -382,6 +403,14 @@
                                         <TextBlock Grid.Column="1" Text="DevTools" Foreground="White" FontSize="14" VerticalAlignment="Center"/>
                                     </Grid>
                                 </Button>
+                                <Border Background="#444444" Height="1" Margin="16,4"/>
+                                <Button x:Name="HubItemEngine" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="Engine">
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#xE9F5;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#66DDAA"/>
+                                        <TextBlock Grid.Column="1" Text="Engine" Foreground="White" FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="HubEngineLabel" Grid.Column="2" Text="NiLJS" Foreground="#888888" FontSize="12" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                    </Grid>
+                                </Button>
                                 <Button x:Name="HubItemSettings" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="Settings">
                                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#AAAAAA"/>
@@ -389,6 +418,7 @@
                                     </Grid>
                                 </Button>
                             </StackPanel>
+                            </ScrollViewer>
 
                             <!-- View 2: Favorites sub-panel -->
                             <ScrollViewer x:Name="HubFavoritesView" Visibility="Collapsed" Padding="16,8">
@@ -399,40 +429,71 @@
                             <ScrollViewer x:Name="HubHistoryView" Visibility="Collapsed" Padding="16,8">
                                 <StackPanel x:Name="HubHistoryList"/>
                             </ScrollViewer>
+
+                            <!-- View 4: AI Summary sub-panel -->
+                            <ScrollViewer x:Name="HubAiSummaryView" Visibility="Collapsed" Padding="16,8">
+                                <StackPanel x:Name="HubAiSummaryContent"/>
+                            </ScrollViewer>
                         </Grid>
                     </Grid>
                 </Border>
             </Grid>
         </Grid>
 
-        <!-- ===== Reading Mode Overlay ===== -->
-        <Grid x:Name="ReadingOverlay" Grid.Row="1" Grid.RowSpan="2" Background="#F5F0E8" Visibility="Collapsed">
+        <!-- ===== Start Dashboard Overlay ===== -->
+        <Grid x:Name="DashboardOverlay" Grid.Row="1" Grid.RowSpan="2" Background="#202020" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
-                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <Border Background="#2D2D2D" Padding="12,8">
+
+            <!-- Dashboard Header -->
+            <Border Grid.Row="0" Background="#2D2D2D" Padding="16,12">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <Button Grid.Column="0" x:Name="ReaderFontMinus" Content="A−" FontSize="13" Width="36" Height="36" Background="Transparent" Foreground="#CCCCCC" BorderThickness="0" Click="ReaderFontMinus_Click"/>
-                    <TextBlock Grid.Column="1" Text="Reading Mode" Foreground="White" FontSize="14" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                    <Button Grid.Column="2" x:Name="ReaderFontPlus" Content="A+" FontSize="15" Width="36" Height="36" Background="Transparent" Foreground="#CCCCCC" BorderThickness="0" Margin="0,0,8,0" Click="ReaderFontPlus_Click"/>
-                    <Button Grid.Column="3" x:Name="ReaderCloseButton" Content="✕" FontSize="14" Width="36" Height="36" Background="Transparent" Foreground="#CCCCCC" BorderThickness="0" Click="ReaderCloseButton_Click"/>
+                    <StackPanel>
+                        <TextBlock Text="MediaExplorer" FontSize="20" FontWeight="SemiBold" Foreground="White"/>
+                        <TextBlock Text="v1.2" FontSize="11" Foreground="#888888" Margin="0,2,0,0"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" x:Name="DashboardAddPin" Content="+" FontSize="22" Width="36" Height="36"
+                            Background="Transparent" Foreground="#AAAAAA" BorderThickness="0"
+                            Click="DashboardAddPin_Click" ToolTipService.ToolTip="Pin current page"/>
                 </Grid>
             </Border>
-            <ScrollViewer Grid.Row="1" Margin="20,12,20,12">
-                <TextBlock x:Name="ReaderContentText" TextWrapping="Wrap" FontSize="16" Foreground="#333333" LineHeight="28"/>
+
+            <!-- Dashboard Content -->
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,8,0,8">
+                <StackPanel x:Name="DashboardContent">
+                    <!-- Speed Dial Grid -->
+                    <TextBlock Text="Pinned Sites" FontSize="12" Foreground="#888888" Margin="16,4,16,8"/>
+                    <Grid x:Name="SpeedDialGrid" Margin="12,0,12,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                    </Grid>
+
+                    <!-- Divider -->
+                    <Border Background="#333333" Height="1" Margin="16,16,16,8"/>
+
+                    <!-- Recent History -->
+                    <TextBlock Text="Recently Visited" FontSize="12" Foreground="#888888" Margin="16,0,16,8"/>
+                    <StackPanel x:Name="DashboardRecentList" Margin="12,0,12,0"/>
+                </StackPanel>
             </ScrollViewer>
         </Grid>
 
         <!-- ===== Status Bar ===== -->
-        <Border x:Name="StatusBarBorder" Grid.Row="1" Background="#2D2D2D" VerticalAlignment="Bottom" Height="20" IsHitTestVisible="False">
+        <Border x:Name="StatusBarBorder" Grid.Row="3" Background="#2D2D2D" Height="20" IsHitTestVisible="False">
             <TextBlock x:Name="StatusText" Foreground="#AAAAAA" FontSize="11" TextTrimming="CharacterEllipsis" Margin="8,2"/>
         </Border>
     </Grid>

@@ -1,0 +1,17 @@
+{
+  "name": "mediaexplorer-remote-renderer",
+  "version": "1.0.0",
+  "description": "Remote headless browser renderer for MediaExplorer (Playwright-based)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js --verbose"
+  },
+  "dependencies": {
+    "playwright": "^1.45.0",
+    "ws": "^8.17.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

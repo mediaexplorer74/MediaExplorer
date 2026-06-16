@@ -1,4 +1,4 @@
-# MediaExplorer 1.5.0 — ai_hub branch
+# MediaExplorer 2.0 — ai_hub branch
 
 ![](/Images/logo.png)
 
@@ -6,9 +6,9 @@
 
 MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的业余浏览器项目，**不使用**系统 WebView 或 Chakra 引擎。它使用自定义 HTML 解析器、支持选择器/层叠/flexbox 的 CSS 引擎、基于 [NiL.JS](https://github.com/nilproject/NiL.JS) 的 JavaScript 运行时，以及基于 XAML 的渲染器。
 
-**v1.1 针对 [Nokia Design Archive](https://nokiadesignarchive.aalto.fi/) 进行了优化** — 一个拥有 722+ 条目、33 个收藏集、230 个故事和 91 个关键词的博物馆网站，记录了诺基亚的设计历史。MediaExplorer 从网站的 JavaScript 包中提取存档数据，将其渲染为交互式可滑动卡片，包含图片、收藏集标签、关键词标签以及指向阿尔托大学仓库的链接。
+**v1.5 — AI Hub** — 可滚动的 11 项工具菜单（收藏夹、历史、阅读模式、AI 摘要、截图、复制、电子书模式、DevTools、设置）。当网站无法被 NiL.JS 渲染时，**Smart Fallback** 自动获取页面，发送到 AI 连接器（OpenRouter API），在阅读模式中显示摘要。
 
-约 40 个文件，约 2.5 万行代码。v1.1 发布版。
+约 50 个文件，约 3 万行代码。v1.5 发布版。
 
 ## 截图
 
@@ -18,55 +18,40 @@ MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的�
 
 
 ## 功能
-
+- AppBar Situational Size, Hybrid Search, Multi-Engine Architecture, Advanced AI Connector, Remote Rendering [Playwright], DzenRu Auth2 Tweak
 - **自定义渲染引擎** — HTML 解析器、CSS 层叠、flexbox、XAML 渲染器
-- **JavaScript** — NiL.JS 运行时，支持 ES Modules（Vite bundles parse; D3v4/v5 support）
-- **开发者工具** — Console、DOM 检查器、Network 标签、Debug 日志
-- **3 种 UI 模式** — 隐藏（条状）、半展开、完整（标准应用栏）
-- **3 种电子书模式** — Rich（完整图形，CSS + JS）、Poor（卡片/索引样式，最小 CSS）、Asceti（纯文本，无 CSS/图片）
+- **JavaScript** — NiL.JS 运行时，支持 ES Modules
+- **AI Hub** — 可滚动菜单，11 项工具：收藏夹、历史、阅读模式、AI 摘要、截图、复制、电子书模式、DevTools、设置
+- **Smart Fallback** — 自动检测渲染失败 → 获取页面 → 发送到 AI 连接器 → 在阅读模式中显示摘要
+- **AI 连接器预设** — Rich (GPT-4o)、Poor (Ministral-8B)、Asceti (Gemma-4 免费)、Smart (自动链式)。每个连接器独立 API 密钥。
+- **起始仪表板** — 快速拨号网格（6 个固定站点）+ 最近访问列表
+- **历史记录** — 自动记录导航，按日期分组，一键清除
+- **收藏夹** — 添加当前页面，逐条删除
+- **开发者工具** — 控制台、DOM 检查器、网络标签、调试日志
+- **3 种 UI 模式** — 隐藏、半展开、完整
+- **3 种电子书模式** — Rich、Poor、Asceti
 - **磁盘缓存** — 带优先队列的资源缓存
 - **MutationObserver** — DOM 变化时增量重渲染
-- **截图按钮** — 截图（单页或长页）保存到 Pictures/MediaExplorer
-- **键盘快捷键** — Ctrl+L（聚焦地址栏）、Ctrl+B（切换应用栏）
-- **智能手机卡片模式** — 自动检测窄屏幕（<600px），以可滑动卡片形式显示存档内容，支持详情报卡、分类目录和链接路由
-- **Nokia Design Archive 集成** — 从 JS 全局变量提取 __entries、__collections、__stories；渲染为交互式卡片，包含类型标签、收藏集标签和历史引用
+- **截图** — 单页或长页截图保存到 Pictures/MediaExplorer
+- **键盘快捷键** — Ctrl+L（地址栏）、Ctrl+B（切换栏）、Ctrl+Home（仪表板）
+- **智能手机卡片模式** — 自动检测窄屏，可滑动卡片
+- **Nokia Design Archive 集成** — 从 JS 全局变量提取数据
 
 ## 状态
 
-- **v1.1 发布。** 阶段 3-5 已完成：JS Engine（ES6+）、HTML & Media（表格、表单、iframe）、Site Compatibility（Reddit JSON、SVG fallback、charset detection、e-book 模式、markdown-to-html）。
-- **SVG→XAML 桥已放弃** — 经过 18+ 次开发会话，架构不匹配被认定为在 Win SDK 15063 上无法修复。替换为为窄屏设计的文本/卡片渲染。
-- **数据提取保持完好** — `__graphData`（755 节点 + 1647 链接）、`__entries`（722）、`__stories`（230）、`__collections`（33）留作未来 SkiaSharp 渲染器使用。
-
-## 开发状态（2026年6月14日）
-
-### 关键决策
-- **SVG→XAML 已移除** — 滚动时内容重复、架构不匹配、对 Lumia 来说太重
-- **卡片模式** — 窄屏透明替代方案：可滑动卡片，包含条目详情、类别目录、收藏集筛选
-- **链接路由** — 内部条目 URL（/entry/E0001）→ 卡片模式；外部 URL → 通过 Launcher 打开系统浏览器
-- **数据提取** — 保留供未来 SkiaSharp Canvas2D 渲染器使用
-- **通用网页渲染（v1.1）** — 自定义 RenderTreeBuilder 渲染真实网站。首次成功渲染：Hacker News，含30条新闻、橙色头部、投票箭头、可点击链接和页脚
-- **电子书模式** — Rich（完整图形）、Poor（卡片/索引样式）、Asceti（纯文本）。JS 始终启用。
-- **Markdown-to-HTML** — 自动检测 .md URL，使用样式化读者 CSS 渲染
-
-### 关键文件
-`MainPage.xaml.cs` — 卡片模式、导航、链接路由
-`Engine/BrowserApi.cs` — ExtractEntriesJson/ExtractCollectionsJson/ExtractStoriesJson
-`Engine/Core/RenderTreeBuilder.cs` — HTML→RenderObject 树、UA 样式、HTML 展示属性
-`Engine/Core/RenderBox.cs` — Flex/block/inline 布局引擎
-`Engine/Core/VirtualizingRenderer.cs` — 基于 Canvas 的虚拟化渲染器，支持懒加载图片
-`Engine/CssLoader.cs` — CSS 层叠、选择器、媒体查询、伪类
-`AGENTS.md` — 自动化循环命令
-
-这是一个自制的浏览器引擎——不是生产级产品，也不打算替代 Edge 或 Chrome。它的存在是为了证明：渲染网页不一定需要 Chromium。
+- **v1.5 发布。** Plan 8 完成：AI Hub、起始仪表板、历史/收藏夹、AI 连接器、Smart Fallback Renderer。
+- **SVG→XAML 桥已放弃** — 架构不匹配在 Win SDK 15063 上无法修复。
+- **数据提取保持完好** — 留作未来 SkiaSharp 渲染器使用。
 
 ## 开发里程碑
 
-- **2026.06.14 — v1.1.0** 电子书模式（Rich/Poor/Asceti）、markdown-to-html、charset detection（windows-1251 等）、表格改进（border-spacing、CAPTION）、CSS 边缘情况（display:none、overflow-x/y、text-overflow:clip）。JS 始终启用。
-- **2026.06.13 — v1.0.10** 通用网页渲染。Hacker News 完整渲染：橙色头部、30条新闻、投票箭头、可点击链接、页脚。CSS 伪类（`:link`/`:visited`）、HTML 展示属性（`bgcolor`、`width`）、SVG 图标。
-- **2026.06.12 — v1.0.0** 阶段 R+S+T 完成。智能手机卡片布局、条目详情视图、类别目录、链接路由。SVG→XAML 桥放弃。
-- **2026.06.07 — v0.55.0** D3.js 力导向图（诺基亚设计档案馆）渲染为实时 XAML 元素。
-- **2026.06.05 — v0.50.0** 首次在 UWP 上通过 NiL.JS 成功执行 d3.js。
-- **2026.05.xx — v0.42.8** NiL.JS 运行时移植到 .NET Native 1.4（兼容 W10M 15063）。
+- **2026.06.14 — v1.5.0** AI Hub、起始仪表板、历史/收藏夹、AI 连接器（Rich/Poor/Asceti/Smart）、Smart Fallback Renderer。
+- **2026.06.14 — v1.1.0** 电子书模式、markdown-to-html、charset detection、表格改进、CSS 边缘情况。
+- **2026.06.13 — v1.0.10** 通用网页渲染。Hacker News 完整渲染。
+- **2026.06.12 — v1.0.0** 阶段 R+S+T。卡片布局、链接路由。
+- **2026.06.07 — v0.55.0** D3.js 力导向图。
+- **2026.06.05 — v0.50.0** 首次 d3.js 在 UWP 上通过 NiL.JS 执行。
+- **2026.05.xx — v0.42.8** NiL.JS 移植到 .NET Native 1.4。
 
 ## 测试
 
@@ -125,6 +110,6 @@ MediaExplorer 与 Nokia Design Archive 配合最佳。进行一般网页测试�
 
 按原样提供。不提供支持。仅用于研究。自己动手。
 
-[m][e] 2026 年 6 月 14 日
+[m][e] 2026 年 6 月 15 日
 
 ![](/Images/footer.png)

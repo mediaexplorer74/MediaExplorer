@@ -406,10 +406,16 @@ namespace BrowserCore.Engine.Core
                             if (isRow)
                             {
                                 double newWidth = Math.Max(0, child.Bounds.Width - shrinkAmount);
-                                var oldWidth = child.Style.Width;
-                                child.Style.Width = newWidth;
+                                var oldWidth = child.Bounds.Width;//child.Style.Width;
+
+                                //!
+                                if (child.Style != null) 
+                                    child.Style.Width = newWidth;
                                 child.Layout(new Size(newWidth, double.PositiveInfinity));
-                                child.Style.Width = oldWidth;
+
+                                //!
+                                if (child.Style != null)
+                                  child.Style.Width = oldWidth;
                                 shrinkRemaining -= (childMain - (child.Bounds.Width + childMargin.Left + childMargin.Right));
                             }
                         }

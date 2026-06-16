@@ -1348,7 +1348,7 @@ public class JSValue : IEnumerable<KeyValuePair<string, JSValue>>, IComparable<J
 
     #endregion
 
-    [Obsolete("Use GlobalContext.ProxyValue(value)")]
+    //[Obsolete("Use GlobalContext.ProxyValue(value)")]
     public static JSValue Marshal(object value)
     {
         return Context.CurrentGlobalContext.ProxyValue(value);

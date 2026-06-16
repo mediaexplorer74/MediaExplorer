@@ -24,10 +24,24 @@ Get-Content "$env:LOCALAPPDATA\Packages\MediaExplorerV1p1_5gyrq6psz227t\LocalSta
 msbuild "Src\MediaExplorer\MediaExplorer.csproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /v:m; if ($?) { powershell -ExecutionPolicy Bypass -File "Src\MediaExplorer\DeployAndRun.ps1" -Platform x64; Start-Sleep -Seconds 150; Get-Process -Name "MediaExplorer" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Get-Content "$env:LOCALAPPDATA\Packages\MediaExplorerV1p1_5gyrq6psz227t\LocalState\Logger.txt" -Tail 80 }
 ```
 
-## Current State (June 14, 2026 — Session 19)
+## Current State (June 15, 2026 — Session 25, v2.0)
 
-**Version**: 1.1.0.0, AUMID `MediaExplorerV1p1!App`, PackageFamilyName `MediaExplorerV1p1_5gyrq6psz227t`
-**Package Identity**: `MediaExplorerV1p1` (renamed from V1p0, fresh install required)
+**Version**: 2.0.0, AUMID `MediaExplorerV1p5!App`, PackageFamilyName `MediaExplorerV1p5_5gyrq6psz227t`
+**Package Identity**: `MediaExplorerV1p5`
+
+### v2.0: Adaptive Multi-Engine Browser
+
+Plan_09 fully implemented — 7 phases in one session:
+
+| Phase | What | Key Files |
+|-------|------|-----------|
+| Phase 1 | Adaptive AppBar (Full→Compact→Minimal) | MainPage.xaml.cs:3228-3291 |
+| Phase 2 | Hybrid Search (AI + DuckDuckGo) | MainPage.xaml.cs:3767-3870 |
+| Phase 3 | Multi-Engine (NiLJS + EdgeHTML) | Engine/EngineRouter.cs |
+| Phase 4 | Advanced AI (Ultra, Smart, Skills) | Engine/AiConnectorPreset.cs |
+| Phase 5 | Remote Rendering (Playwright) | Src/RemoteRender/server.js, Engine/RemoteRenderer.cs |
+| Phase 6 | Dzen.ru OAuth2 | Engine/DzenAuthManager.cs, Engine/DzenApi.cs |
+| Phase 7 | Performance (ImageCache, MemoryProfiler) | Engine/ImageCache.cs, Engine/MemoryProfiler.cs |
 
 ### Critical Decision: SVG→XAML Bridge Abandoned
 
@@ -84,22 +98,33 @@ https://nokiadesignarchive.aalto.fi/images/archive/{file}.jpg
 
 ### Files
 - `Src/MediaExplorer/Engine/JavaScriptEngine.cs` — ES6+ polyfills, event system, fetch API, DOM manipulation, `globalThis.*` injection, SafeEval, `__storeData`, charset detection integration
-- `Src/MediaExplorer/Engine/CharsetDetector.cs` — **NEW** BOM + `<meta charset>` encoding detection (UTF-8, windows-1251, koi8-r, shift_jis, etc.)
-- `Src/MediaExplorer/Engine/MarkdownRenderer.cs` — **NEW** Markdown-to-HTML converter (headers, bold, italic, links, images, code blocks, lists, tables)
+- `Src/MediaExplorer/Engine/CharsetDetector.cs` — BOM + `<meta charset>` encoding detection (UTF-8, windows-1251, koi8-r, shift_jis, etc.)
+- `Src/MediaExplorer/Engine/MarkdownRenderer.cs` — Markdown-to-HTML converter
 - `Src/MediaExplorer/Engine/BrowserApi.cs` — `ExtractEntriesJson()`, `ExtractCollectionsJson()`, `ExtractStoriesJson()`, markdown URL detection
 - `Src/MediaExplorer/Engine/DomBasicRenderer.cs` — stable text/image/link renderer
 - `Src/MediaExplorer/Engine/CustomHtmlEngine.cs` — RenderTreeBuilder → LayoutEngine → VirtualizingRenderer pipeline, **E-book modes** (Rich/Poor/Asceti)
+- `Src/MediaExplorer/Engine/AiConnectorPreset.cs` — **v2.0** — Ultra/Rich/Poor/Asceti/Smart tiers, ContentSkill enum, SkillRouter, daily budget tracking
+- `Src/MediaExplorer/Engine/SmartFallbackRenderer.cs` — **v2.0** — Smart downshift (Asceti→Poor→Rich→Ultra), skill-based prompts
+- `Src/MediaExplorer/Engine/ApiClient.cs` — OpenRouter API with configurable model
+- `Src/MediaExplorer/Engine/EngineRouter.cs` — **v2.0** — Engine selection (NiLJS/EdgeHTML/Remote/Auto), per-site overrides, known SPA hosts
+- `Src/MediaExplorer/Engine/RemoteRenderer.cs` — **v2.0** — WebSocket client for Playwright remote rendering
+- `Src/MediaExplorer/Engine/ImageCache.cs` — **v2.0** — LRU image cache (20 entries, 20MB cap), DecodePixelWidth
+- `Src/MediaExplorer/Engine/MemoryProfiler.cs` — **v2.0** — Memory tracking, GC stats, cache stats
+- `Src/MediaExplorer/Engine/DzenAuthManager.cs` — **v2.0** — Yandex OAuth2 flow, token storage, refresh
+- `Src/MediaExplorer/Engine/DzenApi.cs` — **v2.0** — Dzen feed API client
 - `Src/MediaExplorer/Engine/Core/VirtualizingRenderer.cs` — XAML Canvas rendering, overflow:auto/scroll, overflow-x/y, sticky positioning, SVG→BitmapImage fallback, text-overflow:clip
 - `Src/MediaExplorer/Engine/Core/RenderTreeBuilder.cs` — table grid layout, CAPTION support, HTML attribute parsing, body display:none override
 - `Src/MediaExplorer/Engine/Core/RenderBox.cs` — table grid layout, flex/block/inline layout, border-spacing, display:none
-- `Src/MediaExplorer/MainPage.xaml.cs` — card mode, navigation UI, image URLs, link routing, **Reddit JSON API card mode**, Reddit comments view, score coloring
-- `Src/MediaExplorer/MainPage.xaml` — ScrollViewer CacheMode
-- `Src/MediaExplorer/SettingsPage.xaml` — E-book mode selector (Rich/Poor/Asceti), no JS toggle
+- `Src/MediaExplorer/MainPage.xaml.cs` — **v2.0** — Adaptive AppBar, Hybrid Search, Multi-Engine switching, Remote client, Memory profiling
+- `Src/MediaExplorer/MainPage.xaml` — **v2.0** — Named ScrollViewer, EdgeBrowser WebView, RemoteView, Engine menu item
+- `Src/MediaExplorer/SettingsPage.xaml` — **v2.0** — AI Connectors tab with Ultra tier, E-book mode selector
 - `Src/MediaExplorer/Engine/DevToolsLogger.cs` — diagnostic logging
+- `Src/RemoteRender/server.js` — **v2.0** — Playwright WebSocket server for remote rendering
+- `Src/RemoteRender/package.json` — **v2.0** — Node.js dependencies (playwright, ws)
 
 ### Post-v1.0 Roadmap
 
-#### v1.1 (current session)
+#### v1.1 (sessions 7-12)
 - Phase 3 (JS Engine): ES6 polyfills, DOM API, fetch, events, element.style ✅
 - Phase 4 (HTML & Media): table grid layout, select, iframe, srcset ✅
 - Phase 5 (Site Compatibility): Reddit JSON API, SVG fallback, body display override ✅
@@ -113,12 +138,30 @@ https://nokiadesignarchive.aalto.fi/images/archive/{file}.jpg
 - E-book modes: Rich/Poor/Asceti ✅, JS toggle removed ✅, settings renamed ✅
 - Markdown-to-HTML: MarkdownRenderer.cs ✅, .md URL detection ✅
 
-#### v1.2 (next iteration)
-1. **Performance tuning** — focus on Lumia 640 (1GB) perf, reduce memory
-2. **SkiaSharp graph rendering** — прикольная тема, но лучше в v2.0
+#### v1.5 (session 20) — Plan_08
+- Phase 1: Slim AppBar + AI Hub overlay ✅
+- Phase 2: Start Dashboard + Speed Dial ✅
+- Phase 3: History + Favorites system ✅
+- Phase 4: AI Connector Presets (Rich/Poor/Asceti/Smart) ✅
+- Smart Fallback Renderer ✅
 
-#### v2.0 (long-term)
-1. **Dzen.ru OAuth2** — Yandex OAuth Authorization Code flow, token storage, login UI, authenticated API access
+#### v2.0 (session 25) — Plan_09
+- Phase 1: Adaptive AppBar (Full→Compact→Minimal on scroll) ✅
+- Phase 2: Hybrid Search (AI prompt + DuckDuckGo fallback) ✅
+- Phase 3: Multi-Engine (NiLJS + EdgeHTML + EngineRouter) ✅
+- Phase 4: Advanced AI (Ultra tier, Smart downshift, Skill routing) ✅
+- Phase 5: Remote Rendering (Playwright server + WebSocket client) ✅
+- Phase 6: Dzen.ru OAuth2 (DzenAuthManager + DzenApi) ✅
+- Phase 7: Performance (ImageCache + MemoryProfiler + DecodePixelWidth) ✅
+
+#### v2.1 (future)
+1. PIN-code protection for Remote Rendering server
+2. Remote server settings UI in Settings page
+3. Per-site engine override UI (long-press address bar)
+4. Dzen.ru client_id registration + login UI
+5. EdgeHTML memory optimization
+6. Testing matrix: all sites from current + new test sites
+7. Performance validation on Lumia 640 (1GB)
 
 ### Commands
 ```powershell
