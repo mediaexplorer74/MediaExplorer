@@ -3761,6 +3761,17 @@ namespace WEBVIEW
                     Foreground = new SolidColorBrush(Colors.White),
                     FontSize = 13,
                     TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 8)
+                });
+            }
+
+            if (_lastRemoteScreenshotUtc != DateTime.MinValue)
+            {
+                HubRemoteSessionContent.Children.Add(new TextBlock
+                {
+                    Text = "Last screenshot: " + _lastRemoteScreenshotUtc.ToLocalTime().ToString("HH:mm:ss"),
+                    Foreground = new SolidColorBrush(Color.FromArgb(180, 120, 120, 120)),
+                    FontSize = 11,
                     Margin = new Thickness(0, 0, 0, 12)
                 });
             }
@@ -3780,6 +3791,35 @@ namespace WEBVIEW
             actions.Children.Add(disconnectBtn);
 
             HubRemoteSessionContent.Children.Add(actions);
+
+            var actions2 = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
+            var fetchTextBtn = new Button { Content = "Fetch Text", Background = new SolidColorBrush(Color.FromArgb(255, 55, 55, 55)), Foreground = new SolidColorBrush(Colors.White), BorderThickness = new Thickness(0), Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 0, 8, 0), IsEnabled = connected };
+            fetchTextBtn.Click += async (s, e) => { if (_remote != null && _remote.IsConnected) { await _remote.RequestTextAsync(); ShowToast("Requested remote text."); } };
+            actions2.Children.Add(fetchTextBtn);
+
+            var aiRemoteBtn = new Button { Content = "AI from Remote", Background = new SolidColorBrush(Color.FromArgb(255, 62, 76, 109)), Foreground = new SolidColorBrush(Colors.White), BorderThickness = new Thickness(0), Padding = new Thickness(12, 6, 12, 6), IsEnabled = connected };
+            aiRemoteBtn.Click += async (s, e) => { await RunAiSummaryForRemoteText(); };
+            actions2.Children.Add(aiRemoteBtn);
+            HubRemoteSessionContent.Children.Add(actions2);
+
+            if (!string.IsNullOrWhiteSpace(_lastRemoteText))
+            {
+                HubRemoteSessionContent.Children.Add(new Border
+                {
+                    Background = new SolidColorBrush(Color.FromArgb(255, 36, 36, 36)),
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(12),
+                    Margin = new Thickness(0, 0, 0, 12),
+                    Child = new TextBlock
+                    {
+                        Text = _lastRemoteText.Length > 280 ? _lastRemoteText.Substring(0, 280) + "…" : _lastRemoteText,
+                        Foreground = new SolidColorBrush(Color.FromArgb(220, 220, 220, 220)),
+                        FontSize = 12,
+                        TextWrapping = TextWrapping.Wrap,
+                        LineHeight = 18
+                    }
+                });
+            }
 
             var helper = new Border
             {
@@ -4274,6 +4314,42 @@ namespace WEBVIEW
             });
         }
 
+        private async Task RunAiSummaryForRemoteText()
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(_lastRemoteText) && _remote != null && _remote.IsConnected)
+                    await _remote.RequestTextAsync();
+
+                if (string.IsNullOrWhiteSpace(_lastRemoteText))
+                {
+                    ShowToast("No remote text available yet.");
+                    return;
+                }
+
+                var defaults = BrowserCore.Engine.AiConnectorConfig.GetDefaults();
+                var activeType = BrowserCore.Engine.ConnectorStorage.LoadActiveConnector();
+                var cfg = BrowserCore.Engine.ConnectorStorage.Load(activeType, defaults[(int)activeType]);
+                var key = cfg.ApiKey;
+                if (string.IsNullOrWhiteSpace(key)) key = LoadAiKey();
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    ShowAiResult("No API key set. Open Settings → AI Connectors → configure a key.", false);
+                    return;
+                }
+
+                string pageText = _lastRemoteText;
+                if (pageText.Length > 16000) pageText = pageText.Substring(0, 16000) + "\n[truncated]";
+                ShowAiResult("Analyzing remote page text with " + cfg.Name + " (" + cfg.ModelId + ")...", true);
+                var summary = await OpenRouterClient.SummarizeAsync(key, pageText);
+                ShowAiResult(summary, false);
+            }
+            catch (Exception ex)
+            {
+                ShowAiResult("Remote AI error: " + ex.Message, false);
+            }
+        }
+
         // ========== Hybrid Search ==========
 
         private async void RunSearchQuery(string query)
@@ -4588,6 +4664,7 @@ namespace WEBVIEW
                             if (ContentArea != null) ContentArea.Visibility = Visibility.Collapsed;
                             if (EdgeBrowser != null) EdgeBrowser.Visibility = Visibility.Collapsed;
                             _activeEngine = EngineType.Remote;
+                            _lastRemoteScreenshotUtc = DateTime.UtcNow;
                             HideMessageOverlay();
                             UpdateRemoteSessionStateUi();
                         }
@@ -4602,6 +4679,11 @@ namespace WEBVIEW
                         UpdateStatusMessage(title);
                         UpdateRemoteSessionStateUi();
                     });
+                };
+                _remote.TextReceived += (content) =>
+                {
+                    _lastRemoteText = content;
+                    Ui(() => UpdateRemoteSessionStateUi());
                 };
                 _remote.ErrorOccurred += (msg) =>
                 {

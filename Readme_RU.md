@@ -23,7 +23,7 @@ MediaExplorer — это хобби-браузер для Windows 10 Mobile (W10
 - **Собственный движок рендеринга** — HTML-парсер, CSS-каскад, flexbox, XAML-рендерер
 - **JavaScript** — NiL.JS с поддержкой ES Modules (Vite bundles parse; D3v4/v5 support)
 - **AI Hub** — Прокручиваемое меню: Избранное, История, AI Summary, Скриншот, Копирование, E-book, DevTools, Настройки, Home, Engine, Remote Session
-- **Automatic Rescue Path** — Сломанный локальный рендер теперь классифицируется (empty render, block/challenge, code junk, minimal text, network-like), предлагает rescue-варианты, запоминает rescue preference по сайту и умеет забывать их по требованию
+- **Remote Rendering [Playwright]** — Настраиваемый server URL, viewport, load delay, поле PIN / token, connect/reconnect/disconnect, remote text fetch и AI summary поверх удалённого текста страницы
 - **Smart Fallback** — Авто-детекция сломанного рендера → загрузка страницы → отправка в AI-коннектор → summary в режиме чтения
 - **AI Коннекторы** — Rich (GPT-4o), Poor (Ministral-8B), Asceti (Gemma-4 бесплатно), Smart (авто-цепочка). Разные API-ключи.
 - **Стартовый дашборд** — Сетка быстрого доступа (6 закреплённых сайтов) + последние посещения
@@ -112,6 +112,6 @@ MediaExplorer лучше всего работает с Nokia Design Archive. Д
 
 Как есть. Без поддержки. Только RnD. Сделай сам.
 
-[m][e] 15 июня 2026
+[m][e] 20 июня 2026
 
 ![](/Images/footer.png)

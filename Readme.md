@@ -22,7 +22,7 @@ MediaExplorer is a hobby browser for Windows 10 Mobile (W10M, build 15063+) buil
 - **Custom rendering engine** — HTML parser, CSS cascade, flexbox, XAML renderer
 - **JavaScript** — NiL.JS runtime with ES Modules support (Vite bundles parse; D3v4/v5 support)
 - **AI Hub** — Scrollable overlay with Favorites, History, AI Summary, Screenshot, Copy Text, E-book Mode, DevTools, Settings, Home, Engine, Remote Session
-- **Automatic Rescue Path** — Broken local renders are classified (empty render, block/challenge, code junk, minimal text, network-like), offer rescue choices, remember rescue preferences per site, and can forget them on demand
+- **Remote Rendering [Playwright]** — Configurable server URL, viewport, load delay, PIN / token field, connect/reconnect/disconnect controls, remote text fetch, and AI summary over remote page text
 - **AI Connector Presets** — Rich (GPT-4o), Poor (Ministral-8B), Asceti (Gemma-4 free), Smart (auto-chain cheapest first). Per-connector API keys.
 - **Start Dashboard** — Speed dial grid (6 pinned sites) + recent history list
 - **History system** — Auto-records navigation, grouped by date (Today/Yesterday/This Week/Older), clear all
@@ -137,6 +137,6 @@ Include: URL, what you expected, what you got. Screenshots help.
 
 As is. No support. RnD only. DIY.
 
-[m][e] June 15, 2026
+[m][e] June 20, 2026
 
 ![](/Images/footer.png)

@@ -416,10 +416,10 @@ This should become an intentional product design, not an accidental collection o
 6. user-facing rescue memory reset ✅
 
 ## v1.5 — Remote Web Streaming Beta
-1. polished remote session UX
-2. security/PIN/token
-3. better latency handling
-4. AI + Remote combined workflows
+1. polished remote session UX ✅
+2. security/PIN/token ✅ (first PIN-based gate)
+3. better latency handling ✅ (session status + screenshot timing + remote text fetch)
+4. AI + Remote combined workflows ✅ (AI summary over remote-fetched page text)
 
 ---
 

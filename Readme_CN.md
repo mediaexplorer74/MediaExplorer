@@ -22,7 +22,7 @@ MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的�
 - **自定义渲染引擎** — HTML 解析器、CSS 层叠、flexbox、XAML 渲染器
 - **JavaScript** — NiL.JS 运行时，支持 ES Modules
 - **AI Hub** — 可滚动工具菜单：收藏夹、历史、AI 摘要、截图、复制、电子书模式、DevTools、设置、Home、Engine、Remote Session
-- **Automatic Rescue Path** — 本地渲染失败现在会区分原因（empty render、block/challenge、code junk、minimal text、network-like），提供救援选项，按站点记忆 rescue preference，并允许用户主动忘记
+- **Remote Rendering [Playwright]** — 可配置 server URL、viewport、load delay、PIN / token 字段、connect/reconnect/disconnect、remote text fetch，以及基于远程页面文本的 AI 摘要
 - **Smart Fallback** — 自动检测渲染失败 → 获取页面 → 发送到 AI 连接器 → 在阅读模式中显示摘要
 - **AI 连接器预设** — Rich (GPT-4o)、Poor (Ministral-8B)、Asceti (Gemma-4 免费)、Smart (自动链式)。每个连接器独立 API 密钥。
 - **起始仪表板** — 快速拨号网格（6 个固定站点）+ 最近访问列表
@@ -111,6 +111,6 @@ MediaExplorer 与 Nokia Design Archive 配合最佳。进行一般网页测试�
 
 按原样提供。不提供支持。仅用于研究。自己动手。
 
-[m][e] 2026 年 6 月 15 日
+[m][e] 2026 年 6 月 20 日
 
 ![](/Images/footer.png)
