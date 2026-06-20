@@ -1,4 +1,4 @@
-# MediaExplorer 2.0 — ai_hub branch
+# MediaExplorer 2.0-alpha — ai_hub branch
 
 ![](/Images/logo.png)
 
@@ -6,9 +6,9 @@
 
 MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的业余浏览器项目，**不使用**系统 WebView 或 Chakra 引擎。它使用自定义 HTML 解析器、支持选择器/层叠/flexbox 的 CSS 引擎、基于 [NiL.JS](https://github.com/nilproject/NiL.JS) 的 JavaScript 运行时，以及基于 XAML 的渲染器。
 
-**v1.5 — AI Hub** — 可滚动的 11 项工具菜单（收藏夹、历史、阅读模式、AI 摘要、截图、复制、电子书模式、DevTools、设置）。当网站无法被 NiL.JS 渲染时，**Smart Fallback** 自动获取页面，发送到 AI 连接器（OpenRouter API），在阅读模式中显示摘要。
+**v1.5 — AI Hub** — 可滚动工具菜单（收藏夹、历史、AI 摘要、截图、复制、电子书模式、DevTools、设置、Home、Engine、Remote Session）。当网站无法被 NiL.JS 渲染时，**Smart Fallback** 自动获取页面，发送到 AI 连接器（OpenRouter API），并在 Hub 的 AI 面板中显示摘要。
 
-约 50 个文件，约 3 万行代码。v1.5 发布版。
+约 50 个文件，约 3 万行代码。当前属于早期 **v2.0-alpha** 阶段，建立在已完成的 v1.5 架构之上。
 
 ## 截图
 
@@ -21,7 +21,8 @@ MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的�
 - AppBar Situational Size, Hybrid Search, Multi-Engine Architecture, Advanced AI Connector, Remote Rendering [Playwright], DzenRu Auth2 Tweak
 - **自定义渲染引擎** — HTML 解析器、CSS 层叠、flexbox、XAML 渲染器
 - **JavaScript** — NiL.JS 运行时，支持 ES Modules
-- **AI Hub** — 可滚动菜单，11 项工具：收藏夹、历史、阅读模式、AI 摘要、截图、复制、电子书模式、DevTools、设置
+- **AI Hub** — 可滚动工具菜单：收藏夹、历史、AI 摘要、截图、复制、电子书模式、DevTools、设置、Home、Engine、Remote Session
+- **Automatic Rescue Path** — 本地渲染失败现在会区分原因（empty render、block/challenge、code junk、minimal text、network-like），提供救援选项，按站点记忆 rescue preference，并允许用户主动忘记
 - **Smart Fallback** — 自动检测渲染失败 → 获取页面 → 发送到 AI 连接器 → 在阅读模式中显示摘要
 - **AI 连接器预设** — Rich (GPT-4o)、Poor (Ministral-8B)、Asceti (Gemma-4 免费)、Smart (自动链式)。每个连接器独立 API 密钥。
 - **起始仪表板** — 快速拨号网格（6 个固定站点）+ 最近访问列表
@@ -39,8 +40,8 @@ MediaExplorer 是一个为 Windows 10 Mobile（W10M，版本 15063+）开发的�
 
 ## 状态
 
-- **v1.5 发布。** Plan 8 完成：AI Hub、起始仪表板、历史/收藏夹、AI 连接器、Smart Fallback Renderer。
-- **SVG→XAML 桥已放弃** — 架构不匹配在 Win SDK 15063 上无法修复。
+- **v2.0-alpha 开发中。** Plan 8 已完成；Plan 09 正在推进：Hub 打磨、Dashboard 打磨、RemoteRender settings/session UX 与 Automatic Rescue Path。
+- **v1.5 架构已在此前完成。** AI Hub、起始仪表板、历史/收藏夹、AI 连接器、Smart Fallback Renderer。
 - **数据提取保持完好** — 留作未来 SkiaSharp 渲染器使用。
 
 ## 开发里程碑

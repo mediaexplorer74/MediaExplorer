@@ -1,4 +1,4 @@
-# MediaExplorer 2.0 — ai_hub branch
+# MediaExplorer 2.0-alpha — ai_hub branch
 
 ![](/Images/logo.png)
 
@@ -6,9 +6,9 @@
 
 MediaExplorer is a hobby browser for Windows 10 Mobile (W10M, build 15063+) built **without** the system WebView or Chakra engine. It uses a custom HTML parser, CSS engine with selectors/cascade/flexbox, a JavaScript runtime powered by [NiL.JS](https://github.com/nilproject/NiL.JS), and a XAML-based renderer.
 
-**v1.5 features an AI Hub overlay** — a scrollable menu with 11 tools (Favorites, History, Reading Mode, AI Summary, Screenshot, Copy Text, E-book Mode, DevTools, Settings). When a website can't be rendered by NiL.JS, the **Smart Fallback Renderer** automatically fetches the page, sends it to an AI connector (OpenRouter API), and displays a summary in Reader Mode.
+**v1.5 features an AI Hub overlay** — a scrollable menu with 10 tools (Favorites, History, AI Summary, Screenshot, Copy Text, E-book Mode, DevTools, Settings, Home, Engine). When a website can't be rendered by NiL.JS, the **Smart Fallback Renderer** automatically fetches the page, sends it to an AI connector (OpenRouter API), and displays a summary in the Hub AI panel.
 
-~50 files, ~30k+ lines of code. v1.5 release.
+~50 files, ~30k+ lines of code. Early **v2.0-alpha** stage built on top of the completed v1.5 architecture.
 
 ## Screenshots
 
@@ -21,8 +21,8 @@ MediaExplorer is a hobby browser for Windows 10 Mobile (W10M, build 15063+) buil
 - AppBar Situational Size, Hybrid Search, Multi-Engine Architecture, Advanced AI Connector, Remote Rendering [Playwright], DzenRu Auth2 Tweak
 - **Custom rendering engine** — HTML parser, CSS cascade, flexbox, XAML renderer
 - **JavaScript** — NiL.JS runtime with ES Modules support (Vite bundles parse; D3v4/v5 support)
-- **AI Hub** — Scrollable overlay with 11 tools: Favorites, History, Reading Mode, AI Summary, Screenshot, Copy Text, E-book Mode, DevTools, Settings
-- **Smart Fallback Renderer** — Auto-detects broken/empty renders → fetches page → sends to AI connector → shows summary in Reader Mode
+- **AI Hub** — Scrollable overlay with Favorites, History, AI Summary, Screenshot, Copy Text, E-book Mode, DevTools, Settings, Home, Engine, Remote Session
+- **Automatic Rescue Path** — Broken local renders are classified (empty render, block/challenge, code junk, minimal text, network-like), offer rescue choices, remember rescue preferences per site, and can forget them on demand
 - **AI Connector Presets** — Rich (GPT-4o), Poor (Ministral-8B), Asceti (Gemma-4 free), Smart (auto-chain cheapest first). Per-connector API keys.
 - **Start Dashboard** — Speed dial grid (6 pinned sites) + recent history list
 - **History system** — Auto-records navigation, grouped by date (Today/Yesterday/This Week/Older), clear all
@@ -39,15 +39,15 @@ MediaExplorer is a hobby browser for Windows 10 Mobile (W10M, build 15063+) buil
 
 ## Status
 
-- **v1.5 release.** Plan 8 complete: AI Hub overlay, Start Dashboard, History/Favorites, AI Connector presets, Smart Fallback Renderer.
-- **SVG→XAML bridge abandoned** — after 18+ sessions, the architectural mismatch proved unfixable on Win SDK 15063. Replaced with text/image/link rendering and card-based layout for narrow viewports.
+- **v2.0-alpha in progress.** Plan 8 is complete; Plan 09 is underway with Hub polish, Dashboard polish, RemoteRender settings/session UX, and Automatic Rescue Path.
+- **v1.5 architecture completed earlier.** AI Hub, Start Dashboard, History/Favorites, AI Connector presets, Smart Fallback Renderer.
 - **Data extraction intact** — `__graphData` (755 nodes, 1647 links), `__entries` (722), `__stories` (230), `__collections` (33) available for future SkiaSharp renderer.
 
 ## Dev section (June 14, 2026)
 
 ### Key decisions
 - **AI Hub** — Single scrollable overlay replaces cluttered 8-element AppBar with 4 elements (← → Omnibox ≡)
-- **Smart Fallback** — When NiL.JS can't render a site, auto-fetch via HTTP → send to AI connector → show summary in Reader Mode
+- **Smart Fallback** — When NiL.JS can't render a site, auto-fetch via HTTP → send to AI connector → show summary in the Hub AI panel
 - **AI Connector Presets** — Rich/Poor/Asceti/Smart tiers with per-connector API keys (OpenRouter)
 - **Poor mode = AI-first** — In Poor render mode, ALL sites trigger AI fallback automatically
 - **E-book modes evolved** — Now serve as AI connector tier selector
@@ -70,7 +70,7 @@ This is a homemade browser engine — not production-ready, not intended to repl
 
 ## Milestones
 
-- **2026.06.14 — v1.5.0** AI Hub overlay, Start Dashboard, History/Favorites, AI Connector presets (Rich/Poor/Asceti/Smart), Smart Fallback Renderer. StatusBar fix, Reader Mode copy button.
+- **2026.06.20 — v2.0.0** Plan 09 Phase 1 cleanup + RemoteRender settings/session UX: Reader Mode traces removed, Hub transitions polished, Dashboard improved, Remote Render settings UI added, Remote Session panel added.
 - **2026.06.14 — v1.1.0** E-book modes (Rich/Poor/Asceti), markdown-to-html, charset detection (windows-1251 etc.), table improvements (border-spacing, CAPTION), CSS edge cases (display:none, overflow-x/y, text-overflow:clip). JS always enabled.
 - **2026.06.13 — v1.0.10** General web rendering. Hacker News fully renders: orange header, 30 news items, vote arrows, clickable navigation, footer. CSS pseudo-classes (`:link`/`:visited`), HTML presentation attributes (`bgcolor`, `width`), SVG logo support.
 - **2026.06.12 — v1.0.0** Phases R+S+T complete. Card-based smartphone layout, entry detail views, category index, link routing. SVG→XAML bridge abandoned.

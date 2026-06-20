@@ -50,6 +50,8 @@ namespace WEBVIEW
         private RemoteRenderer _remote;
         private double _remoteLastX, _remoteLastY;
         private bool _remoteDragging;
+        private string _lastRemoteText;
+        private DateTime _lastRemoteScreenshotUtc;
 
         // ═══ TEST URL ═══ Change this to test different sites ═══
         // Set to null/empty to use saved Home Page from Settings.
@@ -258,6 +260,15 @@ namespace WEBVIEW
                     var fe = e.OriginalSource as FrameworkElement;
                     if (fe == DashboardOverlay || fe?.Name == "DashboardContent")
                         HideDashboard();
+                };
+
+            // Hub overlay tap to dismiss
+            if (HubOverlay != null)
+                HubOverlay.Tapped += (s, e) =>
+                {
+                    var fe = e.OriginalSource as FrameworkElement;
+                    if (fe == HubOverlay)
+                        HubCloseButton_Click(null, null);
                 };
 
             // Magic Bubble: long-tap / long-press on content area
@@ -815,8 +826,49 @@ namespace WEBVIEW
                 DevToolsLogger.Log("[DIAG:REDDIT] JSON failed, falling back to HTML");
             }
 
-            // Engine selection: check if EdgeHTML is needed for SPAs
+            // Rescue preference can override default routing for hosts that already failed before
+            var hostForRescue = EngineRouter.GetHostFromUrl(address);
+            var rescuePref = EngineRouter.GetRescuePreference(hostForRescue);
+            if (rescuePref == BrowserCore.Engine.RescuePreference.Remote)
+            {
+                DevToolsLogger.Log("[DIAG:RESCUE] Per-site rescue preference → RemoteRender url=" + address);
+                NavigateViaRemote(address);
+                return;
+            }
+            if (rescuePref == BrowserCore.Engine.RescuePreference.Edge)
+            {
+                DevToolsLogger.Log("[DIAG:RESCUE] Per-site rescue preference → EdgeHTML url=" + address);
+                NavigateViaEdge(address);
+                return;
+            }
+            if (rescuePref == BrowserCore.Engine.RescuePreference.AI)
+            {
+                DevToolsLogger.Log("[DIAG:RESCUE] Per-site rescue preference → AI Summary url=" + address);
+                ShowAiResult("Applying remembered AI rescue...", true);
+                var __ = _fallback?.TryFallbackAsync(address);
+                return;
+            }
+            if (rescuePref == BrowserCore.Engine.RescuePreference.Poor)
+            {
+                DevToolsLogger.Log("[DIAG:RESCUE] Per-site rescue preference → POOR mode url=" + address);
+                RenderMode = "Poor";
+            }
+
+            // Engine selection: prefer RemoteRender for heavy sites if enabled
             var decision = EngineRouter.SelectEngine(address, 0, null);
+            bool preferRemoteHeavy = false;
+            try
+            {
+                var s = ApplicationData.Current.LocalSettings;
+                if (s.Values.TryGetValue("RemotePreferHeavySites", out var pr) && pr is bool pb) preferRemoteHeavy = pb;
+            }
+            catch { }
+            if (preferRemoteHeavy && decision.Engine == EngineType.EdgeHTML)
+            {
+                DevToolsLogger.Log("[DIAG:ENGINE] Routing to RemoteRender for heavy site: " + decision.Reason + " url=" + address);
+                NavigateViaRemote(address);
+                return;
+            }
             if (decision.Engine == EngineType.EdgeHTML)
             {
                 DevToolsLogger.Log("[DIAG:ENGINE] Routing to EdgeHTML: " + decision.Reason + " url=" + address);
@@ -1048,11 +1100,19 @@ namespace WEBVIEW
                             string pageText = "";
                             try { pageText = _browser?.GetTextContent() ?? ""; } catch { }
                             bool poorMode = _browser?.RenderMode == "Poor";
-                            if (poorMode || _fallback.IsPageEmpty(ContentHost.Children.Count, pageText, _currentUri.AbsoluteUri))
+                            var failureReason = _fallback.AnalyzeFailure(ContentHost.Children.Count, pageText, _currentUri.AbsoluteUri);
+                            bool emptyRender = failureReason != BrowserCore.Engine.RenderFailureReason.None;
+                            if (poorMode)
                             {
-                                DevToolsLogger.Log("[DIAG:FALLBACK] Triggered for " + _currentUri.AbsoluteUri + " poorMode=" + poorMode + " children=" + ContentHost.Children.Count + " textLen=" + (pageText?.Length ?? 0));
+                                DevToolsLogger.Log("[DIAG:FALLBACK] Triggered for " + _currentUri.AbsoluteUri + " poorMode=true");
                                 fallbackTriggered = true;
                                 var _ = _fallback.TryFallbackAsync(_currentUri.AbsoluteUri);
+                            }
+                            else if (emptyRender)
+                            {
+                                DevToolsLogger.Log("[DIAG:RESCUE] Failure reason=" + failureReason + " url=" + _currentUri.AbsoluteUri + " children=" + ContentHost.Children.Count + " textLen=" + (pageText?.Length ?? 0));
+                                fallbackTriggered = true;
+                                ShowRescueOverlayForReason(failureReason);
                             }
                         }
 
@@ -1062,6 +1122,7 @@ namespace WEBVIEW
                             var _ = _fallback?.TryFallbackAsync(_currentUri?.AbsoluteUri ?? "");
                         }
                         _firstRepaintDone = true;
+                        HideMessageOverlay();
                         try { MemoryProfiler.LogMemoryUsage("Repaint:" + (_currentUri?.Host ?? "")); } catch { }
                     }
                 }
@@ -1352,10 +1413,11 @@ namespace WEBVIEW
                                             card["file"] = imgurl;
                                         }
                                     }
-                                }
-                            }
                         }
-                        catch { }
+                    }
+                    AnimateHubSectionSwap();
+                }
+                catch { }
                     }
 
                     double utc = GetJsonNumber(post, "created_utc", 0);
@@ -2539,6 +2601,36 @@ namespace WEBVIEW
             ShowMessageOverlay(message, "Aw, Snap!", "Important", isError: true);
         }
 
+        private void ShowRescueOverlay(string message)
+        {
+            _lastFailedAddress = _currentUri?.AbsoluteUri ?? _lastFailedAddress;
+            ShowMessageOverlay(message, "Rendering stalled", "Sync", isError: true);
+        }
+
+        private void ShowRescueOverlayForReason(BrowserCore.Engine.RenderFailureReason reason)
+        {
+            string msg;
+            switch (reason)
+            {
+                case BrowserCore.Engine.RenderFailureReason.BlockPage:
+                    msg = "This page looks like a verification / challenge wall.\n\nRecommended:\n• Use RemoteRender\n• Open in Edge\n• AI Summary may help for partial text";
+                    break;
+                case BrowserCore.Engine.RenderFailureReason.NetworkLike:
+                    msg = "This page looks like a network / access failure.\n\nRecommended:\n• Retry later\n• Open in Edge\n• Try RemoteRender if the site is modern";
+                    break;
+                case BrowserCore.Engine.RenderFailureReason.CodeJunk:
+                    msg = "The page rendered mostly code / CSS / script junk instead of usable content.\n\nRecommended:\n• AI Summary\n• Use RemoteRender\n• Open in Edge";
+                    break;
+                case BrowserCore.Engine.RenderFailureReason.MinimalText:
+                    msg = "The page rendered only minimal text and likely missed its real content.\n\nRecommended:\n• AI Summary\n• Try in POOR mode\n• Use RemoteRender";
+                    break;
+                default:
+                    msg = "This page did not render meaningfully.\n\nChoose a rescue path:\n• AI Summary\n• Open in Edge\n• Use RemoteRender\n• Retry in POOR mode";
+                    break;
+            }
+            ShowRescueOverlay(msg);
+        }
+
         private void ShowMessageOverlay(string message, string title = "Aw, Snap!", string icon = "Important", bool isError = true)
         {
             Ui(() =>
@@ -2558,6 +2650,22 @@ namespace WEBVIEW
                 if (ErrorRetryPoor != null)
                     ErrorRetryPoor.Visibility = isError && !string.IsNullOrWhiteSpace(_lastFailedAddress)
                         ? Visibility.Visible : Visibility.Collapsed;
+                if (ErrorRetryAi != null)
+                    ErrorRetryAi.Visibility = isError && !string.IsNullOrWhiteSpace(_lastFailedAddress)
+                        ? Visibility.Visible : Visibility.Collapsed;
+                if (ErrorRetryEdge != null)
+                    ErrorRetryEdge.Visibility = isError && !string.IsNullOrWhiteSpace(_lastFailedAddress)
+                        ? Visibility.Visible : Visibility.Collapsed;
+                if (ErrorRetryRemote != null)
+                    ErrorRetryRemote.Visibility = isError && !string.IsNullOrWhiteSpace(_lastFailedAddress)
+                        ? Visibility.Visible : Visibility.Collapsed;
+                if (ErrorForgetRescue != null)
+                {
+                    string host = EngineRouter.GetHostFromUrl(_lastFailedAddress ?? "");
+                    var pref = EngineRouter.GetRescuePreference(host);
+                    ErrorForgetRescue.Visibility = isError && pref != BrowserCore.Engine.RescuePreference.None
+                        ? Visibility.Visible : Visibility.Collapsed;
+                }
             });
         }
 
@@ -2579,8 +2687,82 @@ namespace WEBVIEW
             RenderMode = "Poor";
             if (!string.IsNullOrWhiteSpace(_lastFailedAddress))
             {
+                RememberRescuePreference(_lastFailedAddress, BrowserCore.Engine.RescuePreference.Poor, "Remembered POOR mode rescue for this site");
                 var _ = NavigateAsync(_lastFailedAddress);
             }
+        }
+
+        private void ErrorRetryAi_Click(object sender, RoutedEventArgs e)
+        {
+            HideMessageOverlay();
+            if (!string.IsNullOrWhiteSpace(_lastFailedAddress))
+                RememberRescuePreference(_lastFailedAddress, BrowserCore.Engine.RescuePreference.AI, "Remembered AI rescue for this site");
+            RunAiSummary();
+        }
+
+        private void ErrorRetryEdge_Click(object sender, RoutedEventArgs e)
+        {
+            HideMessageOverlay();
+            if (!string.IsNullOrWhiteSpace(_lastFailedAddress))
+            {
+                RememberRescueEngine(_lastFailedAddress, EngineType.EdgeHTML, "Remembered Edge for this site");
+                RememberRescuePreference(_lastFailedAddress, BrowserCore.Engine.RescuePreference.Edge);
+                NavigateViaEdge(_lastFailedAddress);
+            }
+        }
+
+        private void ErrorRetryRemote_Click(object sender, RoutedEventArgs e)
+        {
+            HideMessageOverlay();
+            if (!string.IsNullOrWhiteSpace(_lastFailedAddress))
+            {
+                RememberRescueEngine(_lastFailedAddress, EngineType.Remote, "Remembered RemoteRender for this site");
+                RememberRescuePreference(_lastFailedAddress, BrowserCore.Engine.RescuePreference.Remote);
+                NavigateViaRemote(_lastFailedAddress);
+            }
+        }
+
+        private void ErrorForgetRescue_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string host = EngineRouter.GetHostFromUrl(_lastFailedAddress ?? "");
+                if (!string.IsNullOrWhiteSpace(host))
+                {
+                    EngineRouter.SetRescuePreference(host, BrowserCore.Engine.RescuePreference.None);
+                    ShowToast("Forgot rescue preference for " + host);
+                }
+                HideMessageOverlay();
+            }
+            catch { }
+        }
+
+        private void RememberRescueEngine(string url, EngineType engine, string toast = null)
+        {
+            try
+            {
+                string host = EngineRouter.GetHostFromUrl(url);
+                if (!string.IsNullOrWhiteSpace(host))
+                {
+                    EngineRouter.SetSiteEngine(host, engine);
+                    if (!string.IsNullOrWhiteSpace(toast)) ShowToast(toast);
+                }
+            }
+            catch { }
+        }
+
+        private void RememberRescuePreference(string url, BrowserCore.Engine.RescuePreference pref, string toast = null)
+        {
+            try
+            {
+                string host = EngineRouter.GetHostFromUrl(url);
+                if (!string.IsNullOrWhiteSpace(host))
+                {
+                    EngineRouter.SetRescuePreference(host, pref);
+                    if (!string.IsNullOrWhiteSpace(toast)) ShowToast(toast);
+                }
+            }
+            catch { }
         }
 
         // ========== Toast Notifications ==========
@@ -3352,7 +3534,8 @@ namespace WEBVIEW
                 ShowHubMain();
                 if (HubOverlay != null) HubOverlay.Visibility = Visibility.Visible;
                 if (HubEbookLabel != null) HubEbookLabel.Text = _browser?.RenderMode ?? "Rich";
-                if (HubEngineLabel != null) HubEngineLabel.Text = _activeEngine.ToString();
+                if (HubEngineLabel != null) HubEngineLabel.Text = GetEngineLabel(_activeEngine);
+                AnimateHubOpen();
             }
             catch { }
         }
@@ -3361,8 +3544,81 @@ namespace WEBVIEW
         {
             try
             {
-                if (HubOverlay != null) HubOverlay.Visibility = Visibility.Collapsed;
-                if (HubAiSummaryContent != null) HubAiSummaryContent.Children.Clear();
+                AnimateHubClose();
+            }
+            catch { }
+        }
+
+        private void AnimateHubOpen()
+        {
+            try
+            {
+                if (HubBorder == null || HubTranslate == null) return;
+                HubBorder.Opacity = 0;
+                HubTranslate.Y = 40;
+                var sb = new Windows.UI.Xaml.Media.Animation.Storyboard();
+                var fade = new Windows.UI.Xaml.Media.Animation.DoubleAnimation { To = 1, Duration = TimeSpan.FromMilliseconds(180) };
+                var slide = new Windows.UI.Xaml.Media.Animation.DoubleAnimation { To = 0, Duration = TimeSpan.FromMilliseconds(220), EasingFunction = new Windows.UI.Xaml.Media.Animation.CubicEase { EasingMode = Windows.UI.Xaml.Media.Animation.EasingMode.EaseOut } };
+                Windows.UI.Xaml.Media.Animation.Storyboard.SetTarget(fade, HubBorder);
+                Windows.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(fade, "Opacity");
+                Windows.UI.Xaml.Media.Animation.Storyboard.SetTarget(slide, HubTranslate);
+                Windows.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(slide, "Y");
+                sb.Children.Add(fade);
+                sb.Children.Add(slide);
+                sb.Begin();
+            }
+            catch { }
+        }
+
+        private void AnimateHubClose()
+        {
+            try
+            {
+                if (HubBorder == null || HubTranslate == null)
+                {
+                    if (HubOverlay != null) HubOverlay.Visibility = Visibility.Collapsed;
+                    if (HubAiSummaryContent != null) HubAiSummaryContent.Children.Clear();
+                    return;
+                }
+                var sb = new Windows.UI.Xaml.Media.Animation.Storyboard();
+                var fade = new Windows.UI.Xaml.Media.Animation.DoubleAnimation { To = 0, Duration = TimeSpan.FromMilliseconds(120) };
+                var slide = new Windows.UI.Xaml.Media.Animation.DoubleAnimation { To = 24, Duration = TimeSpan.FromMilliseconds(140), EasingFunction = new Windows.UI.Xaml.Media.Animation.CubicEase { EasingMode = Windows.UI.Xaml.Media.Animation.EasingMode.EaseIn } };
+                sb.Completed += (s, e) =>
+                {
+                    try
+                    {
+                        if (HubOverlay != null) HubOverlay.Visibility = Visibility.Collapsed;
+                        if (HubAiSummaryContent != null) HubAiSummaryContent.Children.Clear();
+                        if (HubBorder != null) HubBorder.Opacity = 0;
+                        if (HubTranslate != null) HubTranslate.Y = 24;
+                        ShowHubMain();
+                    }
+                    catch { }
+                };
+                Windows.UI.Xaml.Media.Animation.Storyboard.SetTarget(fade, HubBorder);
+                Windows.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(fade, "Opacity");
+                Windows.UI.Xaml.Media.Animation.Storyboard.SetTarget(slide, HubTranslate);
+                Windows.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(slide, "Y");
+                sb.Children.Add(fade);
+                sb.Children.Add(slide);
+                sb.Begin();
+            }
+            catch { }
+        }
+
+        private void AnimateHubSectionSwap()
+        {
+            try
+            {
+                if (HubBorder == null) return;
+                var sb = new Windows.UI.Xaml.Media.Animation.Storyboard();
+                var fade = new Windows.UI.Xaml.Media.Animation.DoubleAnimationUsingKeyFrames();
+                fade.KeyFrames.Add(new Windows.UI.Xaml.Media.Animation.DiscreteDoubleKeyFrame { KeyTime = TimeSpan.Zero, Value = 0.96 });
+                fade.KeyFrames.Add(new Windows.UI.Xaml.Media.Animation.LinearDoubleKeyFrame { KeyTime = TimeSpan.FromMilliseconds(90), Value = 1.0 });
+                Windows.UI.Xaml.Media.Animation.Storyboard.SetTarget(fade, HubBorder);
+                Windows.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(fade, "Opacity");
+                sb.Children.Add(fade);
+                sb.Begin();
             }
             catch { }
         }
@@ -3370,6 +3626,7 @@ namespace WEBVIEW
         private void HubBackButton_Click(object sender, RoutedEventArgs e)
         {
             ShowHubMain();
+            AnimateHubSectionSwap();
         }
 
         private void ShowHubMain()
@@ -3380,6 +3637,7 @@ namespace WEBVIEW
                 if (HubFavoritesView != null) HubFavoritesView.Visibility = Visibility.Collapsed;
                 if (HubHistoryView != null) HubHistoryView.Visibility = Visibility.Collapsed;
                 if (HubAiSummaryView != null) HubAiSummaryView.Visibility = Visibility.Collapsed;
+                if (HubRemoteSessionView != null) HubRemoteSessionView.Visibility = Visibility.Collapsed;
                 if (HubAiSummaryContent != null) HubAiSummaryContent.Children.Clear();
                 if (HubTitle != null) HubTitle.Text = "AI Hub";
                 if (HubBackButton != null) HubBackButton.Visibility = Visibility.Collapsed;
@@ -3405,11 +3663,13 @@ namespace WEBVIEW
                     case "Favorites":
                         ShowHubFavorites();
                         break;
+                    case "AddFavorite":
+                        AddCurrentPageToFavorites();
+                        break;
                     case "History":
                         ShowHubHistory();
                         break;
                     case "AISummary":
-                        HubCloseButton_Click(null, null);
                         RunAiSummary();
                         break;
                     case "Screenshot":
@@ -3426,6 +3686,9 @@ namespace WEBVIEW
                     case "Engine":
                         CycleEngine();
                         break;
+                    case "RemoteSession":
+                        ShowHubRemoteSession();
+                        break;
                     case "DevTools":
                         HubCloseButton_Click(null, null);
                         ToggleDevTools();
@@ -3439,6 +3702,102 @@ namespace WEBVIEW
             catch { }
         }
 
+        private void ShowHubRemoteSession()
+        {
+            try
+            {
+                if (HubMenuView != null) HubMenuView.Visibility = Visibility.Collapsed;
+                if (HubFavoritesView != null) HubFavoritesView.Visibility = Visibility.Collapsed;
+                if (HubHistoryView != null) HubHistoryView.Visibility = Visibility.Collapsed;
+                if (HubAiSummaryView != null) HubAiSummaryView.Visibility = Visibility.Collapsed;
+                if (HubRemoteSessionView != null) HubRemoteSessionView.Visibility = Visibility.Visible;
+                if (HubTitle != null) HubTitle.Text = "Remote Session";
+                if (HubBackButton != null) HubBackButton.Visibility = Visibility.Visible;
+                if (HubCloseButton != null) HubCloseButton.Visibility = Visibility.Visible;
+                BuildHubRemoteSession();
+                AnimateHubSectionSwap();
+            }
+            catch { }
+        }
+
+        private void BuildHubRemoteSession()
+        {
+            if (HubRemoteSessionContent == null) return;
+            HubRemoteSessionContent.Children.Clear();
+
+            bool connected = _remote != null && _remote.IsConnected;
+            string state = connected ? "Connected" : "Disconnected";
+            string serverUrl = "";
+            try
+            {
+                var s = ApplicationData.Current.LocalSettings;
+                if (s.Values.TryGetValue("RemoteServerUrl", out var v) && v is string url) serverUrl = url;
+            }
+            catch { }
+
+            HubRemoteSessionContent.Children.Add(new TextBlock
+            {
+                Text = state,
+                Foreground = new SolidColorBrush(connected ? Color.FromArgb(255, 100, 220, 140) : Color.FromArgb(255, 220, 120, 120)),
+                FontSize = 18,
+                FontWeight = Windows.UI.Text.FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+            HubRemoteSessionContent.Children.Add(new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(serverUrl) ? "No remote server configured." : serverUrl,
+                Foreground = new SolidColorBrush(Color.FromArgb(180, 140, 140, 140)),
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 12)
+            });
+
+            string title = RemoteStatusText?.Text;
+            if (!string.IsNullOrWhiteSpace(title) && title != "Remote")
+            {
+                HubRemoteSessionContent.Children.Add(new TextBlock
+                {
+                    Text = "Current remote page: " + title,
+                    Foreground = new SolidColorBrush(Colors.White),
+                    FontSize = 13,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 12)
+                });
+            }
+
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
+
+            var connectBtn = new Button { Content = connected ? "Reconnect" : "Connect", Background = new SolidColorBrush(Color.FromArgb(255, 40, 50, 70)), Foreground = new SolidColorBrush(Colors.White), BorderThickness = new Thickness(0), Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 0, 8, 0) };
+            connectBtn.Click += (s, e) => { ConnectToRemoteServer(); BuildHubRemoteSession(); };
+            actions.Children.Add(connectBtn);
+
+            var refreshBtn = new Button { Content = "Refresh Shot", Background = new SolidColorBrush(Color.FromArgb(255, 55, 55, 55)), Foreground = new SolidColorBrush(Colors.White), BorderThickness = new Thickness(0), Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 0, 8, 0), IsEnabled = connected };
+            refreshBtn.Click += async (s, e) => { if (_remote != null && _remote.IsConnected) await _remote.RequestScreenshotAsync(); };
+            actions.Children.Add(refreshBtn);
+
+            var disconnectBtn = new Button { Content = "Disconnect", Background = new SolidColorBrush(Color.FromArgb(255, 70, 40, 40)), Foreground = new SolidColorBrush(Colors.White), BorderThickness = new Thickness(0), Padding = new Thickness(12, 6, 12, 6), IsEnabled = connected };
+            disconnectBtn.Click += (s, e) => { DisconnectRemote(); BuildHubRemoteSession(); };
+            actions.Children.Add(disconnectBtn);
+
+            HubRemoteSessionContent.Children.Add(actions);
+
+            var helper = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(255, 40, 40, 40)),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12),
+                Child = new TextBlock
+                {
+                    Text = "Tap remote screenshot to click. Drag vertically to scroll. Use Engine → Remote to open current site through Playwright.",
+                    Foreground = new SolidColorBrush(Color.FromArgb(220, 200, 200, 200)),
+                    FontSize = 13,
+                    TextWrapping = TextWrapping.Wrap,
+                    LineHeight = 20
+                }
+            };
+            HubRemoteSessionContent.Children.Add(helper);
+        }
+
         private void ShowHubFavorites()
         {
             try
@@ -3448,8 +3807,9 @@ namespace WEBVIEW
                 if (HubHistoryView != null) HubHistoryView.Visibility = Visibility.Collapsed;
                 if (HubTitle != null) HubTitle.Text = "Favorites";
                 if (HubBackButton != null) HubBackButton.Visibility = Visibility.Visible;
-                if (HubCloseButton != null) HubCloseButton.Visibility = Visibility.Collapsed;
+                if (HubCloseButton != null) HubCloseButton.Visibility = Visibility.Visible;
                 BuildHubFavoritesList();
+                AnimateHubSectionSwap();
             }
             catch { }
         }
@@ -3463,8 +3823,9 @@ namespace WEBVIEW
                 if (HubHistoryView != null) HubHistoryView.Visibility = Visibility.Visible;
                 if (HubTitle != null) HubTitle.Text = "History";
                 if (HubBackButton != null) HubBackButton.Visibility = Visibility.Visible;
-                if (HubCloseButton != null) HubCloseButton.Visibility = Visibility.Collapsed;
+                if (HubCloseButton != null) HubCloseButton.Visibility = Visibility.Visible;
                 BuildHubHistoryList();
+                AnimateHubSectionSwap();
             }
             catch { }
         }
@@ -3506,9 +3867,7 @@ namespace WEBVIEW
                 addBtn.Content = addPanel;
                 addBtn.Click += (s, e) =>
                 {
-                    AddFavorite(currentUrl, currentTitle);
-                    ShowToast("Added to favorites: " + currentTitle);
-                    BuildHubFavoritesList();
+                    AddCurrentPageToFavorites();
                 };
                 HubFavoritesList.Children.Add(addBtn);
             }
@@ -3538,12 +3897,13 @@ namespace WEBVIEW
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(8, 0, 0, 0)
                 };
-                removeBtn.Tapped += (s, e) =>
-                {
-                    e.Handled = true;
-                    RemoveFavorite(favUrl);
-                    BuildHubFavoritesList();
-                };
+                    removeBtn.Tapped += (s, e) =>
+                    {
+                        e.Handled = true;
+                        RemoveFavorite(favUrl);
+                        ShowToast("Removed favorite: " + (favTitle ?? favUrl));
+                        BuildHubFavoritesList();
+                    };
                 Grid.SetColumn(removeBtn, 1);
                 itemPanel.Children.Add(removeBtn);
                 item.Content = itemPanel;
@@ -3644,6 +4004,7 @@ namespace WEBVIEW
                     {
                         e.Handled = true;
                         RemoveHistoryEntry(entryUrl);
+                        ShowToast("Removed from history");
                         BuildHubHistoryList();
                     };
                     Grid.SetColumn(removeBtn, 1);
@@ -3681,6 +4042,14 @@ namespace WEBVIEW
                 UpdateStatusMessage("E-book mode: " + next);
             }
             catch { }
+        }
+
+        private static string GetEngineLabel(EngineType engine)
+        {
+            if (engine == EngineType.EdgeHTML) return "EdgeHTML";
+            if (engine == EngineType.Remote) return "Remote";
+            if (engine == EngineType.Auto) return "Auto";
+            return "NiLJS";
         }
 
         private void CycleEngine()
@@ -3781,12 +4150,33 @@ namespace WEBVIEW
                     if (HubAiSummaryView != null) HubAiSummaryView.Visibility = Visibility.Visible;
                     if (HubTitle != null) HubTitle.Text = isLoading ? "Thinking..." : "AI Summary";
                     if (HubBackButton != null) HubBackButton.Visibility = Visibility.Visible;
-                    if (HubCloseButton != null) HubCloseButton.Visibility = Visibility.Collapsed;
+                if (HubCloseButton != null) HubCloseButton.Visibility = Visibility.Visible;
+                AnimateHubSectionSwap();
                     if (HubOverlay != null) HubOverlay.Visibility = Visibility.Visible;
 
                     if (HubAiSummaryContent != null)
                     {
                         HubAiSummaryContent.Children.Clear();
+
+                        var metaPanel = new StackPanel { Margin = new Thickness(0, 0, 0, 12) };
+                        metaPanel.Children.Add(new TextBlock
+                        {
+                            Text = !string.IsNullOrWhiteSpace(_pageTitle) ? _pageTitle : (_currentUri?.Host ?? "Current page"),
+                            Foreground = new SolidColorBrush(Colors.White),
+                            FontSize = 16,
+                            FontWeight = Windows.UI.Text.FontWeights.SemiBold,
+                            TextWrapping = TextWrapping.Wrap
+                        });
+                        metaPanel.Children.Add(new TextBlock
+                        {
+                            Text = _currentUri?.AbsoluteUri ?? "",
+                            Foreground = new SolidColorBrush(Color.FromArgb(180, 140, 140, 140)),
+                            FontSize = 11,
+                            TextWrapping = TextWrapping.Wrap,
+                            Margin = new Thickness(0, 4, 0, 0)
+                        });
+                        HubAiSummaryContent.Children.Add(metaPanel);
+
                         if (isLoading)
                         {
                             HubAiSummaryContent.Children.Add(new ProgressRing
@@ -3796,7 +4186,7 @@ namespace WEBVIEW
                                 Height = 32,
                                 Foreground = new SolidColorBrush(Color.FromArgb(200, 100, 180, 255)),
                                 HorizontalAlignment = HorizontalAlignment.Center,
-                                Margin = new Thickness(0, 16, 0, 12)
+                                Margin = new Thickness(0, 12, 0, 12)
                             });
                             HubAiSummaryContent.Children.Add(new TextBlock
                             {
@@ -3804,18 +4194,78 @@ namespace WEBVIEW
                                 Foreground = new SolidColorBrush(Colors.Gray),
                                 FontSize = 14,
                                 TextWrapping = TextWrapping.Wrap,
-                                HorizontalAlignment = HorizontalAlignment.Center
+                                HorizontalAlignment = HorizontalAlignment.Center,
+                                TextAlignment = TextAlignment.Center,
+                                Margin = new Thickness(0, 0, 0, 8)
                             });
                         }
                         else
                         {
-                            HubAiSummaryContent.Children.Add(new TextBlock
+                            var actionBar = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+                            actionBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                            actionBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                            actionBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                            var hint = new TextBlock
                             {
-                                Text = text,
+                                Text = "Generated summary",
+                                Foreground = new SolidColorBrush(Color.FromArgb(180, 120, 180, 255)),
+                                FontSize = 12,
+                                VerticalAlignment = VerticalAlignment.Center
+                            };
+                            Grid.SetColumn(hint, 0);
+                            actionBar.Children.Add(hint);
+
+                            var copyBtn = new Button
+                            {
+                                Content = "Copy",
+                                Background = new SolidColorBrush(Color.FromArgb(255, 55, 55, 55)),
                                 Foreground = new SolidColorBrush(Colors.White),
-                                FontSize = 14,
-                                TextWrapping = TextWrapping.Wrap,
-                                LineHeight = 22
+                                BorderThickness = new Thickness(0),
+                                Padding = new Thickness(12, 6, 12, 6),
+                                Margin = new Thickness(0, 0, 8, 0)
+                            };
+                            copyBtn.Click += (s, e) =>
+                            {
+                                try
+                                {
+                                    var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                                    pkg.SetText(text ?? "");
+                                    Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
+                                    ShowToast("AI summary copied.");
+                                }
+                                catch { }
+                            };
+                            Grid.SetColumn(copyBtn, 1);
+                            actionBar.Children.Add(copyBtn);
+
+                            var refreshBtn = new Button
+                            {
+                                Content = "Refresh",
+                                Background = new SolidColorBrush(Color.FromArgb(255, 40, 50, 70)),
+                                Foreground = new SolidColorBrush(Colors.White),
+                                BorderThickness = new Thickness(0),
+                                Padding = new Thickness(12, 6, 12, 6)
+                            };
+                            refreshBtn.Click += (s, e) => RunAiSummary();
+                            Grid.SetColumn(refreshBtn, 2);
+                            actionBar.Children.Add(refreshBtn);
+
+                            HubAiSummaryContent.Children.Add(actionBar);
+                            HubAiSummaryContent.Children.Add(new Border
+                            {
+                                Background = new SolidColorBrush(Color.FromArgb(255, 40, 40, 40)),
+                                CornerRadius = new CornerRadius(8),
+                                Padding = new Thickness(12),
+                                Child = new TextBlock
+                                {
+                                    Text = text,
+                                    Foreground = new SolidColorBrush(Colors.White),
+                                    FontSize = 14,
+                                    TextWrapping = TextWrapping.Wrap,
+                                    LineHeight = 22,
+                                    IsTextSelectionEnabled = true
+                                }
                             });
                         }
                     }
@@ -4044,6 +4494,7 @@ namespace WEBVIEW
             {
                 UpdateCurrentLocation(args.Uri);
                 UpdateNavButtons();
+                HideMessageOverlay();
                 string title = "";
                 try { title = await sender.InvokeScriptAsync("eval", new[] { "document.title" }); } catch { }
                 if (!string.IsNullOrEmpty(title))
@@ -4063,22 +4514,63 @@ namespace WEBVIEW
 
         public EngineType ActiveEngine => _activeEngine;
 
+        public void ApplyRemoteSettings()
+        {
+            try
+            {
+                var s = ApplicationData.Current.LocalSettings;
+                bool enabled = false;
+                if (s.Values.TryGetValue("RemoteEnabled", out var e) && e is bool eb) enabled = eb;
+                if (!enabled && _activeEngine == EngineType.Remote)
+                {
+                    DisconnectRemote();
+                    _activeEngine = EngineType.NiLJS;
+                }
+            }
+            catch { }
+        }
+ 
+        private void UpdateRemoteSessionStateUi()
+        {
+            try
+            {
+                bool connected = _remote != null && _remote.IsConnected;
+                if (HubRemoteStateLabel != null) HubRemoteStateLabel.Text = connected ? "Live" : "Off";
+                if (RemoteStatusText != null && !connected && string.IsNullOrWhiteSpace(RemoteStatusText.Text)) RemoteStatusText.Text = "Remote";
+                if (HubRemoteSessionView != null && HubRemoteSessionView.Visibility == Visibility.Visible)
+                    BuildHubRemoteSession();
+            }
+            catch { }
+        }
+
         // ========== Remote Rendering ==========
 
         private async void ConnectToRemoteServer()
         {
             string serverUrl = null;
+            string remotePin = null;
+            bool enabled = false;
             try
             {
                 var s = ApplicationData.Current.LocalSettings;
+                if (s.Values.TryGetValue("RemoteEnabled", out var en) && en is bool eb)
+                    enabled = eb;
                 if (s.Values.TryGetValue("RemoteServerUrl", out var v) && v is string url)
                     serverUrl = url;
+                if (s.Values.TryGetValue("RemotePin", out var p) && p is string ps)
+                    remotePin = ps;
             }
             catch { }
 
+            if (!enabled)
+            {
+                ShowToast("Enable RemoteRender in Settings first.");
+                return;
+            }
+
             if (string.IsNullOrEmpty(serverUrl))
             {
-                ShowToast("Set server URL in Settings → Remote Server");
+                ShowToast("Set server URL in Settings → Remote Render");
                 return;
             }
 
@@ -4096,6 +4588,8 @@ namespace WEBVIEW
                             if (ContentArea != null) ContentArea.Visibility = Visibility.Collapsed;
                             if (EdgeBrowser != null) EdgeBrowser.Visibility = Visibility.Collapsed;
                             _activeEngine = EngineType.Remote;
+                            HideMessageOverlay();
+                            UpdateRemoteSessionStateUi();
                         }
                         catch { }
                     });
@@ -4106,11 +4600,16 @@ namespace WEBVIEW
                     {
                         if (RemoteStatusText != null) RemoteStatusText.Text = title;
                         UpdateStatusMessage(title);
+                        UpdateRemoteSessionStateUi();
                     });
                 };
                 _remote.ErrorOccurred += (msg) =>
                 {
-                    Ui(() => ShowToast("Remote: " + msg));
+                    Ui(() =>
+                    {
+                        ShowToast("Remote: " + msg);
+                        UpdateRemoteSessionStateUi();
+                    });
                 };
                 _remote.Disconnected += () =>
                 {
@@ -4118,6 +4617,7 @@ namespace WEBVIEW
                     {
                         if (RemoteView != null) RemoteView.Visibility = Visibility.Collapsed;
                         if (ContentArea != null) ContentArea.Visibility = Visibility.Visible;
+                        UpdateRemoteSessionStateUi();
                         ShowToast("Disconnected from remote server");
                     });
                 };
@@ -4126,12 +4626,14 @@ namespace WEBVIEW
             if (!_remote.IsConnected)
             {
                 ShowToast("Connecting to " + serverUrl + "...");
-                bool ok = await _remote.ConnectAsync(serverUrl);
+                bool ok = await _remote.ConnectAsync(serverUrl, remotePin);
                 if (!ok)
                 {
                     ShowToast("Failed to connect. Is the server running?");
+                    UpdateRemoteSessionStateUi();
                     return;
                 }
+                UpdateRemoteSessionStateUi();
             }
         }
 
@@ -4142,16 +4644,18 @@ namespace WEBVIEW
             await Task.Delay(500);
             if (_remote != null && _remote.IsConnected)
             {
-                int w = 412, h = 915;
+                int w = 412, h = 915, waitMs = 3000;
                 try
                 {
-                    w = (int)ContentArea.ActualWidth;
-                    h = (int)ContentArea.ActualHeight;
+                    var s = ApplicationData.Current.LocalSettings;
+                    if (s.Values.TryGetValue("RemoteViewportWidth", out var vw) && vw is int vwi) w = vwi;
+                    if (s.Values.TryGetValue("RemoteViewportHeight", out var vh) && vh is int vhi) h = vhi;
+                    if (s.Values.TryGetValue("RemoteWaitMs", out var wm) && wm is int wmi) waitMs = wmi;
                     if (w <= 0) w = 412;
                     if (h <= 0) h = 915;
                 }
                 catch { }
-                await _remote.RenderAsync(url, w, h);
+                await _remote.RenderAsync(url, w, h, waitMs);
             }
         }
 
@@ -4201,6 +4705,7 @@ namespace WEBVIEW
             _remote?.Disconnect();
             if (RemoteView != null) RemoteView.Visibility = Visibility.Collapsed;
             if (ContentArea != null) ContentArea.Visibility = Visibility.Visible;
+            UpdateRemoteSessionStateUi();
         }
 
         // --- DevTools ---
@@ -4476,6 +4981,26 @@ namespace WEBVIEW
             public string Title { get; set; }
         }
 
+        private void AddCurrentPageToFavorites()
+        {
+            try
+            {
+                if (_currentUri == null)
+                {
+                    ShowToast("No page is open to favorite.");
+                    return;
+                }
+                string currentUrl = _currentUri.AbsoluteUri;
+                string currentTitle = !string.IsNullOrWhiteSpace(_pageTitle) ? _pageTitle : (_currentUri.Host ?? currentUrl);
+                int before = LoadFavorites().Count;
+                AddFavorite(currentUrl, currentTitle);
+                int after = LoadFavorites().Count;
+                ShowToast(after > before ? "Added to favorites: " + currentTitle : "Already in favorites: " + currentTitle);
+                BuildHubFavoritesList();
+            }
+            catch { }
+        }
+
         private List<FavoriteItem> LoadFavorites()
         {
             try
@@ -4723,6 +5248,11 @@ namespace WEBVIEW
             ShowToast("Pin removed");
         }
 
+        private void DashboardCloseButton_Click(object sender, RoutedEventArgs e)
+        {
+            HideDashboard();
+        }
+
         private void DashboardAddPin_Click(object sender, RoutedEventArgs e)
         {
             if (_currentUri == null) return;
@@ -4755,9 +5285,10 @@ namespace WEBVIEW
             {
                 DashboardRecentList.Children.Add(new TextBlock
                 {
-                    Text = "No history yet.",
+                    Text = "No history yet.\nOpen a few pages and they will appear here.",
                     Foreground = new SolidColorBrush(Colors.Gray),
                     FontSize = 13,
+                    TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(4, 4, 0, 0)
                 });
                 return;

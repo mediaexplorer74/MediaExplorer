@@ -33,6 +33,7 @@ const http = require('http');
 
 const PORT = parseInt(process.env.PORT || '8081', 10);
 const VERBOSE = process.argv.includes('--verbose');
+const REMOTE_PIN = (process.env.REMOTE_PIN || '').trim();
 
 let browser = null;
 let page = null;
@@ -157,7 +158,25 @@ function handleMessage(ws, raw) {
     const { type, ...params } = msg;
     log(`Received: ${type}`);
 
+    if (REMOTE_PIN && !ws.isAuthed && type !== 'auth') {
+        ws.send(JSON.stringify({ type: 'error', message: 'Authentication required' }));
+        return;
+    }
+
     switch (type) {
+        case 'auth': {
+            const pin = (params.pin || '').toString();
+            if (!REMOTE_PIN) {
+                ws.isAuthed = true;
+                ws.send(JSON.stringify({ type: 'auth_ok', message: 'No PIN configured' }));
+            } else if (pin === REMOTE_PIN) {
+                ws.isAuthed = true;
+                ws.send(JSON.stringify({ type: 'auth_ok', message: 'Authenticated' }));
+            } else {
+                ws.send(JSON.stringify({ type: 'error', message: 'Invalid PIN' }));
+            }
+            break;
+        }
         case 'render':
             handleRender(params)
                 .then(r => {
@@ -263,6 +282,7 @@ const wss = new WebSocket.Server({ server: httpServer });
 
 wss.on('connection', (ws, req) => {
     const clientIp = req.socket.remoteAddress;
+    ws.isAuthed = !REMOTE_PIN;
     log(`Client connected: ${clientIp}`);
 
     ws.on('message', (data) => {
@@ -276,7 +296,8 @@ wss.on('connection', (ws, req) => {
     ws.send(JSON.stringify({
         type: 'hello',
         message: 'MediaExplorer Remote Renderer v1.0',
-        viewport: `${viewportWidth}x${viewportHeight}`
+        viewport: `${viewportWidth}x${viewportHeight}`,
+        authRequired: !!REMOTE_PIN
     }));
 });
 

@@ -1,4 +1,4 @@
-# MediaExplorer 2.0 — ai_hub branch
+# MediaExplorer 2.0-alpha — ai_hub branch
 
 
 ![](/Images/logo.png)
@@ -7,9 +7,9 @@
 
 MediaExplorer — это хобби-браузер для Windows 10 Mobile (W10M, сборка 15063+), созданный **без** использования системного WebView или движка Chakra. Использует собственный HTML-парсер, CSS-движок с селекторами/каскадом/flexbox, JavaScript-рантайм на базе [NiL.JS](https://github.com/nilproject/NiL.JS) и рендерер на XAML.
 
-**v1.5 — AI Hub** — прокручиваемое меню из 11 инструментов (Избранное, История, Режим чтения, AI Summary, Скриншот, Копирование, E-book, DevTools, Настройки). Когда сайт не может отрендериться, **Smart Fallback** автоматически загружает страницу, отправляет в AI-коннектор (OpenRouter API) и показывает summary в режиме чтения.
+**v1.5 — AI Hub** — прокручиваемое меню инструментов (Избранное, История, AI Summary, Скриншот, Копирование, E-book, DevTools, Настройки, Home, Engine, Remote Session). Когда сайт не может отрендериться, **Smart Fallback** автоматически загружает страницу, отправляет в AI-коннектор (OpenRouter API) и показывает summary в AI-панели Hub.
 
-~50 файлов, ~30k+ строк кода. Релиз v1.5.
+~50 файлов, ~30k+ строк кода. Ранняя стадия **v2.0-alpha**, выросшая из завершённой архитектуры v1.5.
 
 ## Скриншоты
 
@@ -22,7 +22,8 @@ MediaExplorer — это хобби-браузер для Windows 10 Mobile (W10
 - AppBar Situational Size, Hybrid Search, Multi-Engine Architecture, Advanced AI Connector, Remote Rendering [Playwright], DzenRu Auth2 Tweak
 - **Собственный движок рендеринга** — HTML-парсер, CSS-каскад, flexbox, XAML-рендерер
 - **JavaScript** — NiL.JS с поддержкой ES Modules (Vite bundles parse; D3v4/v5 support)
-- **AI Hub** — Прокручиваемое меню из 11 инструментов: Избранное, История, Режим чтения, AI Summary, Скриншот, Копирование, E-book, DevTools, Настройки
+- **AI Hub** — Прокручиваемое меню: Избранное, История, AI Summary, Скриншот, Копирование, E-book, DevTools, Настройки, Home, Engine, Remote Session
+- **Automatic Rescue Path** — Сломанный локальный рендер теперь классифицируется (empty render, block/challenge, code junk, minimal text, network-like), предлагает rescue-варианты, запоминает rescue preference по сайту и умеет забывать их по требованию
 - **Smart Fallback** — Авто-детекция сломанного рендера → загрузка страницы → отправка в AI-коннектор → summary в режиме чтения
 - **AI Коннекторы** — Rich (GPT-4o), Poor (Ministral-8B), Asceti (Gemma-4 бесплатно), Smart (авто-цепочка). Разные API-ключи.
 - **Стартовый дашборд** — Сетка быстрого доступа (6 закреплённых сайтов) + последние посещения
@@ -40,8 +41,8 @@ MediaExplorer — это хобби-браузер для Windows 10 Mobile (W10
 
 ## Статус
 
-- **Релиз v1.5.** Plan 8 завершён: AI Hub, Стартовый дашборд, История/Избранное, AI-коннекторы, Smart Fallback Renderer.
-- **SVG→XAML мост отброшен** — после 18+ сессий архитектурное несоответствие признано неисправимым на Win SDK 15063.
+- **v2.0-alpha в разработке.** Plan 8 завершён; Plan 09 идёт: полировка Hub, полировка Dashboard, RemoteRender settings/session UX и Automatic Rescue Path.
+- **Архитектура v1.5 была завершена ранее.** AI Hub, Стартовый дашборд, История/Избранное, AI-коннекторы, Smart Fallback Renderer.
 - **Извлечение данных сохранено** — `__graphData`, `__entries` (722), `__stories` (230), `__collections` (33) для будущего SkiaSharp-рендерера.
 
 ## Вехи разработки

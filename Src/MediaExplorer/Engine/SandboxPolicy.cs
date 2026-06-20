@@ -21,7 +21,7 @@ namespace BrowserCore.Engine
     {
     public static SandboxPolicy AllowAll { get; } = new SandboxPolicy(SandboxFeature.All);
     public static SandboxPolicy NoScripts { get; } = new SandboxPolicy(SandboxFeature.All & ~(SandboxFeature.Scripts | SandboxFeature.InlineScripts | SandboxFeature.ExternalScripts | SandboxFeature.Timers));
-    public static SandboxPolicy ReaderMode { get; } = new SandboxPolicy(SandboxFeature.All & ~(SandboxFeature.Scripts | SandboxFeature.InlineScripts | SandboxFeature.ExternalScripts | SandboxFeature.Timers | SandboxFeature.Network | SandboxFeature.Storage | SandboxFeature.Navigation));
+    public static SandboxPolicy TextOnlyMode { get; } = new SandboxPolicy(SandboxFeature.All & ~(SandboxFeature.Scripts | SandboxFeature.InlineScripts | SandboxFeature.ExternalScripts | SandboxFeature.Timers | SandboxFeature.Network | SandboxFeature.Storage | SandboxFeature.Navigation));
     public static SandboxPolicy UntrustedContent { get; } = new SandboxPolicy(SandboxFeature.All & ~(SandboxFeature.Scripts | SandboxFeature.InlineScripts | SandboxFeature.ExternalScripts | SandboxFeature.Timers | SandboxFeature.Network | SandboxFeature.Storage | SandboxFeature.Navigation | SandboxFeature.DomMutation));
 
         public SandboxPolicy(SandboxFeature allowedFeatures)
@@ -44,8 +44,8 @@ namespace BrowserCore.Engine
                 return AllowAll;
             if (string.Equals(token, "noscripts", StringComparison.OrdinalIgnoreCase) || string.Equals(token, "no-scripts", StringComparison.OrdinalIgnoreCase))
                 return NoScripts;
-            if (string.Equals(token, "reader", StringComparison.OrdinalIgnoreCase) || string.Equals(token, "reader-mode", StringComparison.OrdinalIgnoreCase))
-                return ReaderMode;
+            if (string.Equals(token, "text", StringComparison.OrdinalIgnoreCase) || string.Equals(token, "text-only", StringComparison.OrdinalIgnoreCase) || string.Equals(token, "reader", StringComparison.OrdinalIgnoreCase) || string.Equals(token, "reader-mode", StringComparison.OrdinalIgnoreCase))
+                return TextOnlyMode;
             if (string.Equals(token, "untrusted", StringComparison.OrdinalIgnoreCase) || string.Equals(token, "untrusted-content", StringComparison.OrdinalIgnoreCase))
                 return UntrustedContent;
             return AllowAll;

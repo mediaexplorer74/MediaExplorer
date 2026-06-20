@@ -4,6 +4,16 @@ using Windows.UI.Xaml.Controls;
 
 namespace BrowserCore.Engine
 {
+    public enum RenderFailureReason
+    {
+        None,
+        EmptyRender,
+        BlockPage,
+        CodeJunk,
+        MinimalText,
+        NetworkLike
+    }
+
     public class SmartFallbackRenderer
     {
         private readonly Func<string, Task<string>> _fetchPageText;
@@ -25,29 +35,33 @@ namespace BrowserCore.Engine
             _showToast = showToast;
         }
 
-        public bool IsPageEmpty(int canvasChildrenCount, string textContent, string url)
+        public RenderFailureReason AnalyzeFailure(int canvasChildrenCount, string textContent, string url)
         {
-            if (string.IsNullOrEmpty(url)) return false;
-            if (url == _lastUrl && _fallbackTriggered) return false;
+            if (string.IsNullOrEmpty(url)) return RenderFailureReason.None;
+            if (url == _lastUrl && _fallbackTriggered) return RenderFailureReason.None;
 
             bool tooFewElements = canvasChildrenCount < 5;
             bool tooLittleText = string.IsNullOrWhiteSpace(textContent) || textContent.Trim().Length < 50;
 
             bool isBlockPage = false;
+            bool isNetworkLike = false;
             if (!string.IsNullOrWhiteSpace(textContent))
             {
                 var t = textContent.ToLowerInvariant();
-                if (t.Contains("network error") || t.Contains("could not load") ||
-                    t.Contains("access denied") || t.Contains("blocked") ||
-                    t.Contains("connection refused") || t.Contains("server not found") ||
-                    t.Contains("err_connection") || t.Contains("this site can't") ||
-                    t.Contains("please wait for verification") ||
+                if (t.Contains("please wait for verification") ||
                     t.Contains("checking your browser") ||
                     t.Contains("verify you are human") ||
                     t.Contains("challenge-platform") ||
                     t.Contains("cf-challenge") ||
                     t.Contains("just a moment"))
                     isBlockPage = true;
+
+                if (t.Contains("network error") || t.Contains("could not load") ||
+                    t.Contains("access denied") || t.Contains("blocked") ||
+                    t.Contains("connection refused") || t.Contains("server not found") ||
+                    t.Contains("err_connection") || t.Contains("this site can't") ||
+                    t.Contains("dns") || t.Contains("timed out") || t.Contains("timeout"))
+                    isNetworkLike = true;
             }
 
             bool isCodeJunk = false;
@@ -82,7 +96,17 @@ namespace BrowserCore.Engine
                     isCodeJunk = true;
             }
 
-            return (tooFewElements && tooLittleText) || isBlockPage || isCodeJunk;
+            if (isBlockPage) return RenderFailureReason.BlockPage;
+            if (isNetworkLike) return RenderFailureReason.NetworkLike;
+            if (isCodeJunk) return RenderFailureReason.CodeJunk;
+            if (tooFewElements && tooLittleText) return RenderFailureReason.EmptyRender;
+            if (tooLittleText) return RenderFailureReason.MinimalText;
+            return RenderFailureReason.None;
+        }
+
+        public bool IsPageEmpty(int canvasChildrenCount, string textContent, string url)
+        {
+            return AnalyzeFailure(canvasChildrenCount, textContent, url) != RenderFailureReason.None;
         }
 
         public async Task TryFallbackAsync(string url)

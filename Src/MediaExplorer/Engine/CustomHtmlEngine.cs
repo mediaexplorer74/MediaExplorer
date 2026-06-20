@@ -407,10 +407,11 @@ namespace BrowserCore.Engine
         }
 
         /// <summary>
-        /// POOR mode: apply minimal reader stylesheet to DOM nodes.
+        /// POOR mode: apply minimal e-book stylesheet to DOM nodes.
+        /// Keeps structure readable without invoking the old Reader Mode overlay.
         /// Strips CSS noise, shows clean text, preserves readability — e-book feel.
         /// </summary>
-        private void ApplyReaderStylesheet(LiteElement dom)
+        private void ApplyEbookStylesheet(LiteElement dom)
         {
             if (dom == null) return;
             foreach (var node in dom.SelfAndDescendants())
@@ -1261,7 +1262,7 @@ namespace BrowserCore.Engine
                 _activeDom = dom;
                 System.Diagnostics.Debug.WriteLine("[DIAG] RenderAsync Phase1 PARSED dom children=" + (dom.Children != null ? dom.Children.Count.ToString() : "0"));
 
-                // ASCETI mode — pure text: no CSS, no images, no JS, no reader stylesheet
+                // ASCETI mode — pure text: no CSS, no images, no JS, no extra e-book stylesheet
                 if (_renderMode == RenderModeType.Asceti)
                 {
                     var msg = "[DIAG] RenderAsync Asceti mode — pure text, no CSS/images";
@@ -1286,15 +1287,15 @@ namespace BrowserCore.Engine
                     return ascetiElement;
                 }
 
-                // POOR mode — card/index style: minimal reader stylesheet, no images
+                // POOR mode — card/index style: minimal e-book stylesheet, no images
                 if (_renderMode == RenderModeType.Poor)
                 {
-                    var msg = "[DIAG] RenderAsync Poor mode — reader stylesheet";
+                    var msg = "[DIAG] RenderAsync Poor mode — e-book stylesheet";
                     System.Diagnostics.Debug.WriteLine(msg);
                     DevToolsLogger.Log(msg);
 
-                    // Apply reader stylesheet overrides before building visual tree
-                    ApplyReaderStylesheet(dom);
+                    // Apply e-book stylesheet overrides before building visual tree
+                    ApplyEbookStylesheet(dom);
 
                     // No-op image loader for POOR mode (skip all image fetching)
                     Func<Uri, Task<IRandomAccessStream>> noImageLoader = async _ => null;

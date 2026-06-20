@@ -15,10 +15,13 @@ namespace BrowserCore.Engine
         private DataWriter _writer;
         private string _serverUrl;
         private bool _connected;
+        private bool _authRequired;
+        private bool _authenticated;
         private bool _disposed;
 
         public event Action<BitmapImage> ScreenshotReceived;
         public event Action<string> TitleReceived;
+        public event Action<string> TextReceived;
         public event Action<string> ErrorOccurred;
         public event Action Connected;
         public event Action Disconnected;
@@ -26,7 +29,7 @@ namespace BrowserCore.Engine
         public bool IsConnected => _connected;
         public string ServerUrl => _serverUrl;
 
-        public async Task<bool> ConnectAsync(string serverUrl)
+        public async Task<bool> ConnectAsync(string serverUrl, string pin = null)
         {
             try
             {
@@ -46,6 +49,11 @@ namespace BrowserCore.Engine
                 await _socket.ConnectAsync(new Uri(_serverUrl));
                 _writer = new DataWriter(_socket.OutputStream);
                 _connected = true;
+                _authenticated = false;
+                _authRequired = false;
+
+                if (!string.IsNullOrWhiteSpace(pin))
+                    await SendAsync(new { type = "auth", pin = pin });
 
                 Connected?.Invoke();
                 DevToolsLogger.Log("[DIAG:REMOTE] Connected to " + _serverUrl);
@@ -201,12 +209,23 @@ namespace BrowserCore.Engine
                         ErrorOccurred?.Invoke(errMsg);
                         break;
 
+                    case "auth_ok":
+                        _authenticated = true;
+                        DevToolsLogger.Log("[DIAG:REMOTE] Authenticated");
+                        break;
+
                     case "hello":
-                        DevToolsLogger.Log("[DIAG:REMOTE] Server: " + (msg.ContainsKey("message") ? msg.GetNamedString("message") : ""));
+                        _authRequired = msg.ContainsKey("authRequired") && msg.GetNamedBoolean("authRequired");
+                        DevToolsLogger.Log("[DIAG:REMOTE] Server: " + (msg.ContainsKey("message") ? msg.GetNamedString("message") : "") + (_authRequired ? " [PIN required]" : ""));
                         break;
 
                     case "text":
-                        DevToolsLogger.Log("[DIAG:REMOTE] Text received: " + (msg.ContainsKey("content") ? msg.GetNamedString("content").Length : 0) + " chars");
+                        if (msg.ContainsKey("content"))
+                        {
+                            string content = msg.GetNamedString("content");
+                            DevToolsLogger.Log("[DIAG:REMOTE] Text received: " + content.Length + " chars");
+                            TextReceived?.Invoke(content);
+                        }
                         break;
                 }
             }

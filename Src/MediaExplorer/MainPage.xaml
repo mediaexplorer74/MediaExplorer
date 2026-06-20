@@ -306,6 +306,18 @@
                 <Button x:Name="ErrorRetryPoor" Content="Try in POOR mode" Width="140"
                         Background="#444444" BorderThickness="1" BorderBrush="#777777"
                         Margin="0,8,0,0" Click="ErrorRetryPoor_Click" Visibility="Collapsed"/>
+                <Button x:Name="ErrorRetryAi" Content="AI Summary" Width="140"
+                        Background="#3E4C6D" BorderThickness="1" BorderBrush="#6D7FA5"
+                        Margin="0,8,0,0" Click="ErrorRetryAi_Click" Visibility="Collapsed"/>
+                <Button x:Name="ErrorRetryEdge" Content="Open in Edge" Width="140"
+                        Background="#444444" BorderThickness="1" BorderBrush="#777777"
+                        Margin="0,8,0,0" Click="ErrorRetryEdge_Click" Visibility="Collapsed"/>
+                <Button x:Name="ErrorRetryRemote" Content="Use RemoteRender" Width="160"
+                        Background="#355C50" BorderThickness="1" BorderBrush="#5D9986"
+                        Margin="0,8,0,0" Click="ErrorRetryRemote_Click" Visibility="Collapsed"/>
+                <Button x:Name="ErrorForgetRescue" Content="Forget saved rescue for this site" Width="220"
+                        Background="#3B3B3B" BorderThickness="1" BorderBrush="#666666"
+                        Margin="0,8,0,0" Click="ErrorForgetRescue_Click" Visibility="Collapsed"/>
             </StackPanel>
         </Grid>
 
@@ -322,7 +334,10 @@
             <Grid x:Name="HubPanel" VerticalAlignment="Bottom" HorizontalAlignment="Stretch"
                   MaxHeight="700" Margin="0">
                 <Border x:Name="HubBorder" Background="#2D2D2D" CornerRadius="16,16,0,0" Padding="0"
-                        MaxWidth="500" HorizontalAlignment="Center" Width="480">
+                        MaxWidth="500" HorizontalAlignment="Center" Width="480" Opacity="0">
+                    <Border.RenderTransform>
+                        <TranslateTransform x:Name="HubTranslate" Y="40"/>
+                    </Border.RenderTransform>
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -361,6 +376,12 @@
                                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Text="&#xE734;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#FFD700"/>
                                         <TextBlock Grid.Column="1" Text="Favorites" Foreground="White" FontSize="14" VerticalAlignment="Center" Margin="0,0,0,0"/>
+                                    </Grid>
+                                </Button>
+                                <Button x:Name="HubItemAddFavorite" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="AddFavorite">
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#xE710;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#FFD700"/>
+                                        <TextBlock Grid.Column="1" Text="Add current page to Favorites" Foreground="White" FontSize="14" VerticalAlignment="Center"/>
                                     </Grid>
                                 </Button>
                                 <Button x:Name="HubItemHistory" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="History">
@@ -411,6 +432,13 @@
                                         <TextBlock x:Name="HubEngineLabel" Grid.Column="2" Text="NiLJS" Foreground="#888888" FontSize="12" VerticalAlignment="Center" Margin="8,0,0,0"/>
                                     </Grid>
                                 </Button>
+                                <Button x:Name="HubItemRemoteSession" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="RemoteSession">
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="&#xE968;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#66BBFF"/>
+                                        <TextBlock Grid.Column="1" Text="Remote Session" Foreground="White" FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="HubRemoteStateLabel" Grid.Column="2" Text="Off" Foreground="#888888" FontSize="12" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                    </Grid>
+                                </Button>
                                 <Button x:Name="HubItemSettings" Style="{StaticResource HubMenuItemStyle}" Click="HubItem_Click" Tag="Settings">
                                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#AAAAAA"/>
@@ -434,6 +462,11 @@
                             <ScrollViewer x:Name="HubAiSummaryView" Visibility="Collapsed" Padding="16,8">
                                 <StackPanel x:Name="HubAiSummaryContent"/>
                             </ScrollViewer>
+
+                            <!-- View 5: Remote Session sub-panel -->
+                            <ScrollViewer x:Name="HubRemoteSessionView" Visibility="Collapsed" Padding="16,8">
+                                <StackPanel x:Name="HubRemoteSessionContent"/>
+                            </ScrollViewer>
                         </Grid>
                     </Grid>
                 </Border>
@@ -453,14 +486,18 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel>
                         <TextBlock Text="MediaExplorer" FontSize="20" FontWeight="SemiBold" Foreground="White"/>
-                        <TextBlock Text="v1.2" FontSize="11" Foreground="#888888" Margin="0,2,0,0"/>
+                        <TextBlock Text="Start Dashboard" FontSize="11" Foreground="#888888" Margin="0,2,0,0"/>
                     </StackPanel>
                     <Button Grid.Column="1" x:Name="DashboardAddPin" Content="+" FontSize="22" Width="36" Height="36"
                             Background="Transparent" Foreground="#AAAAAA" BorderThickness="0"
                             Click="DashboardAddPin_Click" ToolTipService.ToolTip="Pin current page"/>
+                    <Button Grid.Column="2" x:Name="DashboardCloseButton" Content="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="14" Width="36" Height="36"
+                            Background="Transparent" Foreground="#AAAAAA" BorderThickness="0"
+                            Click="DashboardCloseButton_Click" ToolTipService.ToolTip="Close dashboard"/>
                 </Grid>
             </Border>
 
@@ -468,7 +505,8 @@
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,8,0,8">
                 <StackPanel x:Name="DashboardContent">
                     <!-- Speed Dial Grid -->
-                    <TextBlock Text="Pinned Sites" FontSize="12" Foreground="#888888" Margin="16,4,16,8"/>
+                    <TextBlock Text="Pinned Sites" FontSize="12" Foreground="#888888" Margin="16,4,16,4"/>
+                    <TextBlock Text="Tap to open • hold to remove • use + to pin current page" FontSize="11" Foreground="#666666" Margin="16,0,16,8" TextWrapping="Wrap"/>
                     <Grid x:Name="SpeedDialGrid" Margin="12,0,12,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>

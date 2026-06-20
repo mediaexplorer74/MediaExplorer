@@ -108,6 +108,18 @@ namespace WEBVIEW
                     idx == 2 ? ConnectorType.Poor : idx == 3 ? ConnectorType.Asceti : ConnectorType.Smart;
                 ConnectorStorage.SaveActiveConnector(type);
             };
+
+            // Remote Render
+            RemoteSaveButton.Click += (s, e) =>
+            {
+                try
+                {
+                    SaveRemoteSettings();
+                    if (MainPage.Current != null) MainPage.Current.ApplyRemoteSettings();
+                    MainPage.Current?.UpdateStatusMessage("Remote settings saved.");
+                }
+                catch { }
+            };
         }
 
         private void LoadSettings()
@@ -145,6 +157,9 @@ namespace WEBVIEW
 
                 // AI Connectors
                 LoadConnectorSettings();
+
+                // Remote Render
+                LoadRemoteSettings();
             }
             catch { }
         }
@@ -154,6 +169,7 @@ namespace WEBVIEW
             try
             {
                 SaveConnectorSettings();
+                SaveRemoteSettings();
             }
             catch { }
 
@@ -362,6 +378,40 @@ namespace WEBVIEW
                 AutoFormat = AscetiAutoFormat.IsOn, QualityThreshold = 0.3, MaxAttempts = 1, DailyBudgetUsd = 0.0
             };
             ConnectorStorage.Save(asceti);
+        }
+
+        private void LoadRemoteSettings()
+        {
+            try
+            {
+                var s = Windows.Storage.ApplicationData.Current.LocalSettings;
+                if (RemoteEnabledToggle != null && s.Values.TryGetValue("RemoteEnabled", out var e) && e is bool eb) RemoteEnabledToggle.IsOn = eb; else if (RemoteEnabledToggle != null) RemoteEnabledToggle.IsOn = false;
+                if (RemoteServerUrlBox != null && s.Values.TryGetValue("RemoteServerUrl", out var u) && u is string us) RemoteServerUrlBox.Text = us;
+                if (RemotePinBox != null && s.Values.TryGetValue("RemotePin", out var rp) && rp is string rps) RemotePinBox.Password = rps;
+                if (RemoteWaitMsBox != null && s.Values.TryGetValue("RemoteWaitMs", out var w) && w is int wi) RemoteWaitMsBox.Text = wi.ToString();
+                if (RemoteViewportWidthBox != null && s.Values.TryGetValue("RemoteViewportWidth", out var vw) && vw is int vwi) RemoteViewportWidthBox.Text = vwi.ToString();
+                if (RemoteViewportHeightBox != null && s.Values.TryGetValue("RemoteViewportHeight", out var vh) && vh is int vhi) RemoteViewportHeightBox.Text = vhi.ToString();
+                if (RemoteAutoReconnectToggle != null && s.Values.TryGetValue("RemoteAutoReconnect", out var ar) && ar is bool arb) RemoteAutoReconnectToggle.IsOn = arb; else if (RemoteAutoReconnectToggle != null) RemoteAutoReconnectToggle.IsOn = true;
+                if (RemotePreferHeavySitesToggle != null && s.Values.TryGetValue("RemotePreferHeavySites", out var ph) && ph is bool phb) RemotePreferHeavySitesToggle.IsOn = phb; else if (RemotePreferHeavySitesToggle != null) RemotePreferHeavySitesToggle.IsOn = false;
+            }
+            catch { }
+        }
+
+        private void SaveRemoteSettings()
+        {
+            try
+            {
+                var s = Windows.Storage.ApplicationData.Current.LocalSettings;
+                s.Values["RemoteEnabled"] = RemoteEnabledToggle?.IsOn ?? false;
+                s.Values["RemoteServerUrl"] = RemoteServerUrlBox?.Text?.Trim() ?? "";
+                s.Values["RemotePin"] = RemotePinBox?.Password ?? "";
+                int waitMs; s.Values["RemoteWaitMs"] = int.TryParse(RemoteWaitMsBox?.Text, out waitMs) ? Math.Max(0, waitMs) : 3000;
+                int vw; s.Values["RemoteViewportWidth"] = int.TryParse(RemoteViewportWidthBox?.Text, out vw) ? Math.Max(240, vw) : 412;
+                int vh; s.Values["RemoteViewportHeight"] = int.TryParse(RemoteViewportHeightBox?.Text, out vh) ? Math.Max(320, vh) : 915;
+                s.Values["RemoteAutoReconnect"] = RemoteAutoReconnectToggle?.IsOn ?? true;
+                s.Values["RemotePreferHeavySites"] = RemotePreferHeavySitesToggle?.IsOn ?? false;
+            }
+            catch { }
         }
     }
 }

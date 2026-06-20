@@ -246,6 +246,43 @@
                 </ScrollViewer>
             </PivotItem>
 
+            <PivotItem Header="Remote Render">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="16,12,16,0">
+                        <ToggleSwitch x:Name="RemoteEnabledToggle" Header="Enable RemoteRender" IsOn="False" Foreground="White" Margin="0,0,0,8"/>
+                        <TextBlock Text="Use Playwright-based remote rendering for heavy modern sites or as a manual fallback." Foreground="#888888" FontSize="11" Margin="0,0,0,16" TextWrapping="Wrap"/>
+
+                        <TextBlock Text="Server URL" Foreground="White" FontSize="14" Margin="0,0,0,4"/>
+                        <TextBox x:Name="RemoteServerUrlBox" PlaceholderText="ws://192.168.1.10:8081" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" Margin="0,0,0,6"/>
+                        <TextBlock Text="Example: ws://192.168.1.10:8081 or wss://my-host" Foreground="#888888" FontSize="11" Margin="0,0,0,12" TextWrapping="Wrap"/>
+
+                        <TextBlock Text="PIN / Token" Foreground="White" FontSize="14" Margin="0,0,0,4"/>
+                        <PasswordBox x:Name="RemotePinBox" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" Margin="0,0,0,6"/>
+                        <TextBlock Text="Optional. Must match REMOTE_PIN on the Playwright server." Foreground="#888888" FontSize="11" Margin="0,0,0,16" TextWrapping="Wrap"/>
+
+                        <TextBlock Text="Wait after page load (ms)" Foreground="White" FontSize="14" Margin="0,0,0,4"/>
+                        <TextBox x:Name="RemoteWaitMsBox" Text="3000" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" Margin="0,0,0,16"/>
+
+                        <TextBlock Text="Viewport" Foreground="White" FontSize="14" Margin="0,0,0,4"/>
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" x:Name="RemoteViewportWidthBox" Text="412" PlaceholderText="Width" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1"/>
+                            <TextBox Grid.Column="2" x:Name="RemoteViewportHeightBox" Text="915" PlaceholderText="Height" Foreground="White" Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1"/>
+                        </Grid>
+
+                        <ToggleSwitch x:Name="RemoteAutoReconnectToggle" Header="Auto reconnect" IsOn="True" Foreground="White" Margin="0,0,0,12"/>
+                        <ToggleSwitch x:Name="RemotePreferHeavySitesToggle" Header="Prefer RemoteRender for heavy sites" IsOn="False" Foreground="White" Margin="0,0,0,8"/>
+                        <TextBlock Text="When enabled, Auto engine can switch known SPA-heavy hosts to RemoteRender." Foreground="#888888" FontSize="11" Margin="0,0,0,16" TextWrapping="Wrap"/>
+
+                        <Button x:Name="RemoteSaveButton" Content="Save Remote Settings" Background="#333333" Foreground="#CCCCCC" BorderThickness="1" BorderBrush="#555555" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </PivotItem>
+
             <PivotItem Header="About">
                 <StackPanel Margin="16,20,16,0">
                     <TextBlock Text="MediaExplorer" FontSize="22" FontWeight="Bold" Foreground="White" Margin="0,0,0,8"/>

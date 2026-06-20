@@ -15,7 +15,7 @@ namespace BrowserCore.Engine
     public enum ContentSkill
     {
         Auto,
-        Reader,
+        General,
         Code,
         News,
         Translate,
@@ -206,7 +206,7 @@ namespace BrowserCore.Engine
             if (!string.IsNullOrEmpty(pageText) && pageText.Length < 500)
                 return ContentSkill.Quick;
 
-            return ContentSkill.Reader;
+            return ContentSkill.General;
         }
 
         public static string GetSkillPrompt(ContentSkill skill, string pageText)
@@ -221,7 +221,7 @@ namespace BrowserCore.Engine
                     return "You are a translator. Translate and summarize this page content. Provide: 1) Brief summary in English, 2) Key points translated, 3) Any technical terms kept in original language. Be accurate.";
                 case ContentSkill.Quick:
                     return "Provide a brief, concise answer. One or two sentences maximum.";
-                case ContentSkill.Reader:
+                case ContentSkill.General:
                 default:
                     return "Provide a clear, structured summary: 1) What this page is about, 2) Key sections and content, 3) Important links or references. Be thorough but concise.";
             }

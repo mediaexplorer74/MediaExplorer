@@ -20,9 +20,19 @@ namespace BrowserCore.Engine
         public bool IsFallback { get; set; }
     }
 
+    public enum RescuePreference
+    {
+        None,
+        AI,
+        Poor,
+        Edge,
+        Remote
+    }
+
     public static class EngineRouter
     {
         private static Dictionary<string, EngineType> _siteOverrides = new Dictionary<string, EngineType>(StringComparer.OrdinalIgnoreCase);
+        private static Dictionary<string, RescuePreference> _rescuePreferences = new Dictionary<string, RescuePreference>(StringComparer.OrdinalIgnoreCase);
         private static bool _loaded;
 
         private static readonly HashSet<string> _knownSpaHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -122,6 +132,16 @@ namespace BrowserCore.Engine
                         }
                     }
                 }
+                if (s.Values.TryGetValue("SiteRescuePrefs", out var rv) && rv is string rescueJson)
+                {
+                    var lines = rescueJson.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var line in lines)
+                    {
+                        var parts = line.Split('=');
+                        if (parts.Length == 2 && Enum.TryParse<RescuePreference>(parts[1], true, out var pref))
+                            _rescuePreferences[parts[0].Trim()] = pref;
+                    }
+                }
             }
             catch { }
         }
@@ -134,6 +154,11 @@ namespace BrowserCore.Engine
                 foreach (var kv in _siteOverrides)
                     lines.Add(kv.Key + "=" + kv.Value);
                 ApplicationData.Current.LocalSettings.Values["SiteEngines"] = string.Join("\n", lines);
+
+                var rescueLines = new List<string>();
+                foreach (var kv in _rescuePreferences)
+                    rescueLines.Add(kv.Key + "=" + kv.Value);
+                ApplicationData.Current.LocalSettings.Values["SiteRescuePrefs"] = string.Join("\n", rescueLines);
             }
             catch { }
         }
@@ -156,6 +181,32 @@ namespace BrowserCore.Engine
             if (_siteOverrides.TryGetValue(host, out var eng))
                 return eng;
             return EngineType.Auto;
+        }
+
+        public static void SetRescuePreference(string host, RescuePreference pref)
+        {
+            if (string.IsNullOrWhiteSpace(host)) return;
+            host = host.ToLowerInvariant().Trim();
+            if (pref == RescuePreference.None)
+                _rescuePreferences.Remove(host);
+            else
+                _rescuePreferences[host] = pref;
+            SaveConfig();
+        }
+
+        public static RescuePreference GetRescuePreference(string host)
+        {
+            if (string.IsNullOrWhiteSpace(host)) return RescuePreference.None;
+            host = host.ToLowerInvariant().Trim();
+            if (_rescuePreferences.TryGetValue(host, out var pref))
+                return pref;
+            return RescuePreference.None;
+        }
+
+        public static bool IsKnownSpaHost(string url)
+        {
+            var host = ExtractHost(url);
+            return !string.IsNullOrWhiteSpace(host) && _knownSpaHosts.Contains(host);
         }
 
         public static string GetHostFromUrl(string url)
